@@ -1,0 +1,10 @@
+# Secret scanning config (gitleaks). Extends the default rules.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Synthetic credentials used on purpose to test redaction; never real secrets"
+paths = [
+  '''internal/redact/.*_test\.go''',
+  '''internal/scanner/scanner_test\.go''',
+]

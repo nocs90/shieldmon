@@ -1,0 +1,1090 @@
+{
+ "SchemaVersion": 2,
+ "Trivy": {
+  "Version": "0.74.0"
+ },
+ "ReportID": "01a1568f-2aac-7480-8f6c-5929d7b81a84",
+ "CreatedAt": "2026-10-20T01:46:25.580296+02:00",
+ "ArtifactName": "trivy-sbom.cdx.json",
+ "ArtifactType": "cyclonedx",
+ "Metadata": {
+  "OS": {
+   "Family": "alpine",
+   "Name": "3.18.0",
+   "EOSL": true
+  },
+  "ImageID": "sha256:44dd6f2230041eede4ee5e792728313e43921b3e46c1809399391535c0c0183b",
+  "DiffIDs": [
+   "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+  ],
+  "RepoTags": [
+   "alpine:3.18.0"
+  ],
+  "RepoDigests": [
+   "alpine@sha256:02bb6f428431fbc2809c5d1b41eab5a68350194fb508869a33cb1af4444c9b11"
+  ],
+  "Reference": "alpine:3.18.0"
+ },
+ "Results": [
+  {
+   "Target": "trivy-sbom.cdx.json (alpine 3.18.0)",
+   "Class": "os-pkgs",
+   "Type": "alpine",
+   "Packages": [
+    {
+     "ID": "alpine-baselayout@3.4.3-r1",
+     "Name": "alpine-baselayout",
+     "Identifier": {
+      "PURL": "pkg:apk/alpine/alpine-baselayout@3.4.3-r1?arch=aarch64&distro=3.18.0",
+      "UID": "743addfef161caf7",
+      "BOMRef": "pkg:apk/alpine/alpine-baselayout@3.4.3-r1?arch=aarch64&distro=3.18.0"
+     },
+     "Version": "3.4.3-r1",
+     "Arch": "aarch64",
+     "SrcName": "alpine-baselayout",
+     "SrcVersion": "3.4.3-r1",
+     "Licenses": [
+      "GPL-2.0-only"
+     ],
+     "DependsOn": [
+      "alpine-baselayout-data@3.4.3-r1",
+      "busybox-binsh@1.36.0-r9"
+     ],
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "Digest": "sha1:830914090c94050e62c5424c53dba07e526f695f"
+    },
+    {
+     "ID": "alpine-baselayout-data@3.4.3-r1",
+     "Name": "alpine-baselayout-data",
+     "Identifier": {
+      "PURL": "pkg:apk/alpine/alpine-baselayout-data@3.4.3-r1?arch=aarch64&distro=3.18.0",
+      "UID": "43f024dcea52826",
+      "BOMRef": "pkg:apk/alpine/alpine-baselayout-data@3.4.3-r1?arch=aarch64&distro=3.18.0"
+     },
+     "Version": "3.4.3-r1",
+     "Arch": "aarch64",
+     "SrcName": "alpine-baselayout",
+     "SrcVersion": "3.4.3-r1",
+     "Licenses": [
+      "GPL-2.0-only"
+     ],
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "Digest": "sha1:5451b64ae25d0121a55f0957177f7be536dba505"
+    },
+    {
+     "ID": "alpine-keys@2.4-r1",
+     "Name": "alpine-keys",
+     "Identifier": {
+      "PURL": "pkg:apk/alpine/alpine-keys@2.4-r1?arch=aarch64&distro=3.18.0",
+      "UID": "5149059e2eb3247",
+      "BOMRef": "pkg:apk/alpine/alpine-keys@2.4-r1?arch=aarch64&distro=3.18.0"
+     },
+     "Version": "2.4-r1",
+     "Arch": "aarch64",
+     "SrcName": "alpine-keys",
+     "SrcVersion": "2.4-r1",
+     "Licenses": [
+      "MIT"
+     ],
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "Digest": "sha1:897f40ea72e88c24f66197e06ede6692dda96b77"
+    },
+    {
+     "ID": "apk-tools@2.14.0-r0",
+     "Name": "apk-tools",
+     "Identifier": {
+      "PURL": "pkg:apk/alpine/apk-tools@2.14.0-r0?arch=aarch64&distro=3.18.0",
+      "UID": "e1f188387cae7119",
+      "BOMRef": "pkg:apk/alpine/apk-tools@2.14.0-r0?arch=aarch64&distro=3.18.0"
+     },
+     "Version": "2.14.0-r0",
+     "Arch": "aarch64",
+     "SrcName": "apk-tools",
+     "SrcVersion": "2.14.0-r0",
+     "Licenses": [
+      "GPL-2.0-only"
+     ],
+     "DependsOn": [
+      "ca-certificates-bundle@20230506-r0",
+      "libcrypto3@3.1.0-r4",
+      "libssl3@3.1.0-r4",
+      "musl@1.2.4-r0",
+      "zlib@1.2.13-r1"
+     ],
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "Digest": "sha1:f6f3ddb62432f3a1a1fc5b414d0d11eba070a5c2"
+    },
+    {
+     "ID": "busybox@1.36.0-r9",
+     "Name": "busybox",
+     "Identifier": {
+      "PURL": "pkg:apk/alpine/busybox@1.36.0-r9?arch=aarch64&distro=3.18.0",
+      "UID": "6e2e5b30ddcf8215",
+      "BOMRef": "pkg:apk/alpine/busybox@1.36.0-r9?arch=aarch64&distro=3.18.0"
+     },
+     "Version": "1.36.0-r9",
+     "Arch": "aarch64",
+     "SrcName": "busybox",
+     "SrcVersion": "1.36.0-r9",
+     "Licenses": [
+      "GPL-2.0-only"
+     ],
+     "DependsOn": [
+      "musl@1.2.4-r0"
+     ],
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "Digest": "sha1:927ac5496b983e8c3699f652dce5f15171890d47"
+    },
+    {
+     "ID": "busybox-binsh@1.36.0-r9",
+     "Name": "busybox-binsh",
+     "Identifier": {
+      "PURL": "pkg:apk/alpine/busybox-binsh@1.36.0-r9?arch=aarch64&distro=3.18.0",
+      "UID": "94040588b05b7aaf",
+      "BOMRef": "pkg:apk/alpine/busybox-binsh@1.36.0-r9?arch=aarch64&distro=3.18.0"
+     },
+     "Version": "1.36.0-r9",
+     "Arch": "aarch64",
+     "SrcName": "busybox",
+     "SrcVersion": "1.36.0-r9",
+     "Licenses": [
+      "GPL-2.0-only"
+     ],
+     "DependsOn": [
+      "busybox@1.36.0-r9"
+     ],
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "Digest": "sha1:a42e0fbe4aed4a7178bdc04c1fb03ebf49d685af"
+    },
+    {
+     "ID": "ca-certificates-bundle@20230506-r0",
+     "Name": "ca-certificates-bundle",
+     "Identifier": {
+      "PURL": "pkg:apk/alpine/ca-certificates-bundle@20230506-r0?arch=aarch64&distro=3.18.0",
+      "UID": "929b5492fd872828",
+      "BOMRef": "pkg:apk/alpine/ca-certificates-bundle@20230506-r0?arch=aarch64&distro=3.18.0"
+     },
+     "Version": "20230506-r0",
+     "Arch": "aarch64",
+     "SrcName": "ca-certificates",
+     "SrcVersion": "20230506-r0",
+     "Licenses": [
+      "MPL-2.0",
+      "MIT"
+     ],
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "Digest": "sha1:db80cc4225bf2a6004def993fc2baf687cada875"
+    },
+    {
+     "ID": "libc-utils@0.7.2-r5",
+     "Name": "libc-utils",
+     "Identifier": {
+      "PURL": "pkg:apk/alpine/libc-utils@0.7.2-r5?arch=aarch64&distro=3.18.0",
+      "UID": "e65570d57d6d40d0",
+      "BOMRef": "pkg:apk/alpine/libc-utils@0.7.2-r5?arch=aarch64&distro=3.18.0"
+     },
+     "Version": "0.7.2-r5",
+     "Arch": "aarch64",
+     "SrcName": "libc-dev",
+     "SrcVersion": "0.7.2-r5",
+     "Licenses": [
+      "BSD-2-Clause",
+      "BSD-3-Clause"
+     ],
+     "DependsOn": [
+      "musl-utils@1.2.4-r0"
+     ],
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "Digest": "sha1:2e59dafeb8bca0786540846c686f121ae8348a42"
+    },
+    {
+     "ID": "libcrypto3@3.1.0-r4",
+     "Name": "libcrypto3",
+     "Identifier": {
+      "PURL": "pkg:apk/alpine/libcrypto3@3.1.0-r4?arch=aarch64&distro=3.18.0",
+      "UID": "f1b7cf11c0b4c7f1",
+      "BOMRef": "pkg:apk/alpine/libcrypto3@3.1.0-r4?arch=aarch64&distro=3.18.0"
+     },
+     "Version": "3.1.0-r4",
+     "Arch": "aarch64",
+     "SrcName": "openssl",
+     "SrcVersion": "3.1.0-r4",
+     "Licenses": [
+      "Apache-2.0"
+     ],
+     "DependsOn": [
+      "musl@1.2.4-r0"
+     ],
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "Digest": "sha1:cc21fd5cddffbfef873cbabf2b29ad63aa1e6aed"
+    },
+    {
+     "ID": "libssl3@3.1.0-r4",
+     "Name": "libssl3",
+     "Identifier": {
+      "PURL": "pkg:apk/alpine/libssl3@3.1.0-r4?arch=aarch64&distro=3.18.0",
+      "UID": "9ee1b6c715d2b622",
+      "BOMRef": "pkg:apk/alpine/libssl3@3.1.0-r4?arch=aarch64&distro=3.18.0"
+     },
+     "Version": "3.1.0-r4",
+     "Arch": "aarch64",
+     "SrcName": "openssl",
+     "SrcVersion": "3.1.0-r4",
+     "Licenses": [
+      "Apache-2.0"
+     ],
+     "DependsOn": [
+      "libcrypto3@3.1.0-r4",
+      "musl@1.2.4-r0"
+     ],
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "Digest": "sha1:74e68bcba12c1922d74e81836118bd66a9d1660d"
+    },
+    {
+     "ID": "musl@1.2.4-r0",
+     "Name": "musl",
+     "Identifier": {
+      "PURL": "pkg:apk/alpine/musl@1.2.4-r0?arch=aarch64&distro=3.18.0",
+      "UID": "faf1ce0b4db7e39b",
+      "BOMRef": "pkg:apk/alpine/musl@1.2.4-r0?arch=aarch64&distro=3.18.0"
+     },
+     "Version": "1.2.4-r0",
+     "Arch": "aarch64",
+     "SrcName": "musl",
+     "SrcVersion": "1.2.4-r0",
+     "Licenses": [
+      "MIT"
+     ],
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "Digest": "sha1:e214c3b4c713ae1ae4c137213f9b81f60af97c1f"
+    },
+    {
+     "ID": "musl-utils@1.2.4-r0",
+     "Name": "musl-utils",
+     "Identifier": {
+      "PURL": "pkg:apk/alpine/musl-utils@1.2.4-r0?arch=aarch64&distro=3.18.0",
+      "UID": "972d8f6bb3b51e05",
+      "BOMRef": "pkg:apk/alpine/musl-utils@1.2.4-r0?arch=aarch64&distro=3.18.0"
+     },
+     "Version": "1.2.4-r0",
+     "Arch": "aarch64",
+     "SrcName": "musl",
+     "SrcVersion": "1.2.4-r0",
+     "Licenses": [
+      "MIT",
+      "BSD-2-Clause",
+      "GPL-2.0-or-later"
+     ],
+     "DependsOn": [
+      "musl@1.2.4-r0",
+      "scanelf@1.3.7-r1"
+     ],
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "Digest": "sha1:712e9cee4fbf411c3d48bceafd9b8d7e26ae136f"
+    },
+    {
+     "ID": "scanelf@1.3.7-r1",
+     "Name": "scanelf",
+     "Identifier": {
+      "PURL": "pkg:apk/alpine/scanelf@1.3.7-r1?arch=aarch64&distro=3.18.0",
+      "UID": "78c4dfb5e86bb0fb",
+      "BOMRef": "pkg:apk/alpine/scanelf@1.3.7-r1?arch=aarch64&distro=3.18.0"
+     },
+     "Version": "1.3.7-r1",
+     "Arch": "aarch64",
+     "SrcName": "pax-utils",
+     "SrcVersion": "1.3.7-r1",
+     "Licenses": [
+      "GPL-2.0-only"
+     ],
+     "DependsOn": [
+      "musl@1.2.4-r0"
+     ],
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "Digest": "sha1:755984495a53a7f958f3a52582449b5dc79ffcf2"
+    },
+    {
+     "ID": "ssl_client@1.36.0-r9",
+     "Name": "ssl_client",
+     "Identifier": {
+      "PURL": "pkg:apk/alpine/ssl_client@1.36.0-r9?arch=aarch64&distro=3.18.0",
+      "UID": "bf45910b7dc05a2",
+      "BOMRef": "pkg:apk/alpine/ssl_client@1.36.0-r9?arch=aarch64&distro=3.18.0"
+     },
+     "Version": "1.36.0-r9",
+     "Arch": "aarch64",
+     "SrcName": "busybox",
+     "SrcVersion": "1.36.0-r9",
+     "Licenses": [
+      "GPL-2.0-only"
+     ],
+     "DependsOn": [
+      "libcrypto3@3.1.0-r4",
+      "libssl3@3.1.0-r4",
+      "musl@1.2.4-r0"
+     ],
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "Digest": "sha1:82c6f5e7630740636fe6365d32d2611c8e8af9a2"
+    },
+    {
+     "ID": "zlib@1.2.13-r1",
+     "Name": "zlib",
+     "Identifier": {
+      "PURL": "pkg:apk/alpine/zlib@1.2.13-r1?arch=aarch64&distro=3.18.0",
+      "UID": "6a17ac7af6e8de9",
+      "BOMRef": "pkg:apk/alpine/zlib@1.2.13-r1?arch=aarch64&distro=3.18.0"
+     },
+     "Version": "1.2.13-r1",
+     "Arch": "aarch64",
+     "SrcName": "zlib",
+     "SrcVersion": "1.2.13-r1",
+     "Licenses": [
+      "Zlib"
+     ],
+     "DependsOn": [
+      "musl@1.2.4-r0"
+     ],
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "Digest": "sha1:a400336d2381483f2219ef64f623bf335318edd9"
+    }
+   ],
+   "Vulnerabilities": [
+    {
+     "VulnerabilityID": "CVE-2022-48174",
+     "PkgID": "busybox@1.36.0-r9",
+     "PkgName": "busybox",
+     "PkgIdentifier": {
+      "PURL": "pkg:apk/alpine/busybox@1.36.0-r9?arch=aarch64&distro=3.18.0",
+      "UID": "6e2e5b30ddcf8215",
+      "BOMRef": "pkg:apk/alpine/busybox@1.36.0-r9?arch=aarch64&distro=3.18.0"
+     },
+     "InstalledVersion": "1.36.0-r9",
+     "FixedVersion": "1.36.1-r1",
+     "Status": "fixed",
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "SeveritySource": "nvd",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2022-48174",
+     "DataSource": {
+      "ID": "alpine",
+      "Name": "Alpine Secdb",
+      "URL": "https://secdb.alpinelinux.org/"
+     },
+     "Fingerprint": "sha256:39dc41450cbb46626ec0fb7bb2e2973b968bf328bdcdee9e74fb8fec47bebfa5",
+     "Title": "busybox: stack overflow vulnerability in ash.c leads to arbitrary code execution",
+     "Severity": "CRITICAL",
+     "CweIDs": [
+      "CWE-787"
+     ],
+     "VendorSeverity": {
+      "amazon": 2,
+      "azure": 4,
+      "cbl-mariner": 4,
+      "nvd": 4,
+      "oracle-oval": 3,
+      "redhat": 3,
+      "ubuntu": 1
+     },
+     "CVSS": {
+      "nvd": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+       "V3Score": 9.8
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+       "V3Score": 9.8
+      }
+     },
+     "References": [
+      "https://access.redhat.com/security/cve/CVE-2022-48174"
+     ],
+     "PublishedDate": "2023-08-22T19:16:31.08Z",
+     "LastModifiedDate": "2026-07-14T12:16:48.24Z"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-42363",
+     "PkgID": "busybox@1.36.0-r9",
+     "PkgName": "busybox",
+     "PkgIdentifier": {
+      "PURL": "pkg:apk/alpine/busybox@1.36.0-r9?arch=aarch64&distro=3.18.0",
+      "UID": "6e2e5b30ddcf8215",
+      "BOMRef": "pkg:apk/alpine/busybox@1.36.0-r9?arch=aarch64&distro=3.18.0"
+     },
+     "InstalledVersion": "1.36.0-r9",
+     "FixedVersion": "1.36.1-r7",
+     "Status": "fixed",
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "SeveritySource": "nvd",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2023-42363",
+     "DataSource": {
+      "ID": "alpine",
+      "Name": "Alpine Secdb",
+      "URL": "https://secdb.alpinelinux.org/"
+     },
+     "Fingerprint": "sha256:2b4b67292bb5c610f9c54beb8586b342a8a2587524d5b1a31cb50e2383327c60",
+     "Title": "busybox: use-after-free in awk",
+     "Severity": "MEDIUM",
+     "CweIDs": [
+      "CWE-416"
+     ],
+     "VendorSeverity": {
+      "azure": 2,
+      "cbl-mariner": 2,
+      "nvd": 2,
+      "redhat": 2,
+      "ubuntu": 2
+     },
+     "CVSS": {
+      "nvd": {
+       "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:H",
+       "V3Score": 5.5
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+       "V3Score": 7.8
+      }
+     },
+     "References": [
+      "http://lists.busybox.net/pipermail/busybox/2024-May/090760.html"
+     ],
+     "PublishedDate": "2023-11-27T22:15:07.94Z",
+     "LastModifiedDate": "2026-06-17T06:23:46.477Z"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-42364",
+     "PkgID": "busybox@1.36.0-r9",
+     "PkgName": "busybox",
+     "PkgIdentifier": {
+      "PURL": "pkg:apk/alpine/busybox@1.36.0-r9?arch=aarch64&distro=3.18.0",
+      "UID": "6e2e5b30ddcf8215",
+      "BOMRef": "pkg:apk/alpine/busybox@1.36.0-r9?arch=aarch64&distro=3.18.0"
+     },
+     "InstalledVersion": "1.36.0-r9",
+     "FixedVersion": "1.36.1-r7",
+     "Status": "fixed",
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "SeveritySource": "nvd",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2023-42364",
+     "DataSource": {
+      "ID": "alpine",
+      "Name": "Alpine Secdb",
+      "URL": "https://secdb.alpinelinux.org/"
+     },
+     "Fingerprint": "sha256:ac6823150a3e437b7d97e1237893f447ed9cb17cde7ed49136f295eaab19c26d",
+     "Title": "busybox: use-after-free",
+     "Severity": "MEDIUM",
+     "CweIDs": [
+      "CWE-416"
+     ],
+     "VendorSeverity": {
+      "azure": 2,
+      "cbl-mariner": 2,
+      "nvd": 2,
+      "redhat": 2,
+      "ubuntu": 2
+     },
+     "CVSS": {
+      "nvd": {
+       "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:H",
+       "V3Score": 5.5
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+       "V3Score": 7.8
+      }
+     },
+     "References": [
+      "http://lists.busybox.net/pipermail/busybox/2024-May/090762.html"
+     ],
+     "PublishedDate": "2023-11-27T23:15:07.313Z",
+     "LastModifiedDate": "2026-06-17T06:23:46.627Z"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-42365",
+     "PkgID": "busybox@1.36.0-r9",
+     "PkgName": "busybox",
+     "PkgIdentifier": {
+      "PURL": "pkg:apk/alpine/busybox@1.36.0-r9?arch=aarch64&distro=3.18.0",
+      "UID": "6e2e5b30ddcf8215",
+      "BOMRef": "pkg:apk/alpine/busybox@1.36.0-r9?arch=aarch64&distro=3.18.0"
+     },
+     "InstalledVersion": "1.36.0-r9",
+     "FixedVersion": "1.36.1-r7",
+     "Status": "fixed",
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "SeveritySource": "nvd",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2023-42365",
+     "DataSource": {
+      "ID": "alpine",
+      "Name": "Alpine Secdb",
+      "URL": "https://secdb.alpinelinux.org/"
+     },
+     "Fingerprint": "sha256:a69c960753a10150879e34345cbee91c18528f90e378823288c50a36f15a88bb",
+     "Title": "busybox: use-after-free",
+     "Severity": "MEDIUM",
+     "CweIDs": [
+      "CWE-416"
+     ],
+     "VendorSeverity": {
+      "azure": 2,
+      "cbl-mariner": 2,
+      "nvd": 2,
+      "redhat": 2,
+      "ubuntu": 2
+     },
+     "CVSS": {
+      "nvd": {
+       "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:H",
+       "V3Score": 5.5
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+       "V3Score": 7.8
+      }
+     },
+     "References": [
+      "http://lists.busybox.net/pipermail/busybox/2024-May/090762.html"
+     ],
+     "PublishedDate": "2023-11-27T23:15:07.373Z",
+     "LastModifiedDate": "2026-06-17T06:23:46.837Z"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-42366",
+     "PkgID": "busybox@1.36.0-r9",
+     "PkgName": "busybox",
+     "PkgIdentifier": {
+      "PURL": "pkg:apk/alpine/busybox@1.36.0-r9?arch=aarch64&distro=3.18.0",
+      "UID": "6e2e5b30ddcf8215",
+      "BOMRef": "pkg:apk/alpine/busybox@1.36.0-r9?arch=aarch64&distro=3.18.0"
+     },
+     "InstalledVersion": "1.36.0-r9",
+     "FixedVersion": "1.36.1-r6",
+     "Status": "fixed",
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "SeveritySource": "nvd",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2023-42366",
+     "DataSource": {
+      "ID": "alpine",
+      "Name": "Alpine Secdb",
+      "URL": "https://secdb.alpinelinux.org/"
+     },
+     "Fingerprint": "sha256:451c31aba5ae667a295066b7831b9422c912c7a45fe921fa6d588cf539dbc97f",
+     "Title": "busybox: A heap-buffer-overflow",
+     "Severity": "MEDIUM",
+     "CweIDs": [
+      "CWE-787"
+     ],
+     "VendorSeverity": {
+      "azure": 2,
+      "cbl-mariner": 2,
+      "nvd": 2,
+      "redhat": 2,
+      "ubuntu": 2
+     },
+     "CVSS": {
+      "nvd": {
+       "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:H",
+       "V3Score": 5.5
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:N/A:H",
+       "V3Score": 7.1
+      }
+     },
+     "References": [
+      "https://access.redhat.com/security/cve/CVE-2023-42366"
+     ],
+     "PublishedDate": "2023-11-27T23:15:07.42Z",
+     "LastModifiedDate": "2026-10-08T22:17:24.96Z"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-5363",
+     "PkgID": "libcrypto3@3.1.0-r4",
+     "PkgName": "libcrypto3",
+     "PkgIdentifier": {
+      "PURL": "pkg:apk/alpine/libcrypto3@3.1.0-r4?arch=aarch64&distro=3.18.0",
+      "UID": "f1b7cf11c0b4c7f1",
+      "BOMRef": "pkg:apk/alpine/libcrypto3@3.1.0-r4?arch=aarch64&distro=3.18.0"
+     },
+     "InstalledVersion": "3.1.0-r4",
+     "FixedVersion": "3.1.4-r0",
+     "Status": "fixed",
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "SeveritySource": "nvd",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2023-5363",
+     "DataSource": {
+      "ID": "alpine",
+      "Name": "Alpine Secdb",
+      "URL": "https://secdb.alpinelinux.org/"
+     },
+     "Fingerprint": "sha256:7b36cbfa81b818d21cd0829edef77da1a14dff60884565254afd508884b114b0",
+     "Title": "openssl: Incorrect cipher key and IV length processing",
+     "Severity": "HIGH",
+     "CweIDs": [
+      "CWE-684"
+     ],
+     "VendorSeverity": {
+      "alma": 2,
+      "amazon": 3,
+      "azure": 3,
+      "cbl-mariner": 3,
+      "julia": 3,
+      "nvd": 3,
+      "oracle-oval": 3,
+      "photon": 3,
+      "redhat": 2,
+      "ubuntu": 2
+     },
+     "CVSS": {
+      "julia": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+       "V3Score": 7.5
+      },
+      "nvd": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+       "V3Score": 7.5
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+       "V3Score": 7.5
+      }
+     },
+     "References": [
+      "http://www.openwall.com/lists/oss-security/2023/10/24/1"
+     ],
+     "PublishedDate": "2023-10-25T18:17:43.613Z",
+     "LastModifiedDate": "2026-06-17T06:48:25.703Z"
+    },
+    {
+     "VulnerabilityID": "CVE-2024-6119",
+     "PkgID": "libcrypto3@3.1.0-r4",
+     "PkgName": "libcrypto3",
+     "PkgIdentifier": {
+      "PURL": "pkg:apk/alpine/libcrypto3@3.1.0-r4?arch=aarch64&distro=3.18.0",
+      "UID": "f1b7cf11c0b4c7f1",
+      "BOMRef": "pkg:apk/alpine/libcrypto3@3.1.0-r4?arch=aarch64&distro=3.18.0"
+     },
+     "InstalledVersion": "3.1.0-r4",
+     "FixedVersion": "3.1.7-r0",
+     "Status": "fixed",
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "SeveritySource": "nvd",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2024-6119",
+     "DataSource": {
+      "ID": "alpine",
+      "Name": "Alpine Secdb",
+      "URL": "https://secdb.alpinelinux.org/"
+     },
+     "Fingerprint": "sha256:049fbcbaa694d49e5e3f9f6229f9ff17251d2204fd38afe18d810293745a1769",
+     "Title": "openssl: Possible denial of service in X.509 name checks",
+     "Severity": "HIGH",
+     "CweIDs": [
+      "CWE-843"
+     ],
+     "VendorSeverity": {
+      "alma": 2,
+      "amazon": 2,
+      "azure": 3,
+      "cbl-mariner": 3,
+      "julia": 3,
+      "nvd": 3,
+      "oracle-oval": 2,
+      "photon": 3,
+      "redhat": 2,
+      "rocky": 2,
+      "ubuntu": 2
+     },
+     "CVSS": {
+      "julia": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+       "V3Score": 7.5
+      },
+      "nvd": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+       "V3Score": 7.5
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H",
+       "V3Score": 5.9
+      }
+     },
+     "References": [
+      "http://www.openwall.com/lists/oss-security/2024/09/03/4"
+     ],
+     "PublishedDate": "2024-09-03T16:15:07.177Z",
+     "LastModifiedDate": "2026-06-17T08:17:19.693Z"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-2650",
+     "PkgID": "libcrypto3@3.1.0-r4",
+     "PkgName": "libcrypto3",
+     "PkgIdentifier": {
+      "PURL": "pkg:apk/alpine/libcrypto3@3.1.0-r4?arch=aarch64&distro=3.18.0",
+      "UID": "f1b7cf11c0b4c7f1",
+      "BOMRef": "pkg:apk/alpine/libcrypto3@3.1.0-r4?arch=aarch64&distro=3.18.0"
+     },
+     "InstalledVersion": "3.1.0-r4",
+     "FixedVersion": "3.1.1-r0",
+     "Status": "fixed",
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "SeveritySource": "nvd",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2023-2650",
+     "DataSource": {
+      "ID": "alpine",
+      "Name": "Alpine Secdb",
+      "URL": "https://secdb.alpinelinux.org/"
+     },
+     "Fingerprint": "sha256:968233eea68d9a051766bf67f3c54b667d92b306f8d8d2245ba74fa68520d48b",
+     "Title": "openssl: Possible DoS translating ASN.1 object identifiers",
+     "Severity": "MEDIUM",
+     "CweIDs": [
+      "CWE-770"
+     ],
+     "VendorSeverity": {
+      "alma": 2,
+      "amazon": 2,
+      "azure": 2,
+      "cbl-mariner": 2,
+      "julia": 2,
+      "nvd": 2,
+      "oracle-oval": 2,
+      "photon": 2,
+      "redhat": 2,
+      "ubuntu": 2
+     },
+     "CVSS": {
+      "julia": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:H",
+       "V3Score": 6.5
+      },
+      "nvd": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:H",
+       "V3Score": 6.5
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:H",
+       "V3Score": 6.5
+      }
+     },
+     "References": [
+      "http://www.openwall.com/lists/oss-security/2023/05/30/1"
+     ],
+     "PublishedDate": "2023-05-30T14:15:09.683Z",
+     "LastModifiedDate": "2026-10-14T21:17:15.14Z"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-2975",
+     "PkgID": "libcrypto3@3.1.0-r4",
+     "PkgName": "libcrypto3",
+     "PkgIdentifier": {
+      "PURL": "pkg:apk/alpine/libcrypto3@3.1.0-r4?arch=aarch64&distro=3.18.0",
+      "UID": "f1b7cf11c0b4c7f1",
+      "BOMRef": "pkg:apk/alpine/libcrypto3@3.1.0-r4?arch=aarch64&distro=3.18.0"
+     },
+     "InstalledVersion": "3.1.0-r4",
+     "FixedVersion": "3.1.1-r2",
+     "Status": "fixed",
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "SeveritySource": "nvd",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2023-2975",
+     "DataSource": {
+      "ID": "alpine",
+      "Name": "Alpine Secdb",
+      "URL": "https://secdb.alpinelinux.org/"
+     },
+     "Fingerprint": "sha256:f61014902c9b92651814ce87ed526e891982895bb5e0ff08a5a20c1f5055f1a3",
+     "Title": "openssl: AES-SIV cipher implementation contains a bug that causes it to ignore empty associated data entries",
+     "Severity": "MEDIUM",
+     "CweIDs": [
+      "CWE-354",
+      "CWE-287"
+     ],
+     "VendorSeverity": {
+      "alma": 1,
+      "amazon": 2,
+      "cbl-mariner": 2,
+      "julia": 2,
+      "nvd": 2,
+      "oracle-oval": 1,
+      "photon": 2,
+      "redhat": 1,
+      "ubuntu": 1
+     },
+     "CVSS": {
+      "julia": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N",
+       "V3Score": 5.3
+      },
+      "nvd": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N",
+       "V3Score": 5.3
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N",
+       "V3Score": 5.3
+      }
+     },
+     "References": [
+      "http://www.openwall.com/lists/oss-security/2023/07/15/1"
+     ],
+     "PublishedDate": "2023-07-14T12:15:09.023Z",
+     "LastModifiedDate": "2026-06-17T05:53:55.287Z"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-3446",
+     "PkgID": "libcrypto3@3.1.0-r4",
+     "PkgName": "libcrypto3",
+     "PkgIdentifier": {
+      "PURL": "pkg:apk/alpine/libcrypto3@3.1.0-r4?arch=aarch64&distro=3.18.0",
+      "UID": "f1b7cf11c0b4c7f1",
+      "BOMRef": "pkg:apk/alpine/libcrypto3@3.1.0-r4?arch=aarch64&distro=3.18.0"
+     },
+     "InstalledVersion": "3.1.0-r4",
+     "FixedVersion": "3.1.1-r3",
+     "Status": "fixed",
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "SeveritySource": "nvd",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2023-3446",
+     "DataSource": {
+      "ID": "alpine",
+      "Name": "Alpine Secdb",
+      "URL": "https://secdb.alpinelinux.org/"
+     },
+     "Fingerprint": "sha256:898f56a8740063b681c456b1c0c78d85477b5aa312e7dcd7697afa22ea4e0ba1",
+     "Title": "openssl: Excessive time spent checking DH keys and parameters",
+     "Severity": "MEDIUM",
+     "CweIDs": [
+      "CWE-606",
+      "CWE-1333"
+     ],
+     "VendorSeverity": {
+      "alma": 1,
+      "amazon": 2,
+      "cbl-mariner": 2,
+      "nvd": 2,
+      "oracle-oval": 1,
+      "photon": 2,
+      "redhat": 1,
+      "rocky": 3,
+      "ubuntu": 1
+     },
+     "CVSS": {
+      "nvd": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+       "V3Score": 5.3
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+       "V3Score": 5.3
+      }
+     },
+     "References": [
+      "http://www.openwall.com/lists/oss-security/2023/07/19/4"
+     ],
+     "PublishedDate": "2023-07-19T12:15:10.003Z",
+     "LastModifiedDate": "2026-10-14T21:17:16.863Z"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-3817",
+     "PkgID": "libcrypto3@3.1.0-r4",
+     "PkgName": "libcrypto3",
+     "PkgIdentifier": {
+      "PURL": "pkg:apk/alpine/libcrypto3@3.1.0-r4?arch=aarch64&distro=3.18.0",
+      "UID": "f1b7cf11c0b4c7f1",
+      "BOMRef": "pkg:apk/alpine/libcrypto3@3.1.0-r4?arch=aarch64&distro=3.18.0"
+     },
+     "InstalledVersion": "3.1.0-r4",
+     "FixedVersion": "3.1.2-r0",
+     "Status": "fixed",
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "SeveritySource": "nvd",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2023-3817",
+     "DataSource": {
+      "ID": "alpine",
+      "Name": "Alpine Secdb",
+      "URL": "https://secdb.alpinelinux.org/"
+     },
+     "Fingerprint": "sha256:2309b10bcf75e5059a394ae49a97f98865e769911379c890c714fbd516cc7256",
+     "Title": "OpenSSL: Excessive time spent checking DH q parameter value",
+     "Severity": "MEDIUM",
+     "CweIDs": [
+      "CWE-606",
+      "CWE-834"
+     ],
+     "VendorSeverity": {
+      "alma": 1,
+      "amazon": 2,
+      "azure": 2,
+      "cbl-mariner": 2,
+      "julia": 2,
+      "nvd": 2,
+      "oracle-oval": 1,
+      "photon": 2,
+      "redhat": 1,
+      "rocky": 1,
+      "ubuntu": 1
+     },
+     "CVSS": {
+      "julia": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+       "V3Score": 5.3
+      },
+      "nvd": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+       "V3Score": 5.3
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+       "V3Score": 5.3
+      }
+     },
+     "References": [
+      "http://seclists.org/fulldisclosure/2023/Jul/43"
+     ],
+     "PublishedDate": "2023-07-31T16:15:10.497Z",
+     "LastModifiedDate": "2026-10-14T22:17:16.08Z"
+    },
+    {
+     "VulnerabilityID": "CVE-2023-5678",
+     "PkgID": "libcrypto3@3.1.0-r4",
+     "PkgName": "libcrypto3",
+     "PkgIdentifier": {
+      "PURL": "pkg:apk/alpine/libcrypto3@3.1.0-r4?arch=aarch64&distro=3.18.0",
+      "UID": "f1b7cf11c0b4c7f1",
+      "BOMRef": "pkg:apk/alpine/libcrypto3@3.1.0-r4?arch=aarch64&distro=3.18.0"
+     },
+     "InstalledVersion": "3.1.0-r4",
+     "FixedVersion": "3.1.4-r1",
+     "Status": "fixed",
+     "Layer": {
+      "Digest": "sha256:08409d4172603f40b56eb6b76240a1e6bd78baa0e96590dc7ff76c5f1a093af2",
+      "DiffID": "sha256:94dd7d531fa5695c0c033dcb69f213c2b4c3b5a3ae6e497252ba88da87169c3f"
+     },
+     "SeveritySource": "nvd",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2023-5678",
+     "DataSource": {
+      "ID": "alpine",
+      "Name": "Alpine Secdb",
+      "URL": "https://secdb.alpinelinux.org/"
+     },
+     "Fingerprint": "sha256:7c4428903940ee17dafbf0d19f1ea41133dad00b3ce55fad0572a24724f66910",
+     "Title": "openssl: Generating excessively long X9.42 DH keys or checking excessively long X9.42 DH keys or parameters may be very slow",
+     "Severity": "MEDIUM",
+     "CweIDs": [
+      "CWE-606",
+      "CWE-754"
+     ],
+     "VendorSeverity": {
+      "alma": 1,
+      "amazon": 2,
+      "azure": 2,
+      "cbl-mariner": 2,
+      "julia": 2,
+      "nvd": 2,
+      "oracle-oval": 1,
+      "photon": 2,
+      "redhat": 1,
+      "rocky": 1,
+      "ubuntu": 1
+     },
+     "CVSS": {
+      "julia": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+       "V3Score": 5.3
+      },
+      "nvd": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+       "V3Score": 5.3
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+       "V3Score": 5.3
+      }
+     },
+     "References": [
+      "http://www.openwall.com/lists/oss-security/2023/11/06/2"
+     ],
+     "PublishedDate": "2023-11-06T16:15:42.67Z",
+     "LastModifiedDate": "2026-10-14T22:17:19.87Z"
+    }
+   ]
+  }
+ ]
+}

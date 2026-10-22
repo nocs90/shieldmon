@@ -1,0 +1,733 @@
+{
+  "labels": [
+    {
+      "name": "kind/bug",
+      "color": "d73a4a",
+      "description": "Something is broken"
+    },
+    {
+      "name": "kind/feature",
+      "color": "a2eeef",
+      "description": "New behaviour"
+    },
+    {
+      "name": "kind/adapter",
+      "color": "5319e7",
+      "description": "New plugin for an extension point"
+    },
+    {
+      "name": "kind/epic",
+      "color": "3e4b9e",
+      "description": "Tracks a SPEC requirement across several issues"
+    },
+    {
+      "name": "kind/chore",
+      "color": "cfd3d7",
+      "description": "Maintenance, tooling, repo settings"
+    },
+    {
+      "name": "kind/docs",
+      "color": "0075ca",
+      "description": "Documentation"
+    },
+    {
+      "name": "kind/dependency",
+      "color": "ededed",
+      "description": "Dependency updates (Renovate)"
+    },
+    {
+      "name": "kind/test",
+      "color": "bfdadc",
+      "description": "Tests, fixtures, fuzzing, coverage"
+    },
+    {
+      "name": "area/scanner",
+      "color": "c5def5",
+      "description": "Scanner adapters, runner, parsers"
+    },
+    {
+      "name": "area/registry",
+      "color": "c5def5",
+      "description": "Registry providers, auth, resolution"
+    },
+    {
+      "name": "area/lifecycle",
+      "color": "c5def5",
+      "description": "Finding state machine and evidence"
+    },
+    {
+      "name": "area/storage",
+      "color": "c5def5",
+      "description": "SQLite/PostgreSQL schema and migrations"
+    },
+    {
+      "name": "area/report",
+      "color": "c5def5",
+      "description": "Reports and exporters"
+    },
+    {
+      "name": "area/cli",
+      "color": "c5def5",
+      "description": "Command line UX"
+    },
+    {
+      "name": "area/engine",
+      "color": "c5def5",
+      "description": "Pipeline orchestration"
+    },
+    {
+      "name": "area/helm",
+      "color": "c5def5",
+      "description": "Helm chart ingestion"
+    },
+    {
+      "name": "area/vex",
+      "color": "c5def5",
+      "description": "VEX import/export and decisions"
+    },
+    {
+      "name": "area/notify",
+      "color": "c5def5",
+      "description": "Notifiers"
+    },
+    {
+      "name": "area/enrich",
+      "color": "c5def5",
+      "description": "EPSS, KEV, CVSS enrichment and prioritization"
+    },
+    {
+      "name": "area/packaging",
+      "color": "c5def5",
+      "description": "Container image, deployment"
+    },
+    {
+      "name": "area/release",
+      "color": "c5def5",
+      "description": "Release pipeline and signing"
+    },
+    {
+      "name": "area/ci",
+      "color": "c5def5",
+      "description": "GitHub Actions and quality gates"
+    },
+    {
+      "name": "area/compliance",
+      "color": "c5def5",
+      "description": "Policy profiles, audit exports"
+    },
+    {
+      "name": "area/remediation",
+      "color": "c5def5",
+      "description": "Fix proposals, upgrades, patching"
+    },
+    {
+      "name": "area/server",
+      "color": "c5def5",
+      "description": "Server mode, API, UI"
+    },
+    {
+      "name": "priority/critical",
+      "color": "b60205",
+      "description": "Drop everything"
+    },
+    {
+      "name": "priority/high",
+      "color": "d93f0b",
+      "description": "Next up"
+    },
+    {
+      "name": "priority/medium",
+      "color": "fbca04",
+      "description": "Planned"
+    },
+    {
+      "name": "priority/low",
+      "color": "0e8a16",
+      "description": "Nice to have"
+    },
+    {
+      "name": "good first issue",
+      "color": "7057ff",
+      "description": "Good for newcomers"
+    },
+    {
+      "name": "help wanted",
+      "color": "008672",
+      "description": "Extra attention is wanted"
+    },
+    {
+      "name": "security",
+      "color": "ee0701",
+      "description": "Security-relevant change"
+    },
+    {
+      "name": "needs-triage",
+      "color": "ffffff",
+      "description": "Not yet triaged by a maintainer"
+    },
+    {
+      "name": "run/integration",
+      "color": "1d76db",
+      "description": "Run the integration job on this PR"
+    },
+    {
+      "name": "blocked",
+      "color": "000000",
+      "description": "Waiting on something else"
+    }
+  ],
+  "milestones": [
+    {
+      "title": "M1 — Core ConMon loop",
+      "description": "Digest identity, SBOM-first, normalization, lifecycle, self-health, monthly report. Shipped in the first version."
+    },
+    {
+      "title": "M2 — Hardening & packaging",
+      "description": "Sandboxed scanners, container image, signed releases, hostile fixture suite."
+    },
+    {
+      "title": "M3 — Registries & inputs",
+      "description": "Native ECR and GitLab providers, image lists, repositories, least-privilege IAM."
+    },
+    {
+      "title": "M4 — Prioritization, VEX, notifications",
+      "description": "OpenVEX/CycloneDX VEX, KEV/EPSS priority, notifiers, ownership, CI gate."
+    },
+    {
+      "title": "M5 — Compliance profiles",
+      "description": "Configurable policy profiles, remediation-plan export, HTML/SARIF, tamper-evident audit."
+    },
+    {
+      "title": "M6 — Server mode",
+      "description": "PostgreSQL, serve mode, API, OIDC, RBAC, exports to Dependency-Track/DefectDojo."
+    },
+    {
+      "title": "M7 — Remediation & Helm",
+      "description": "Base-image upgrades, Copacetic, Helm charts, upstream contribution queue."
+    }
+  ],
+  "issues": [
+    {
+      "key": "epic-s1",
+      "title": "[epic] S1: run scanners in a sandbox",
+      "labels": [
+        "kind/epic",
+        "area/scanner",
+        "security",
+        "priority/high"
+      ],
+      "milestone": "M2 — Hardening & packaging",
+      "epic": null,
+      "body": "## Context\n\nScanners parse hostile layers and currently run unsandboxed as the invoking user (THREAT_MODEL.md, residual risks). Uncompressed layer size is bounded only by the scanner and disk.\n\n## Acceptance criteria\n\n- [ ] Scanners run with read-only root FS, tmpfs with quota, no network except vulnerability DB mirrors, seccomp profile\n- [ ] Sandbox backend pluggable (bubblewrap on Linux hosts, rootless OCI runtime in containers)\n- [ ] Hostile fixture suite (see linked issue) passes with every case bounded and reported as a health finding\n- [ ] ADR documenting the chosen backends and residual risk\n\n## References\n\nTHREAT_MODEL.md · ADR 0006"
+    },
+    {
+      "key": "epic-f12",
+      "title": "[epic] F12: native registry providers (RegistryProvider extension point)",
+      "labels": [
+        "kind/epic",
+        "area/registry",
+        "priority/high"
+      ],
+      "milestone": "M3 — Registries & inputs",
+      "epic": null,
+      "body": "## Context\n\nM1 authenticates through docker config and credential helpers only. F12 requires native providers with short-lived credentials and repository listing. This epic introduces the `RegistryProvider` interface + registry and the conformance checks for it.\n\n## Acceptance criteria\n\n- [ ] `RegistryProvider` interface (keychain + repository/tag listing) with plugin registry, mirrored on scanner plugins\n- [ ] Conformance kit for providers (auth failure classification, redaction, pagination limits)\n- [ ] ECR and GitLab providers implemented (linked issues)\n- [ ] docs/extending/registry-provider.md\n\n## References\n\nSPEC.md F12 · docs/extending/README.md"
+    },
+    {
+      "key": "epic-f5",
+      "title": "[epic] F5: OpenVEX and CycloneDX VEX import/export",
+      "labels": [
+        "kind/epic",
+        "area/vex",
+        "priority/high"
+      ],
+      "milestone": "M4 — Prioritization, VEX, notifications",
+      "epic": null,
+      "body": "## Context\n\nDecisions (risk_accepted, not_affected) are stored append-only but cannot yet be exchanged as VEX. VEX is how vendors and downstream consumers express not_affected with justification.\n\n## Acceptance criteria\n\n- [ ] `shieldmon vex import` maps OpenVEX/CycloneDX VEX statements to decisions (scoped by product digest/PURL/vuln)\n- [ ] `shieldmon vex export` emits valid OpenVEX for current decisions, validated against the spec schema\n- [ ] Imported statements require author and justification; expiry honoured; unknown products reported, not dropped\n- [ ] Round-trip test import → export → import is lossless\n\n## References\n\nSPEC.md F5 · ADR 0004"
+    },
+    {
+      "key": "epic-f9",
+      "title": "[epic] F9: notifications (Notifier extension point)",
+      "labels": [
+        "kind/epic",
+        "area/notify",
+        "priority/medium"
+      ],
+      "milestone": "M4 — Prioritization, VEX, notifications",
+      "epic": null,
+      "body": "## Context\n\nNothing is pushed to humans yet: SLA breaches, new KEV findings and health findings are only visible via CLI/report.\n\n## Acceptance criteria\n\n- [ ] `Notifier` interface + registry; events: new critical/KEV finding, SLA breach upcoming/breached, health finding opened\n- [ ] Deduplication (same event never sent twice) and digest mode (one summary per cycle)\n- [ ] Webhook and SMTP notifiers built in; others as adapters (linked issues)\n- [ ] Secrets for notifiers never logged; redaction tests\n\n## References\n\nSPEC.md F9"
+    },
+    {
+      "key": "epic-f8",
+      "title": "[epic] F8: compliance exports and configurable policy profiles",
+      "labels": [
+        "kind/epic",
+        "area/compliance",
+        "area/report",
+        "priority/high"
+      ],
+      "milestone": "M5 — Compliance profiles",
+      "epic": null,
+      "body": "## Context\n\nOrganizations measure remediation against their own security policy and need audit-ready exports. Deadlines are configurable today (`sla.profile`, `sla.days`); exports beyond JSON/CSV/Markdown/HTML are missing.\n\n## Acceptance criteria\n\n- [ ] Policy profiles fully configurable and documented (deadlines per severity, decision limits)\n- [ ] Remediation-plan export and inventory export\n- [ ] SARIF report format via the report format registry"
+    },
+    {
+      "key": "epic-f11",
+      "title": "[epic] F11: Helm chart ingestion and neglected-chart tracking",
+      "labels": [
+        "kind/epic",
+        "area/helm",
+        "priority/medium"
+      ],
+      "milestone": "M7 — Remediation & Helm",
+      "epic": null,
+      "body": "## Context\n\nMany Helm charts ship stale images. ShieldMon should ingest charts, extract every image, track chart versions and help upstream fix them. OCI Helm charts are currently rejected safely as non-images.\n\n## Acceptance criteria\n\n- [ ] `ChartSource` interface: HTTP repos, OCI registries, Artifact Hub\n- [ ] Render with defaults + values profiles; extract images from containers, initContainers, ephemeral containers and hook Jobs\n- [ ] Flag images rendering cannot reveal (operator/CRD-managed)\n- [ ] Track per chart version; detect neglected charts (fix available upstream, not adopted)\n- [ ] Upstream contribution queue (linked issue)\n\n## References\n\nSPEC.md F11"
+    },
+    {
+      "key": "image",
+      "title": "Container image for ShieldMon (distroless, non-root, pinned scanners)",
+      "labels": [
+        "kind/feature",
+        "area/packaging",
+        "priority/high"
+      ],
+      "milestone": "M2 — Hardening & packaging",
+      "epic": "epic-s1",
+      "body": "## Context\n\nOperators need a ready image; it is also the natural place to enforce non-root and read-only FS.\n\n## Acceptance criteria\n\n- [ ] Multi-stage build; final image distroless/static, non-root UID, read-only root FS compatible\n- [ ] Scanners installed via scripts/install-scanners.sh with checksums (add arm64 pins)\n- [ ] Image pinned by digest in docs; built and scanned in CI"
+    },
+    {
+      "key": "release",
+      "title": "Release pipeline: reproducible builds, cosign keyless signatures, SLSA provenance, SBOM",
+      "labels": [
+        "kind/feature",
+        "area/release",
+        "security",
+        "priority/high"
+      ],
+      "milestone": "M2 — Hardening & packaging",
+      "epic": null,
+      "body": "## Context\n\nS3 (own supply chain) requires that our own artifacts are verifiable — especially for a security tool.\n\n## Acceptance criteria\n\n- [ ] goreleaser config producing linux/darwin amd64/arm64 binaries, checksums and an SBOM\n- [ ] cosign keyless signing via GitHub OIDC; verification documented\n- [ ] SLSA provenance attached to releases\n- [ ] docs/processes/release.md updated with the exact steps"
+    },
+    {
+      "key": "sigverify",
+      "title": "Verify scanner signatures (cosign) in install-scanners.sh",
+      "labels": [
+        "kind/feature",
+        "area/scanner",
+        "security",
+        "priority/medium"
+      ],
+      "milestone": "M2 — Hardening & packaging",
+      "epic": "epic-s1",
+      "body": "## Context\n\nChecksums come from the same release as the artifacts. Signature verification adds an independent trust anchor.\n\n## Acceptance criteria\n\n- [ ] syft/grype/trivy release signatures verified with pinned identities\n- [ ] Failure aborts installation\n- [ ] Documented in ADR 0006"
+    },
+    {
+      "key": "hostile",
+      "title": "Hostile fixture suite: zip-bomb layer, 10k layers, symlink escape, giant SBOM, never-exiting scanner",
+      "labels": [
+        "kind/test",
+        "area/engine",
+        "security",
+        "priority/high"
+      ],
+      "milestone": "M2 — Hardening & packaging",
+      "epic": "epic-s1",
+      "body": "## Context\n\nLimits exist (oci.Limits, Runner timeouts/output caps, SBOM size checks) but are tested only individually.\n\n## Acceptance criteria\n\n- [ ] Fixtures generated in tests (no binaries in git)\n- [ ] Each case ends bounded with the expected error and health finding\n- [ ] Runs in CI under the integration label"
+    },
+    {
+      "key": "deploy",
+      "title": "Deployment examples: systemd timer and Kubernetes CronJob",
+      "labels": [
+        "kind/docs",
+        "area/packaging",
+        "good first issue",
+        "priority/medium"
+      ],
+      "milestone": "M2 — Hardening & packaging",
+      "epic": null,
+      "body": "## Context\n\n`shieldmon monitor` is designed for a scheduler; operators need copy-paste setups.\n\n## Acceptance criteria\n\n- [ ] contrib/systemd/ unit + timer with hardening options (ProtectSystem, NoNewPrivileges...)\n- [ ] contrib/kubernetes/ CronJob with PVC, non-root securityContext, concurrencyPolicy: Forbid\n- [ ] docs/operations/deployment.md references both"
+    },
+    {
+      "key": "jsonlog",
+      "title": "Structured JSON logging (--log-format json)",
+      "labels": [
+        "kind/feature",
+        "area/cli",
+        "good first issue",
+        "priority/low"
+      ],
+      "milestone": "M2 — Hardening & packaging",
+      "epic": null,
+      "body": "## Context\n\nLog pipelines need structured logs.\n\n## Acceptance criteria\n\n- [ ] `--log-format text|json` using slog JSON handler\n- [ ] Redaction still applied to messages and attributes\n- [ ] Test asserting no secret in JSON output"
+    },
+    {
+      "key": "workers",
+      "title": "Parallel scanning with a bounded worker pool",
+      "labels": [
+        "kind/feature",
+        "area/engine",
+        "priority/medium"
+      ],
+      "milestone": "M2 — Hardening & packaging",
+      "epic": null,
+      "body": "## Context\n\nMonitor scans targets sequentially; large fleets need concurrency without overloading registries.\n\n## Acceptance criteria\n\n- [ ] `monitor --concurrency N` (default small)\n- [ ] Per-registry rate limit\n- [ ] Reconciliation stays serialized per digest; race test passes"
+    },
+    {
+      "key": "dogfood",
+      "title": "Dogfooding: ShieldMon scans its own image in CI",
+      "labels": [
+        "kind/chore",
+        "area/ci",
+        "priority/medium"
+      ],
+      "milestone": "M2 — Hardening & packaging",
+      "epic": null,
+      "body": "## Context\n\nWe should be our first user: every release image is monitored by ShieldMon itself.\n\n## Acceptance criteria\n\n- [ ] CI job scans the built image and uploads the Markdown report as an artifact\n- [ ] Critical/KEV findings fail the job (via the CI gate once available)"
+    },
+    {
+      "key": "coverage",
+      "title": "Raise the coverage floor from 50% to 70%",
+      "labels": [
+        "kind/test",
+        "good first issue",
+        "help wanted",
+        "priority/low"
+      ],
+      "milestone": "M2 — Hardening & packaging",
+      "epic": null,
+      "body": "## Context\n\n`make cover` enforces COVER_MIN=50 (current ~53%). Most uncovered code is in internal/cli.\n\n## Acceptance criteria\n\n- [ ] Tests for findings/report/sbom commands using a temp data dir\n- [ ] COVER_MIN raised to 70 in Makefile"
+    },
+    {
+      "key": "ecr",
+      "title": "AWS ECR provider: IRSA / Pod Identity / OIDC, cross-account, multi-region, all AWS partitions, ECR Public",
+      "labels": [
+        "kind/adapter",
+        "area/registry",
+        "priority/high"
+      ],
+      "milestone": "M3 — Registries & inputs",
+      "epic": "epic-f12",
+      "body": "## Context\n\nECR is the main private registry for the target market.\n\n## Acceptance criteria\n\n- [ ] Short-lived credentials only (no static keys in config)\n- [ ] Cross-account role assumption and region discovery; all AWS partitions\n- [ ] Repository and tag listing with pagination limits\n- [ ] Integration test in a sandbox account via GitHub OIDC"
+    },
+    {
+      "key": "gitlab",
+      "title": "GitLab registry provider: CI job token, OIDC id_tokens, deploy tokens",
+      "labels": [
+        "kind/adapter",
+        "area/registry",
+        "priority/high"
+      ],
+      "milestone": "M3 — Registries & inputs",
+      "epic": "epic-f12",
+      "body": "## Context\n\nGitLab.com and self-managed registries are the second priority provider.\n\n## Acceptance criteria\n\n- [ ] Job token / id_tokens / deploy tokens with read_registry\n- [ ] Project and group registry listing\n- [ ] Self-managed base URL support\n- [ ] Token never logged (redaction test)"
+    },
+    {
+      "key": "iam",
+      "title": "Ship and test a least-privilege IAM policy",
+      "labels": [
+        "kind/feature",
+        "area/registry",
+        "security",
+        "priority/high"
+      ],
+      "milestone": "M3 — Registries & inputs",
+      "epic": "epic-f12",
+      "body": "## Context\n\nS2 requires a tested least-privilege policy.\n\n## Acceptance criteria\n\n- [ ] deploy/iam/shieldmon-readonly.json with exactly ecr:GetAuthorizationToken, BatchGetImage, GetDownloadUrlForLayer, DescribeImages, ListImages, DescribeRepositories\n- [ ] Test asserting the action set\n- [ ] Docs for cross-account trust"
+    },
+    {
+      "key": "inputs",
+      "title": "F1 inputs: image list files, whole repositories with tag filters, latest-N tags",
+      "labels": [
+        "kind/feature",
+        "area/cli",
+        "priority/medium"
+      ],
+      "milestone": "M3 — Registries & inputs",
+      "epic": null,
+      "body": "## Context\n\nToday targets are added one reference at a time.\n\n## Acceptance criteria\n\n- [ ] `shieldmon targets add -f images.txt`\n- [ ] `targets add-repo REPO --tag-regex --latest N` (needs provider listing)\n- [ ] Dry-run shows what would be added"
+    },
+    {
+      "key": "targetrm",
+      "title": "Disable / remove monitoring targets",
+      "labels": [
+        "kind/feature",
+        "area/storage",
+        "area/cli",
+        "good first issue",
+        "priority/medium"
+      ],
+      "milestone": "M3 — Registries & inputs",
+      "epic": null,
+      "body": "## Context\n\nTargets cannot be retired; target_digests is append-only so rows cannot be deleted.\n\n## Acceptance criteria\n\n- [ ] Migration adding targets.disabled_at\n- [ ] `targets disable ID` stops monitoring; history kept\n- [ ] Disabled targets excluded from monitor and from 'current' finding views"
+    },
+    {
+      "key": "kev",
+      "title": "Enricher extension point + CISA KEV catalog enricher",
+      "labels": [
+        "kind/feature",
+        "area/enrich",
+        "priority/high"
+      ],
+      "milestone": "M4 — Prioritization, VEX, notifications",
+      "epic": null,
+      "body": "## Context\n\nKEV is currently only captured when grype reports it. A first-class enricher makes it scanner-independent.\n\n## Acceptance criteria\n\n- [ ] `Enricher` interface + registry\n- [ ] KEV catalog fetched, cached, size-limited; staleness is a health finding\n- [ ] Findings refreshed on every cycle"
+    },
+    {
+      "key": "priority",
+      "title": "Priority score: CVSS + EPSS + KEV + fix availability",
+      "labels": [
+        "kind/feature",
+        "area/enrich",
+        "priority/high"
+      ],
+      "milestone": "M4 — Prioritization, VEX, notifications",
+      "epic": null,
+      "body": "## Context\n\nSeverity alone overwhelms teams; F6 asks for a combined prioritization.\n\n## Acceptance criteria\n\n- [ ] Documented, deterministic score with an ADR\n- [ ] `findings list --sort priority` and score in reports\n- [ ] SLA clocks per profile reflected in the score"
+    },
+    {
+      "key": "webhook",
+      "title": "Webhook and SMTP notifiers",
+      "labels": [
+        "kind/adapter",
+        "area/notify",
+        "priority/medium"
+      ],
+      "milestone": "M4 — Prioritization, VEX, notifications",
+      "epic": "epic-f9",
+      "body": "## Context\n\nFirst built-in notifiers.\n\n## Acceptance criteria\n\n- [ ] HMAC-signed webhook payloads\n- [ ] SMTP with STARTTLS required\n- [ ] Dedup + digest mode honoured"
+    },
+    {
+      "key": "chatops",
+      "title": "Slack, Matrix and Mattermost notifiers",
+      "labels": [
+        "kind/adapter",
+        "area/notify",
+        "help wanted",
+        "priority/low"
+      ],
+      "milestone": "M4 — Prioritization, VEX, notifications",
+      "epic": "epic-f9",
+      "body": "## Context\n\nChat notifiers built on the Notifier interface.\n\n## Acceptance criteria\n\n- [ ] One adapter per service passing the notifier conformance checks\n- [ ] Docs with example configuration"
+    },
+    {
+      "key": "tracker",
+      "title": "Issue-tracker notifier: open/close GitLab and GitHub issues per finding group",
+      "labels": [
+        "kind/adapter",
+        "area/notify",
+        "priority/low"
+      ],
+      "milestone": "M4 — Prioritization, VEX, notifications",
+      "epic": "epic-f9",
+      "body": "## Context\n\nTeams work from their tracker; findings should appear there, deduplicated, and close when ShieldMon has evidence.\n\n## Acceptance criteria\n\n- [ ] One issue per (target, vuln) group, updated not duplicated\n- [ ] Closed only when ShieldMon closes by evidence\n- [ ] Never opened without explicit configuration"
+    },
+    {
+      "key": "owners",
+      "title": "Ownership: assign targets to teams and route notifications",
+      "labels": [
+        "kind/feature",
+        "area/engine",
+        "priority/medium"
+      ],
+      "milestone": "M4 — Prioritization, VEX, notifications",
+      "epic": null,
+      "body": "## Context\n\nInspired by Kondukto/DefectDojo: findings need an accountable owner for SLAs and routing.\n\n## Acceptance criteria\n\n- [ ] Owner/team on targets (config or labels)\n- [ ] Reports grouped by owner\n- [ ] Notifications routed per owner"
+    },
+    {
+      "key": "gate",
+      "title": "Policy-as-code CI gate: `shieldmon gate` with configurable exit codes",
+      "labels": [
+        "kind/feature",
+        "area/cli",
+        "priority/medium"
+      ],
+      "milestone": "M4 — Prioritization, VEX, notifications",
+      "epic": null,
+      "body": "## Context\n\nInspired by Anchore Enterprise: block a pipeline on policy, not just report.\n\n## Acceptance criteria\n\n- [ ] Policy file (severity/KEV/EPSS/age thresholds, allowed decisions)\n- [ ] Exit codes documented; SARIF output for code scanning\n- [ ] Decisions (VEX) respected"
+    },
+    {
+      "key": "policy-profiles",
+      "title": "Document and validate configurable remediation policy profiles",
+      "labels": [
+        "kind/docs",
+        "area/compliance",
+        "priority/high"
+      ],
+      "milestone": "M5 — Compliance profiles",
+      "epic": "epic-f8",
+      "body": "## Context\n\nRemediation deadlines (`standard`, `strict`, `sla.days`) and decision limits (`decisions.*`) encode an organization's security policy. They must be easy to map onto any internal policy and validated at startup.\n\n## Acceptance criteria\n\n- [ ] docs/processes page explaining how to express an internal policy with profiles and overrides\n- [ ] Config validation rejects incoherent values (e.g. critical deadline longer than high)\n- [ ] ADR recording the default timeframes and their rationale"
+    },
+    {
+      "key": "remediation-plan",
+      "title": "Remediation-plan export (one row per open item, milestones, deviations)",
+      "labels": [
+        "kind/feature",
+        "area/compliance",
+        "area/report",
+        "priority/high"
+      ],
+      "milestone": "M5 — Compliance profiles",
+      "epic": "epic-f8",
+      "body": "## Context\n\nAuditors and compliance teams track open vulnerabilities in a remediation-plan worksheet: item, weakness, asset, detection date, scheduled completion, milestones, deviation type and status.\n\n## Acceptance criteria\n\n- [ ] Report format plugin `remediation-plan` (CSV and XLSX-compatible CSV)\n- [ ] Columns include deviation type, decision author/expiry, SLA due date\n- [ ] Formula-injection safe; golden-file test"
+    },
+    {
+      "key": "html-sarif",
+      "title": "HTML report and SARIF export (report format plugins)",
+      "labels": [
+        "kind/feature",
+        "area/report",
+        "good first issue",
+        "priority/medium"
+      ],
+      "milestone": "M5 — Compliance profiles",
+      "epic": "epic-f8",
+      "body": "## Context\n\nThe report format registry (report.RegisterFormat) makes these self-contained contributions.\n\n## Acceptance criteria\n\n- [ ] `html` format: self-contained, escaped, no external assets\n- [ ] `sarif` format valid against SARIF 2.1.0 schema\n- [ ] Both listed by `shieldmon plugins`"
+    },
+    {
+      "key": "audit-chain",
+      "title": "Tamper-evident audit: hash-chained events and signed report exports",
+      "labels": [
+        "kind/feature",
+        "area/storage",
+        "security",
+        "priority/medium"
+      ],
+      "milestone": "M5 — Compliance profiles",
+      "epic": null,
+      "body": "## Context\n\nAppend-only triggers stop accidental edits, not a DB-file attacker.\n\n## Acceptance criteria\n\n- [ ] Each finding_event carries the hash of the previous one\n- [ ] `shieldmon audit verify` detects tampering\n- [ ] Report exports optionally signed (cosign/minisign)"
+    },
+    {
+      "key": "postgres",
+      "title": "PostgreSQL backend sharing the store test suite",
+      "labels": [
+        "kind/feature",
+        "area/storage",
+        "area/server",
+        "priority/medium"
+      ],
+      "milestone": "M6 — Server mode",
+      "epic": null,
+      "body": "## Context\n\nServer mode needs concurrency and HA (ADR 0005).\n\n## Acceptance criteria\n\n- [ ] Same store tests run against SQLite and PostgreSQL in CI\n- [ ] Append-only enforced via rules/grants\n- [ ] Migration path documented"
+    },
+    {
+      "key": "serve",
+      "title": "`shieldmon serve`: scheduler, API, OIDC auth, RBAC",
+      "labels": [
+        "kind/feature",
+        "area/server",
+        "priority/medium"
+      ],
+      "milestone": "M6 — Server mode",
+      "epic": null,
+      "body": "## Context\n\nMulti-user operation; decisions need authenticated identities.\n\n## Acceptance criteria\n\n- [ ] Built-in scheduler replacing cron\n- [ ] Read API + decision API with RBAC\n- [ ] OIDC login; authors of decisions are authenticated identities"
+    },
+    {
+      "key": "export-dt",
+      "title": "Export to OWASP Dependency-Track and DefectDojo",
+      "labels": [
+        "kind/adapter",
+        "area/report",
+        "help wanted",
+        "priority/low"
+      ],
+      "milestone": "M6 — Server mode",
+      "epic": null,
+      "body": "## Context\n\nADR 0001: integrate rather than rebuild portfolio UIs.\n\n## Acceptance criteria\n\n- [ ] Upload CycloneDX SBOMs to Dependency-Track per target\n- [ ] DefectDojo generic findings import\n- [ ] Credentials handled like registry credentials"
+    },
+    {
+      "key": "baseimage",
+      "title": "Base-image upgrade candidates with finding diff",
+      "labels": [
+        "kind/feature",
+        "area/remediation",
+        "priority/medium"
+      ],
+      "milestone": "M7 — Remediation & Helm",
+      "epic": null,
+      "body": "## Context\n\nInspired by Snyk: most container fixes are a base-image bump.\n\n## Acceptance criteria\n\n- [ ] Detect base image lineage from history/labels\n- [ ] Propose newer tags in the same lineage with before/after finding counts\n- [ ] Never pushes anything"
+    },
+    {
+      "key": "copa",
+      "title": "Copacetic patch proposals for OS packages",
+      "labels": [
+        "kind/adapter",
+        "area/remediation",
+        "priority/low"
+      ],
+      "milestone": "M7 — Remediation & Helm",
+      "epic": null,
+      "body": "## Context\n\nCopacetic can patch OS packages without a rebuild.\n\n## Acceptance criteria\n\n- [ ] `RemediationAdvisor` interface\n- [ ] Copacetic advisor produces a proposal (not an applied patch) with evidence\n- [ ] Human approval required"
+    },
+    {
+      "key": "upstream",
+      "title": "Upstream contribution queue for neglected Helm charts",
+      "labels": [
+        "kind/feature",
+        "area/helm",
+        "priority/low"
+      ],
+      "milestone": "M7 — Remediation & Helm",
+      "epic": "epic-f11",
+      "body": "## Context\n\nTurn findings on neglected charts into upstream issues/MRs — the open-source give-back loop.\n\n## Acceptance criteria\n\n- [ ] Drafts follow each project's CONTRIBUTING and DCO\n- [ ] Deduplicated against existing upstream issues; rate-limited\n- [ ] Submitted only after explicit human approval"
+    },
+    {
+      "key": "runtime",
+      "title": "Runtime context for prioritization (is the image running? exposed?)",
+      "labels": [
+        "kind/feature",
+        "area/enrich",
+        "priority/low"
+      ],
+      "milestone": "M7 — Remediation & Helm",
+      "epic": null,
+      "body": "## Context\n\nInspired by Wiz/Prisma: running and exposed workloads matter more.\n\n## Acceptance criteria\n\n- [ ] Optional cluster inventory import (read-only)\n- [ ] Priority boost for running/exposed images\n- [ ] No agent required"
+    },
+    {
+      "key": "osv",
+      "title": "Matcher adapter: OSV-Scanner",
+      "labels": [
+        "kind/adapter",
+        "area/scanner",
+        "help wanted",
+        "priority/medium"
+      ],
+      "milestone": "M4 — Prioritization, VEX, notifications",
+      "epic": null,
+      "body": "## Context\n\nA third free matcher improves language-ecosystem coverage. Follow docs/extending/scanner-adapter.md.\n\n## Acceptance criteria\n\n- [ ] Passes scannertest.CheckPlugin and CheckParser\n- [ ] Parity numbers vs grype/trivy recorded in an ADR\n- [ ] Pinned in install-scanners.sh"
+    },
+    {
+      "key": "repo-settings",
+      "title": "Repository settings: branch protection, required checks, Discussions, private vulnerability reporting",
+      "labels": [
+        "kind/chore",
+        "area/ci",
+        "priority/high"
+      ],
+      "milestone": "M2 — Hardening & packaging",
+      "epic": null,
+      "body": "## Context\n\nQuality gates only work if they are required.\n\n## Acceptance criteria\n\n- [ ] main protected: PR required, 1 approval, CODEOWNERS review, required checks (lint, test, fuzz, codeql, pr-hygiene)\n- [ ] Discussions and private vulnerability reporting enabled\n- [ ] Documented in docs/processes/quality-gates.md"
+    },
+    {
+      "key": "stale-base",
+      "title": "Detect stale or end-of-life base image lineages",
+      "labels": [
+        "kind/feature",
+        "area/remediation",
+        "priority/high"
+      ],
+      "milestone": "M4 — Prioritization, VEX, notifications",
+      "epic": null,
+      "body": "## Context\n\nFound in the UBI 9 + Node.js e2e scenario: rebuilding on the latest `ubi9/nodejs-20-minimal` (Node 20 EOL, last rebuilt 2026-05-12) left ~250 OS/npm findings that already had an upstream fix, while `nodejs-22-minimal` was rebuilt on 2026-10-13. Rebuilding cannot remediate anything when the base lineage is no longer maintained.\n\n## Acceptance criteria\n\n- [ ] Identify the base image of a target (OCI base annotations, history, or configured mapping)\n- [ ] Health/finding when the newest tag of the base lineage is older than N days, or when the image has many findings fixable by the newest base\n- [ ] Report section \"fixable by rebuild\" vs \"needs base migration\"\n- [ ] Suggest the maintained successor lineage when known (e.g. nodejs-20 → nodejs-22)"
+    },
+    {
+      "key": "e2e-ubi9",
+      "title": "Keep the UBI 9 + Node.js e2e scenario green and representative",
+      "labels": [
+        "kind/test",
+        "area/ci",
+        "priority/medium"
+      ],
+      "milestone": "M2 — Hardening & packaging",
+      "epic": null,
+      "body": "## Context\n\n`examples/ubi9-node/e2e.py` (CI job `e2e-ubi9-node`) is the end-to-end quality gate: multi-stage build, OS+npm findings, remediation decision policy, rebuild, base migration, reports. Base tags and npm pins are fixed in the script and age over time.\n\n## Acceptance criteria\n\n- [ ] Renovate (or a scheduled job) proposes bumps of the pinned base tags\n- [ ] Assertions stay independent of the exact number of CVEs in the vulnerability DB\n- [ ] Reports from the job are linked from the README as a live example"
+    }
+  ]
+}

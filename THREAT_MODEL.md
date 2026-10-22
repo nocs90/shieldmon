@@ -1,0 +1,57 @@
+# Threat model (STRIDE) — ShieldMon itself
+
+ShieldMon processes attacker-influenced content (any image a registry serves) with
+access to registry credentials and produces compliance evidence. It is therefore both a
+**target** (credentials, a privileged vantage point) and a **source of truth** that must
+not be falsifiable.
+
+## Assets
+
+| Asset | Why it matters |
+|---|---|
+| Registry credentials (ECR roles, GitLab tokens, docker config) | Read access to private images; often over-scoped. |
+| Findings DB and audit trail | Compliance evidence (remediation plans, audit reports). Tampering hides risk. |
+| SBOM store | Inventory of what runs in production. |
+| Scanner binaries and their DBs | Code execution with access to everything above. |
+| Host running ShieldMon | Runs scanners against hostile input. |
+
+## Trust boundaries
+
+1. Registry ↔ ShieldMon (network; registry responses are untrusted).
+2. ShieldMon ↔ scanner processes (scanners parse hostile layers; their output is untrusted).
+3. Scanner ↔ vulnerability DB mirrors (network; DB integrity is the scanner's job, freshness is ours).
+4. Operator ↔ CLI (humans may make decisions, not closures).
+5. Reports ↔ consumers (spreadsheets, Markdown renderers).
+
+## STRIDE
+
+| Threat | Scenario | Mitigation (status) |
+|---|---|---|
+| **S**poofing | Tag swapped to a different image between scans. | Identity is the digest; tags resolved every cycle, every change appended to `target_digests` ✅ |
+| S | Registry serves different bytes than the requested digest. | Fetch by digest only; ggcr verifies manifest and blob digests; explicit digest re-check ✅ |
+| S | Malicious scanner release (cf. trivy v0.69.4, CVE-2026-33634). | Optional SHA-256 pin per binary, mismatch aborts + health finding ✅; checksum-verified installer ✅; CI actions pinned by SHA ✅; signature verification ⬜ |
+| **T**ampering | Someone edits history to hide a finding or backdate a fix. | Append-only triggers on events/observations/decisions ✅; DB file 0600 ✅; hash-chained audit log + signed report exports ⬜ |
+| T | Hostile image makes a scanner emit forged/huge output. | Output byte limit with process-tree kill ✅; SBOM size + shape validation ✅; JSON decoding into typed structs ✅ |
+| T | Partial scan (one scanner down) closes findings by absence. | Absence counts only from *complete* scans ✅ |
+| **R**epudiation | "I didn't accept that risk." | Decisions require author + justification, stored append-only with timestamps ✅; authenticated identities (OIDC) in server mode ⬜ |
+| **I**nformation disclosure | Credentials leak into logs, errors, health findings, reports. | Central redaction (headers, URL userinfo, AWS/GitLab/GitHub tokens, JWTs, signed URLs) ✅; scanners get an env allowlist without registry/cloud credentials ✅ |
+| I | Scanner telemetry/update checks leak inventory. | `--disable-telemetry`, `--skip-version-check`, `*_CHECK_FOR_APP_UPDATE=false` ✅; `trivy.offline_scan` option ✅; egress allowlist in sandbox ⬜ |
+| I | SBOMs (full inventory) readable by other users. | data dir 0700, files 0600 ✅ |
+| **D**enial of service | Decompression bomb / giant layers / thousands of layers. | Manifest-declared layer count/size/total limits before download ✅; scanner timeouts ✅; uncompressed-size limits require sandboxing ⬜ |
+| D | Scanner hangs or forks helpers. | Own process group, SIGKILL on timeout/overflow, `WaitDelay` ✅ |
+| D | Two cycles race and corrupt state. | Exclusive data-dir lock ✅; immediate transactions ✅ |
+| D | Silent stop: cron broken, DB stale, auth expired. | Self-health findings: `monitor_missed`, `db_stale`, `registry_auth`, `*_failed` ✅ (alerting ⬜ M4) |
+| **E**levation of privilege | Image content executed. | Never run images; no Docker daemon; scanners only parse files ✅ |
+| E | Argument/flag injection through image refs. | Strict reference parsing (rejects leading `-`, whitespace); no shell; digest refs passed to scanners as local paths ✅ |
+| E | Scanner exploited by a crafted layer → host compromise. | Run scanners in a sandbox (rootless container / bubblewrap / gVisor: read-only FS, no network except DB mirrors, tmpfs quota) ⬜ M2 |
+| E | Over-scoped registry credentials. | Least-privilege IAM policy, short-lived creds only ⬜ M3 |
+| Report injection | Package names like `=HYPERLINK(...)` or Markdown/HTML in titles. | CSV formula neutralization, Markdown/HTML escaping ✅ |
+
+## Residual risks (accepted for M1, tracked in ROADMAP)
+
+- Scanners run unsandboxed as the invoking user. Mitigation: run ShieldMon in a dedicated,
+  unprivileged container with no other secrets.
+- Uncompressed layer size is bounded only by the scanner and disk.
+- Vulnerability DB integrity relies on the scanners' own verification.
+- Integrity of `install-scanners.sh` pins relies on the release's checksum file
+  (same trust domain as the artifact); cosign/sigstore verification is planned.

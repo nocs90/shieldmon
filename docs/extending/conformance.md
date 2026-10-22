@@ -1,0 +1,14 @@
+# Conformance kit
+
+`internal/scanner/scannertest` is the contract an adapter must satisfy. It is what makes
+external contributions safe to merge: reviewers check the kit passes instead of
+re-deriving every edge case.
+
+| Helper | Checks |
+|---|---|
+| `CheckPlugin(t, name)` | registered; has a description; constructs with defaults; implements Generator and/or Matcher; names match; a matcher's generator is registered and is a Generator |
+| `CheckParser(t, scanner, parse, fixtures...)` | real fixtures parse with Scanner set, non-empty IDs, PURL or name+version, valid severity; output survives normalization; hostile inputs (empty, HTML error page, truncated JSON, wrong types, 10k-deep nesting, control bytes) never panic and never yield matches |
+| `CheckMatcher(t, m, sbom)` (integration) | real run reports tool name, version and DB build time; honours context cancellation |
+
+Built-in adapters run the kit in `internal/scanner/conformance_test.go`. When a new
+extension point is added, it ships with its own kit in the same style.

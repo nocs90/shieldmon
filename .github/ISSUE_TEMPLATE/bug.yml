@@ -1,0 +1,42 @@
+name: Bug report
+description: ShieldMon behaves incorrectly
+title: "bug: "
+labels: ["kind/bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security issue? **Stop** and use private reporting (SECURITY.md).
+        Please redact registry names, tokens and internal hostnames from logs.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations: { required: true }
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Commands, config (redacted), and a public image digest if possible.
+      render: shell
+    validations: { required: true }
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [scanner, registry, lifecycle, storage, report, cli, helm, vex, notify, docs, other]
+    validations: { required: true }
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: Output of `shieldmon version` and `shieldmon doctor`.
+      render: text
+    validations: { required: true }
+  - type: dropdown
+    id: evidence
+    attributes:
+      label: Does it affect finding closure or the audit trail?
+      description: Wrong closures/reopens are compliance-impacting and get priority.
+      options: ["No", "Yes", "Not sure"]
+    validations: { required: true }

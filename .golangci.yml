@@ -1,0 +1,66 @@
+# Quality gate: see docs/processes/quality-gates.md
+version: "2"
+
+run:
+  timeout: 5m
+  build-tags: [integration]
+
+linters:
+  default: none
+  enable:
+    - errcheck      # unchecked errors
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    - gosec         # security: exec, file perms, path handling, weak crypto
+    - revive        # style / API hygiene
+    - bodyclose
+    - errorlint     # %w wrapping and errors.Is/As
+    - misspell
+    - unconvert
+    - nolintlint    # every //nolint must name a linter and say why
+  settings:
+    errcheck:
+      exclude-functions:
+        - (*database/sql.Tx).Rollback
+        - (*os.File).Close
+        - (io.Closer).Close
+        - (*database/sql.Rows).Close
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    gosec:
+      excludes:
+        - G104 # duplicate of errcheck
+        - G304 # file paths come from operator config or the private data dir by design
+    revive:
+      rules:
+        - name: exported
+          disabled: true # internal packages; godoc enforced in review
+        - name: package-comments
+        - name: var-naming
+        - name: indent-error-flow
+        - name: error-strings
+        - name: unused-parameter
+          disabled: true
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [gosec, errcheck]
+      # Query builders concatenate internal constant fragments only; every
+      # value is a bound parameter. Reviewed in docs/adr/0005-storage.md.
+      - path: internal/store/
+        linters: [gosec]
+        text: G202
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes: [github.com/nocs90/shieldmon]

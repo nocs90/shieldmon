@@ -1,0 +1,22 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":semanticCommits", "helpers:pinGitHubActionDigests"],
+  "labels": ["kind/dependency"],
+  "postUpdateOptions": ["gomodTidy"],
+  "minimumReleaseAge": "14 days",
+  "packageRules": [
+    {
+      "description": "Group GitHub Actions; digests stay pinned, tag kept as comment",
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions"
+    },
+    {
+      "description": "Go modules: weekly, grouped minor/patch",
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "go modules",
+      "schedule": ["before 6am on monday"]
+    }
+  ],
+  "vulnerabilityAlerts": { "labels": ["security"], "minimumReleaseAge": null }
+}

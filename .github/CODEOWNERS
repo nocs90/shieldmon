@@ -1,0 +1,12 @@
+# Review ownership per area. Add maintainers here as the team grows;
+# security-sensitive paths always require a maintainer review.
+*                               @nocs90
+
+/internal/oci/                  @nocs90
+/internal/scanner/              @nocs90
+/internal/redact/               @nocs90
+/internal/lifecycle/            @nocs90
+/internal/store/migrations/     @nocs90
+/scripts/install-scanners.sh    @nocs90
+/.github/                       @nocs90
+/THREAT_MODEL.md                @nocs90

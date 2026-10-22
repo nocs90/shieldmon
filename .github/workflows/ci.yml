@@ -1,0 +1,117 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 5 * * *" # daily: integration against fresh vulnerability DBs + longer fuzzing
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Every gate is documented in docs/processes/quality-gates.md.
+# Actions are pinned by full commit SHA (tag in the comment), never by tag.
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - run: make fmt-check vet tidy-check
+      - uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee # v9.2.1
+        with:
+          version: v2.15.0
+
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - run: make test-race
+      - run: make cover
+      - run: make build
+      - run: make vuln
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: coverage
+          path: coverage.out
+          retention-days: 14
+
+  fuzz:
+    runs-on: ubuntu-24.04
+    needs: test
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Fuzz hostile-input parsers
+        env:
+          FUZZTIME: ${{ github.event_name == 'schedule' && '5m' || '20s' }}
+        run: make fuzz FUZZTIME="$FUZZTIME"
+
+  integration:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run/integration')
+    runs-on: ubuntu-24.04
+    needs: test
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Install pinned scanners (checksum-verified)
+        run: |
+          scripts/install-scanners.sh "$RUNNER_TEMP/scanners"
+          echo "$RUNNER_TEMP/scanners" >> "$GITHUB_PATH"
+      - run: make test-integration
+
+  # End-to-end ConMon scenario on a real multi-stage UBI 9 + Node.js build:
+  # scan, triage, remediation decision policy, rebuild, evidence-based closure, reports.
+  e2e-ubi9-node:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run/integration')
+    runs-on: ubuntu-24.04
+    needs: test
+    services:
+      registry:
+        image: docker.io/library/registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+        ports: ["5000:5000"]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Install pinned scanners (checksum-verified)
+        run: |
+          scripts/install-scanners.sh "$RUNNER_TEMP/scanners"
+          echo "$RUNNER_TEMP/scanners" >> "$GITHUB_PATH"
+      - run: make build
+      - run: python3 examples/ubi9-node/e2e.py --builder docker --registry localhost:5000
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        if: always()
+        with:
+          name: e2e-ubi9-node-reports
+          path: |
+            dist/e2e-ubi9-node/report.html
+            dist/e2e-ubi9-node/report.md
+            dist/e2e-ubi9-node/remediation-plan.csv
+          retention-days: 30

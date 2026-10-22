@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">
+<meta name="referrer" content="no-referrer">
+<title>ConMon report — {{month .Period.Start}}</title>
+<style>
+:root{
+  --bg:#f6f7f9;--panel:#fff;--ink:#14171f;--muted:#5b6474;--line:#e3e6eb;--accent:#2f5bd3;
+  --crit:#b4233a;--high:#d9480f;--med:#c98a00;--low:#2b8a3e;--neg:#6b7280;--unk:#9aa1ad;
+  --ok:#2b8a3e;--warn:#d9480f;--chip:#eef1f6;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0f1218;--panel:#171b23;--ink:#e7eaf0;--muted:#9aa3b2;--line:#2a303b;--accent:#7aa2ff;
+  --crit:#ff6b81;--high:#ff8f4d;--med:#f2c14e;--low:#5fd07a;--neg:#9aa1ad;--unk:#7b8494;--chip:#222833;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1180px;margin:0 auto;padding:32px 20px 64px}
+header{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:flex-end;margin-bottom:24px}
+h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+h2{font-size:16px;margin:0 0 14px}
+.sub{color:var(--muted)}
+.pill{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;font-weight:600;font-size:13px;background:var(--chip)}
+.pill::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
+.pill.ok{color:var(--ok)}.pill.warn{color:var(--warn)}
+.grid{display:grid;gap:16px}
+.kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:16px}
+@media (min-width:1100px){.kpis{grid-template-columns:repeat(7,1fr)}}
+.two{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+.kpi .v{font-size:28px;font-weight:700;letter-spacing:-.02em}
+.kpi .l{color:var(--muted);font-size:12.5px}
+.kpi.bad .v{color:var(--crit)}
+section{margin-top:16px}
+.bar{display:flex;height:14px;border-radius:7px;overflow:hidden;background:var(--chip)}
+.bar span{display:block;height:100%}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:10px;color:var(--muted);font-size:12.5px}
+.legend b{color:var(--ink)}
+.sw{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.s-critical{background:var(--crit)}.s-high{background:var(--high)}.s-medium{background:var(--med)}
+.s-low{background:var(--low)}.s-negligible{background:var(--neg)}.s-unknown{background:var(--unk)}
+.hbar{display:grid;grid-template-columns:70px 1fr 40px;gap:10px;align-items:center;margin:6px 0;font-size:13px}
+.hbar .t{height:10px;border-radius:5px;background:var(--chip);overflow:hidden}.hbar .t span{display:block;height:100%;background:var(--accent)}
+.hbar .n{text-align:right;font-variant-numeric:tabular-nums}
+.chart{width:100%;height:auto}
+.chart .axis{stroke:var(--line)}.chart .grid{stroke:var(--line);stroke-dasharray:3 4}
+.chart .area{fill:var(--accent);opacity:.12}.chart .line{fill:none;stroke:var(--accent);stroke-width:2.2;stroke-linejoin:round}
+.chart .dot{fill:var(--accent)}.chart .lbl{fill:var(--muted);font-size:11px;text-anchor:end}
+.chart .lbl.start{text-anchor:start}.chart .lbl.end{text-anchor:end}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{white-space:nowrap;text-align:left;font-weight:600;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em;padding:8px 10px;border-bottom:1px solid var(--line)}
+td.date{white-space:nowrap}
+td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.tbl{overflow-x:auto}
+.sev{display:inline-block;min-width:68px;text-align:center;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:600;color:#fff}
+.sev.unknown,.sev.negligible{color:var(--ink);background:var(--chip)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px}
+.muted{color:var(--muted)}
+.tag{display:inline-block;padding:1px 7px;border-radius:5px;background:var(--chip);font-size:12px;white-space:nowrap}
+.tag.kev{background:var(--crit);color:#fff}.tag.wf{border:1px solid var(--line)}
+.late{color:var(--crit);font-weight:600}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+.chips span{margin-right:6px}
+.empty{color:var(--muted);font-style:italic}
+footer{margin-top:28px;color:var(--muted);font-size:12px}
+@media print{body{background:#fff}.card{break-inside:avoid;border-color:#ccc}main{padding:0}}
+</style>
+</head>
+<body>
+<main>
+{{- $s := .Summary}}
+<header>
+  <div>
+    <h1>Container vulnerability ConMon — {{month .Period.Start}}</h1>
+    <div class="sub">{{date .Period.Start}} – {{date (.Period.End.AddDate 0 0 -1)}} · {{.Targets}} monitored target{{if ne .Targets 1}}s{{end}} · SLA profile <b>{{.SLAProfile}}</b></div>
+  </div>
+  {{if .HealthOpen}}<span class="pill warn">{{len .HealthOpen}} monitoring issue{{if gt (len .HealthOpen) 1}}s{{end}}</span>
+  {{else}}<span class="pill ok">Monitoring healthy</span>{{end}}
+</header>
+
+<div class="grid kpis">
+  <div class="card kpi"><div class="v">{{$s.OpenAtEnd}}</div><div class="l">Open findings{{if ne $s.OpenAtStart $s.OpenAtEnd}} (from {{$s.OpenAtStart}}){{end}}</div></div>
+  <div class="card kpi"><div class="v">{{$s.Opened}}</div><div class="l">Newly detected</div></div>
+  <div class="card kpi"><div class="v">{{$s.Fixed}}</div><div class="l">Fixed, verified by scan</div></div>
+  <div class="card kpi"><div class="v">{{printf "%.1f" $s.MTTRMedianDays}}<span class="muted" style="font-size:15px"> d</span></div><div class="l">MTTR median (mean {{printf "%.1f" $s.MTTRMeanDays}} d)</div></div>
+  <div class="card kpi {{if $s.SLABreaches}}bad{{end}}"><div class="v">{{$s.SLABreaches}}</div><div class="l">Past remediation SLA</div></div>
+  <div class="card kpi {{if $s.KEVOpen}}bad{{end}}"><div class="v">{{$s.KEVOpen}}</div><div class="l">Known exploited (KEV)</div></div>
+  <div class="card kpi"><div class="v">{{len .AcceptedRisks}}</div><div class="l">Accepted / not affected</div></div>
+</div>
+
+<div class="grid two">
+  <div class="card">
+    <h2>Open findings by severity</h2>
+    <div class="bar">{{range $sev := severities}}{{with index $.OpenBySeverity $sev}}<span class="s-{{$sev}}" style="width:{{pct . $s.OpenAtEnd}}%"></span>{{end}}{{end}}</div>
+    <div class="legend">{{range $sev := severities}}{{with index $.OpenBySeverity $sev}}<span><i class="sw s-{{$sev}}"></i>{{$sev}} <b>{{.}}</b></span>{{end}}{{end}}
+      {{if not $s.OpenAtEnd}}<span class="empty">No open findings.</span>{{end}}</div>
+    <h2 style="margin-top:22px">Age of open findings</h2>
+    {{$mx := maxAging .Aging}}
+    {{range aging}}<div class="hbar"><span class="muted">{{.}} d</span><div class="t"><span style="width:{{pct (index $.Aging .) $mx}}%"></span></div><span class="n">{{index $.Aging .}}</span></div>{{end}}
+  </div>
+  <div class="card">
+    <h2>Burndown — open findings at end of day</h2>
+    {{burndown .Burndown}}
+    <div class="legend">
+      <span>Reopened <b>{{$s.Reopened}}</b></span><span>Withdrawn <b>{{$s.Withdrawn}}</b></span>
+      <span>Risk accepted <b>{{$s.RiskAccepted}}</b></span><span>Not affected <b>{{$s.NotAffected}}</b></span>
+      <span>Won't fix (open) <b>{{$s.WontFixOpen}}</b></span>
+    </div>
+  </div>
+</div>
+
+<section class="card">
+  <h2>Targets</h2>
+  {{if .TargetSummaries}}<div class="tbl"><table>
+    <tr><th>Image</th><th>Platform</th><th>Digest</th><th class="num">Open</th><th>By severity</th><th class="num">Past SLA</th></tr>
+    {{range .TargetSummaries}}<tr>
+      <td class="mono">{{.Ref}}</td><td class="muted">{{.Platform}}</td><td class="mono muted">{{short .Digest}}</td>
+      <td class="num"><b>{{.Open}}</b></td>
+      <td class="chips">{{$t := .}}{{range $sev := severities}}{{with index $t.BySev $sev}}<span title="{{$sev}}"><i class="sw s-{{$sev}}"></i>{{.}}</span>{{end}}{{end}}</td>
+      <td class="num {{if .Breached}}late{{end}}">{{.Breached}}</td>
+    </tr>{{end}}
+  </table></div>{{else}}<p class="empty">No targets.</p>{{end}}
+</section>
+
+<section class="card">
+  <h2>Open findings ({{len .Open}})</h2>
+  {{if .Open}}<div class="tbl"><table>
+    <tr><th>Severity</th><th>Vulnerability</th><th>Package</th><th>Fix</th><th>State</th><th class="num">Age</th><th>SLA due</th><th>Target</th></tr>
+    {{range limit .Open 150}}<tr>
+      <td><span class="sev s-{{.Severity}} {{.Severity}}">{{.Severity}}</span></td>
+      <td><a class="mono" href="https://osv.dev/vulnerability/{{.VulnID}}" rel="noopener noreferrer">{{.VulnID}}</a>{{if .KEV}} <span class="tag kev">KEV</span>{{end}}
+        {{if .Title}}<div class="muted" style="font-size:12px;max-width:340px">{{.Title}}</div>{{end}}</td>
+      <td><span class="mono">{{.Package}}</span> <span class="muted mono">{{.Version}}</span></td>
+      <td>{{if .FixVersions}}<span class="mono">{{fix .}}</span>{{else}}<span class="tag wf">{{fix .}}</span>{{end}}</td>
+      <td><span class="tag">{{.State}}</span></td>
+      <td class="num">{{.AgeDays}} d</td>
+      <td class="date {{if .SLABreached}}late{{end}}">{{date .SLADue}}</td>
+      <td class="mono muted">{{target .}}</td>
+    </tr>{{end}}
+  </table></div>
+  {{with more .Open 150}}<p class="muted">… and {{.}} more: see the CSV or JSON export.</p>{{end}}
+  {{else}}<p class="empty">No open findings.</p>{{end}}
+</section>
+
+<section class="card">
+  <h2>Accepted risks and VEX statements ({{len .AcceptedRisks}})</h2>
+  {{if .AcceptedRisks}}<div class="tbl"><table>
+    <tr><th>Severity</th><th>Vulnerability</th><th>Package</th><th>Decision</th><th>Justification</th><th>Author</th><th>Expires</th></tr>
+    {{range .AcceptedRisks}}<tr>
+      <td><span class="sev s-{{.Severity}} {{.Severity}}">{{.Severity}}</span></td>
+      <td class="mono">{{.VulnID}}</td>
+      <td><span class="mono">{{.Package}}</span> <span class="muted mono">{{.Version}}</span><div class="muted" style="font-size:12px">fix: {{fix .}}</div></td>
+      <td><span class="tag">{{deviation .Decision}}</span></td>
+      <td style="max-width:360px">{{with .Decision}}{{.Justification}}{{end}}</td>
+      <td>{{with .Decision}}{{.Author}}{{end}}</td>
+      <td>{{with .Decision}}{{date .ExpiresAt}}{{end}}</td>
+    </tr>{{end}}
+  </table></div>{{else}}<p class="empty">No accepted risks.</p>{{end}}
+</section>
+
+<section class="card">
+  <h2>Fixed during the period ({{len .FixedInPeriod}})</h2>
+  {{if .FixedInPeriod}}<div class="tbl"><table>
+    <tr><th>Severity</th><th>Vulnerability</th><th>Package</th><th>Detected</th><th>Fixed</th><th class="num">Days</th></tr>
+    {{range limit .FixedInPeriod 150}}<tr>
+      <td><span class="sev s-{{.Severity}} {{.Severity}}">{{.Severity}}</span></td>
+      <td class="mono">{{.VulnID}}</td><td><span class="mono">{{.Package}}</span> <span class="muted mono">{{.Version}}</span></td>
+      <td>{{date .FirstDetected}}</td><td>{{date .ClosedAt}}</td><td class="num">{{.AgeDays}}</td>
+    </tr>{{end}}
+  </table></div>
+  {{with more .FixedInPeriod 150}}<p class="muted">… and {{.}} more.</p>{{end}}
+  {{else}}<p class="empty">Nothing fixed in this period.</p>{{end}}
+</section>
+
+<section class="card">
+  <h2>Monitoring health</h2>
+  {{if .HealthOpen}}<div class="tbl"><table>
+    <tr><th>Check</th><th>Subject</th><th>Severity</th><th>Since</th><th>Detail</th></tr>
+    {{range .HealthOpen}}<tr><td class="mono">{{.Check}}</td><td class="mono">{{.Subject}}</td><td>{{.Severity}}</td><td>{{date .FirstSeen}}</td><td class="muted">{{.Detail}}</td></tr>{{end}}
+  </table></div>
+  {{else}}<p class="empty">No open health findings: every scheduled cycle ran with fresh vulnerability data.</p>{{end}}
+</section>
+
+<footer>Generated {{stamp .GeneratedAt}} by ShieldMon from the append-only audit trail. Findings are closed only by scan evidence; figures can be regenerated for any past period.</footer>
+</main>
+</body>
+</html>

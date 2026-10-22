@@ -1,0 +1,42 @@
+name: New adapter / plugin
+description: Add a scanner, registry provider, notifier, report format or other extension
+title: "adapter: "
+labels: ["kind/adapter", "needs-triage"]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Extension point
+      description: See docs/extending/README.md
+      options: [SBOM generator, matcher, registry provider, enricher, notifier, report format / exporter, chart source, remediation advisor]
+    validations: { required: true }
+  - type: input
+    id: tool
+    attributes:
+      label: Tool / service
+      placeholder: e.g. osv-scanner 2.x
+    validations: { required: true }
+  - type: dropdown
+    id: license
+    attributes:
+      label: Is the tool free/open-source software?
+      description: ShieldMon only integrates free software.
+      options: ["Yes", "No"]
+    validations: { required: true }
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it is worth adding
+      description: Coverage gain, ecosystems, parity numbers vs existing adapters if known.
+    validations: { required: true }
+  - type: checkboxes
+    id: dod
+    attributes:
+      label: Definition of done (for the implementer)
+      options:
+        - label: Registered in the plugin registry with description and declared options
+        - label: Passes the conformance kit (scannertest.CheckPlugin / CheckParser)
+        - label: Real-output fixture in testdata, fuzz target for its parser
+        - label: Runs only through scanner.Runner, telemetry/update checks disabled
+        - label: Pinned in scripts/install-scanners.sh with official checksum (if a binary)
+        - label: docs/extending page and ADR with parity evidence

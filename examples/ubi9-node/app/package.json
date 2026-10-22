@@ -1,0 +1,11 @@
+{
+  "name": "shieldmon-demo-api",
+  "version": "1.0.0",
+  "private": true,
+  "main": "server.js",
+  "license": "AGPL-3.0-or-later",
+  "dependencies": {
+    "lodash": "4.17.20",
+    "minimist": "1.2.5"
+  }
+}
