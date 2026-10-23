@@ -1,4 +1,6 @@
-# 🛡️ ShieldMon
+<p align="center"><img src="docs/assets/logo.svg" alt="ShieldMon" width="420"></p>
+
+# ShieldMon
 
 > **ShieldMon** is an open-source Continuous Vulnerability Monitoring (ConMon) and remediation tracking platform for Docker images and container registries.
 

@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1660 512" width="830" height="256">
+  <title>ShieldMon</title>
+  <style>
+    .sm-word { font: 800 168px "Inter", "Helvetica Neue", "Segoe UI", Arial, sans-serif; letter-spacing: 4px; }
+    .sm-ink { fill: #0F1B2D; }
+    @media (prefers-color-scheme: dark) { .sm-ink { fill: #F1F5F9; } }
+  </style>
+  <defs>
+    <clipPath id="sm-left"><rect width="256" height="512"/></clipPath>
+    <clipPath id="sm-right"><rect x="256" width="256" height="512"/></clipPath>
+    <path id="sm-shield" d="M256 34C318 70 378 82 440 84V250C440 362 362 432 256 478C150 432 72 362 72 250V84C134 82 194 70 256 34Z"/>
+    <path id="sm-head" d="M256 104C298 104 324 134 322 176C320 210 300 234 284 250C278 258 276 266 276 282H236C236 266 234 258 228 250C212 234 192 210 190 176C188 134 214 104 256 104Z"/>
+    <mask id="sm-ear-gap" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
+      <rect width="512" height="512" fill="#fff"/>
+      <use href="#sm-head" fill="none" stroke="#000" stroke-width="22"/>
+    </mask>
+  </defs>
+  <use href="#sm-shield" fill="#E63946" clip-path="url(#sm-left)"/>
+  <use href="#sm-shield" fill="#2F80ED" clip-path="url(#sm-right)"/>
+  <g fill="#fff">
+    <g mask="url(#sm-ear-gap)">
+      <path d="M214 128C176 106 136 110 118 138C102 164 106 216 128 248C144 272 176 284 210 266Z"/>
+      <path d="M298 128C336 106 376 110 394 138C410 164 406 216 384 248C368 272 336 284 302 266Z"/>
+    </g>
+    <use href="#sm-head"/>
+  </g>
+  <g fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M226 262C218 290 204 302 184 300" stroke-width="14"/>
+    <path d="M286 262C294 290 308 302 328 300" stroke-width="14"/>
+    <path d="M256 250V346C256 384 284 394 312 366L342 332" stroke-width="40"/>
+  </g>
+  <circle cx="230" cy="182" r="8" fill="#E63946"/>
+  <circle cx="282" cy="182" r="8" fill="#2F80ED"/>
+  <text class="sm-word" x="548" y="316"><tspan class="sm-ink">SHIELD</tspan><tspan fill="#2F80ED">MON</tspan></text>
+</svg>

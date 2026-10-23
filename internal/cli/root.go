@@ -73,10 +73,31 @@ when a later scan provides evidence.`,
 	root.PersistentFlags().StringVar(&a.dataDir, "data-dir", "", "data directory (overrides config)")
 	root.PersistentFlags().StringVar(&a.logLevel, "log-level", "warn", "log level: debug, info, warn, error")
 
-	root.AddCommand(
-		a.versionCmd(), a.initCmd(), a.doctorCmd(), a.scanCmd(), a.monitorCmd(), a.rematchCmd(),
-		a.targetsCmd(), a.findingsCmd(), a.pluginsCmd(), a.healthCmd(), a.reportCmd(), a.sbomCmd(),
+	root.AddGroup(
+		&cobra.Group{ID: "monitor", Title: "Monitoring:"},
+		&cobra.Group{ID: "triage", Title: "Triage and reporting:"},
+		&cobra.Group{ID: "setup", Title: "Setup:"},
 	)
+	for group, cmds := range map[string][]*cobra.Command{
+		"monitor": {a.scanCmd(), a.monitorCmd(), a.rematchCmd(), a.targetsCmd()},
+		"triage":  {a.findingsCmd(), a.healthCmd(), a.reportCmd(), a.sbomCmd()},
+		"setup":   {a.initCmd(), a.doctorCmd(), a.pluginsCmd(), a.versionCmd()},
+	} {
+		for _, c := range cmds {
+			c.GroupID = group
+			root.AddCommand(c)
+		}
+	}
+	root.SetHelpCommandGroupID("setup")
+	root.SetCompletionCommandGroupID("setup")
+
+	help := root.HelpFunc()
+	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		if p, ok := bannerPainter(cmd.OutOrStdout()); ok && cmd == root {
+			writeBanner(cmd.OutOrStdout(), p)
+		}
+		help(cmd, args)
+	})
 	return root
 }
 

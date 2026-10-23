@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func run(t *testing.T, args ...string) (string, string, int) {
@@ -78,5 +80,38 @@ func TestMonitorJSONIsValid(t *testing.T) {
 	}
 	if v.RunID == 0 || v.Status != "ok" {
 		t.Fatalf("unexpected monitor JSON: %+v", v)
+	}
+}
+
+func TestHelpWithoutTerminalIsPlain(t *testing.T) {
+	out, _, code := run(t, "--help")
+	if code != 0 || strings.Contains(out, "\x1b") || strings.ContainsAny(out, "▀▄█") {
+		t.Fatalf("help to a non-terminal must have no banner or escapes: %d\n%s", code, out)
+	}
+	for _, group := range []string{"Monitoring:", "Triage and reporting:", "Setup:"} {
+		if !strings.Contains(out, group) {
+			t.Errorf("help lacks command group %q", group)
+		}
+	}
+}
+
+func TestBanner(t *testing.T) {
+	for _, row := range logo {
+		if len(row) != len(logo[0]) {
+			t.Fatalf("logo rows differ in width: %q", row)
+		}
+	}
+	sgr := regexp.MustCompile("\x1b\\[[0-9;]*m")
+	for _, p := range []painter{{}, {color: true}, {color: true, truecolor: true}} {
+		var b bytes.Buffer
+		writeBanner(&b, p)
+		if !p.color && strings.Contains(b.String(), "\x1b") {
+			t.Errorf("NO_COLOR banner contains escape sequences")
+		}
+		for _, line := range strings.Split(b.String(), "\n") {
+			if n := utf8.RuneCountInString(sgr.ReplaceAllString(line, "")); n > 80 {
+				t.Errorf("%+v: banner line is %d columns wide", p, n)
+			}
+		}
 	}
 }
