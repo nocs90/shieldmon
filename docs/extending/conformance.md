@@ -13,5 +13,8 @@ re-deriving every edge case.
 
 Built-in adapters and sandbox backends run the kit in `internal/scanner/conformance_test.go`.
 The sandbox probe is the test binary re-running itself (`scannertest` hooks `init`), so a
-backend needs no shell or network tools inside the sandbox to be tested. When a new
+backend needs no shell or network tools inside the sandbox to be tested. Reads are judged by
+the content returned and writes by what reaches the host, not by whether the call
+succeeded: a backend may show the process stand-in paths (bwrap creates the parents of its
+mounts inside the scratch directory, so a write there succeeds and is discarded). When a new
 extension point is added, it ships with its own kit in the same style.

@@ -29,12 +29,18 @@ func init() {
 	}
 }
 
-// probe performs one operation and returns its error: success means the sandbox
-// allowed it.
+// probe performs one operation and returns its error; "read" prints what it read.
+// Success alone proves little: a backend may show the process a stand-in for a path
+// (bwrap creates the parents of its mounts inside the scratch directory), so the kit
+// judges reads by their content and writes by what reaches the host.
 func probe(op string, args []string) error {
 	switch {
 	case op == "read" && len(args) == 1:
-		_, err := os.ReadFile(args[0]) //nolint:gosec // G703: probing the sandbox is the point; the kit chooses the target
+		b, err := os.ReadFile(args[0]) //nolint:gosec // G703: probing the sandbox is the point; the kit chooses the target
+		if err != nil {
+			return err
+		}
+		_, err = os.Stdout.Write(b)
 		return err
 	case op == "list" && len(args) == 1:
 		_, err := os.ReadDir(args[0])
@@ -110,8 +116,9 @@ func CheckSandbox(t *testing.T, name string) {
 
 	host := t.TempDir()
 	secret, input, out := filepath.Join(host, "secret"), filepath.Join(host, "input"), filepath.Join(host, "out")
-	for _, f := range []string{secret, input} {
-		if err := os.WriteFile(f, []byte("data"), 0o600); err != nil {
+	const secretData, inputData = "secret-6f1c", "input-data"
+	for f, data := range map[string]string{secret: secretData, input: inputData} {
+		if err := os.WriteFile(f, []byte(data), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -140,8 +147,12 @@ func CheckSandbox(t *testing.T, name string) {
 	}
 	offline := scanner.WithPolicy(context.Background(), scanner.Policy{ReadOnly: []string{input}, Writable: []string{out}})
 	online := scanner.WithPolicy(context.Background(), scanner.Policy{Network: true})
+	runOut := func(ctx context.Context, r scanner.Runner, args ...string) (string, error) {
+		out, err := r.Run(ctx, self, append([]string{probeArg}, args...)...)
+		return string(out), err
+	}
 	run := func(ctx context.Context, r scanner.Runner, args ...string) error {
-		_, err := r.Run(ctx, self, append([]string{probeArg}, args...)...)
+		_, err := runOut(ctx, r, args...)
 		return err
 	}
 
@@ -161,21 +172,35 @@ func CheckSandbox(t *testing.T, name string) {
 			t.Errorf("a sandboxed scanner must be able to %s: %v", c.what, err)
 		}
 	}
-	denied := []struct {
-		what string
-		args []string
-	}{
-		{"read outside the policy", []string{"read", secret}},
-		{"list the home directory", []string{"list", os.Getenv("HOME")}},
-		{"write a read-only input", []string{"write", input}},
-		{"write outside the policy", []string{"write", filepath.Join(host, "new")}},
-		{"write the DB cache while matching", []string{"write", filepath.Join(r.CacheDir, "db")}},
-		{"connect while offline", []string{"connect", addr}},
+	if got, err := runOut(offline, r, "read", input); err != nil || got != inputData {
+		t.Errorf("a sandboxed scanner must read its input as it is: %q %v", got, err)
 	}
-	for _, c := range denied {
-		if err := run(offline, r, c.args...); err == nil {
-			t.Errorf("a sandboxed scanner could %s", c.what)
-		}
+	if b, err := os.ReadFile(filepath.Join(out, "result")); err != nil || string(b) != "x" {
+		t.Errorf("output written in the sandbox must reach the host: %q %v", b, err)
+	}
+
+	if got, err := runOut(offline, r, "read", secret); err == nil && got == secretData {
+		t.Error("a sandboxed scanner could read outside the policy")
+	}
+	if err := run(offline, r, "list", os.Getenv("HOME")); err == nil {
+		t.Error("a sandboxed scanner could list the home directory")
+	}
+	if err := run(offline, r, "connect", addr); err == nil {
+		t.Error("a sandboxed scanner could connect while offline")
+	}
+	// A write may succeed on a stand-in path; it must not reach the host.
+	poisoned := filepath.Join(r.CacheDir, "poisoned")
+	_ = run(offline, r, "write", input)
+	_ = run(offline, r, "write", filepath.Join(host, "new"))
+	_ = run(offline, r, "write", poisoned)
+	if b, _ := os.ReadFile(input); string(b) != inputData {
+		t.Error("a sandboxed scanner could write a read-only input")
+	}
+	if _, err := os.Stat(filepath.Join(host, "new")); err == nil {
+		t.Error("a sandboxed scanner could write outside the policy")
+	}
+	if _, err := os.Stat(poisoned); err == nil {
+		t.Error("a sandboxed scanner could write the DB cache while matching")
 	}
 
 	beat := filepath.Join(out, "beat")
