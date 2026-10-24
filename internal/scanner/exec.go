@@ -105,6 +105,9 @@ type Runner struct {
 	TempDir string
 }
 
+// Confined reports whether processes started by r run in a sandbox (see Confined).
+func (r Runner) Confined() bool { return Confined(r.Sandbox) }
+
 func (r Runner) env() []string {
 	var out []string
 	for _, kv := range os.Environ() {

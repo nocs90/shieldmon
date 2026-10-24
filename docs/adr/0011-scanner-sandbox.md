@@ -111,3 +111,23 @@
   - Until the `db update` step lands, the confined matchers cannot refresh their DBs.
     `bwrap` needs `db_auto_update: false` and `skip_db_update: true`, with DBs refreshed
     by a run under `backend: none`.
+- 2026-10-24, `db update` step, `none` posture, conformance kit:
+  - Matchers implement the optional `scanner.DBUpdater`. `Engine.Preflight` runs it before
+    matching with `Policy{Network: true}` (`monitor` when it has targets, `scan`,
+    `rematch`, and `shieldmon db update` on its own). Scanning never updates a DB, under
+    every backend including `none`: grype always gets `GRYPE_DB_AUTO_UPDATE=false`, trivy
+    always gets `--skip-db-update --skip-java-db-update`. `db_auto_update: false` and
+    `skip_db_update: true` now mean "the DB is managed out of band": the update step does
+    nothing. `--offline-scan` is forced only when confined, so unconfined Java coverage
+    is unchanged.
+  - trivy's Java index DB, which it used to fetch lazily while cataloging JARs, is now
+    downloaded by the update step for every setup (trivy fetches it only when its copy is
+    due). Cataloging cannot fetch it from inside a sandbox.
+  - A failed update opens `db_update_failed` (medium) instead of relying on `db_stale`
+    alone: it is a failure of the monitoring process (I6), visible before the DB ages out.
+  - While `none` is selected, every preflight keeps `scanner_unsandboxed` (high) open and
+    `doctor` fails. A backend that cannot run here is not `none`: it refuses to start
+    scanners, which fails the scan instead.
+  - `scannertest.CheckSandbox` is the kit for backends. Its probe is the test binary
+    re-executing itself inside the sandbox, so it needs no shell or `nc` there and works
+    the same for `landlock`. The scratch quota is not probed yet: no backend enforces one.

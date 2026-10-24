@@ -28,6 +28,29 @@ func (o *OSV) Match(ctx context.Context, sbomPath string) (Result, error) {
 A generator implements `Generator` (`Name`, `Tool`, `Generate`) and receives a local,
 digest-verified OCI layout — never a registry reference or credentials.
 
+`Generate` and `Match` run **without network** and with the DB cache read-only
+([ADR 0011](../adr/0011-scanner-sandbox.md)): pass the scanner's flags that stop it from
+downloading DBs or calling external APIs while it scans. A matcher with a local DB also
+implements `DBUpdater`; `UpdateDB` is the only step that gets network, never receives image
+content or SBOMs, and does nothing when an option says the DB is managed out of band:
+
+```go
+func (o *OSV) UpdateDB(ctx context.Context) error {
+	if o.Offline {
+		return nil
+	}
+	bin, err := o.Bin.Resolve()
+	if err != nil {
+		return err
+	}
+	_, err = o.Runner.Run(ctx, bin, "db", "update")
+	return err
+}
+```
+
+`Runner.Confined()` reports whether the process runs in a sandbox, for behaviour that is
+only forced there (trivy's `--offline-scan`).
+
 ## 2. Register it
 
 ```go

@@ -203,6 +203,9 @@ scanners:
   max_output_bytes: 536870912
   # Per-plugin settings. Pin binaries by SHA-256 ('shieldmon doctor' prints
   # current values); a mismatch aborts the scan and opens a health finding.
+  # Scanners never download DBs while scanning: 'shieldmon db update' (run first by
+  # monitor, scan and rematch) refreshes them. Set db_auto_update: false (grype) or
+  # skip_db_update: true (trivy) when the DBs are managed out of band.
   tools:
     syft:  { path: "", sha256: "" }
     grype: { path: "", sha256: "", options: { db_auto_update: true } }

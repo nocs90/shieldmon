@@ -35,7 +35,7 @@ not be falsifiable.
 | T | Partial scan (one scanner down) closes findings by absence. | Absence counts only from *complete* scans ✅ |
 | **R**epudiation | "I didn't accept that risk." | Decisions require author + justification, stored append-only with timestamps ✅; authenticated identities (OIDC) in server mode ⬜ |
 | **I**nformation disclosure | Credentials leak into logs, errors, health findings, reports. | Central redaction (headers, URL userinfo, AWS/GitLab/GitHub tokens, JWTs, signed URLs) ✅; scanners get an env allowlist without registry/cloud credentials ✅ |
-| I | Scanner telemetry/update checks leak inventory. | `--disable-telemetry`, `--skip-version-check`, `*_CHECK_FOR_APP_UPDATE=false` ✅; `trivy.offline_scan` option ✅; egress allowlist in sandbox ⬜ |
+| I | Scanner telemetry/update checks leak inventory. | `--disable-telemetry`, `--skip-version-check`, `*_CHECK_FOR_APP_UPDATE=false` ✅; `trivy.offline_scan` option ✅; DBs refreshed by a separate step that never sees image content, so scanning needs no network ✅; no network at all while scanning under a sandbox ✅ (`bwrap`) |
 | I | SBOMs (full inventory) readable by other users. | data dir 0700, files 0600 ✅ |
 | **D**enial of service | Decompression bomb / giant layers / thousands of layers. | Manifest-declared layer count/size/total limits before download ✅; scanner timeouts ✅; uncompressed-size limits require sandboxing ⬜ |
 | D | Scanner hangs or forks helpers. | Own process group, SIGKILL on timeout/overflow, `WaitDelay` ✅ |
@@ -49,8 +49,10 @@ not be falsifiable.
 
 ## Residual risks (accepted for M1, tracked in ROADMAP)
 
-- Scanners run unsandboxed as the invoking user. Mitigation: run ShieldMon in a dedicated,
-  unprivileged container with no other secrets.
+- Scanners run unsandboxed as the invoking user unless a sandbox backend is configured
+  (`bwrap` on Linux hosts; Landlock for containers is planned, ADR 0011). While they do,
+  a `scanner_unsandboxed` health finding stays open. Mitigation: run ShieldMon in a
+  dedicated, unprivileged container with no other secrets.
 - Uncompressed layer size is bounded only by the scanner and disk.
 - Vulnerability DB integrity relies on the scanners' own verification.
 - Integrity of `install-scanners.sh` pins relies on the release's checksum file

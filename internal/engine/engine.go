@@ -36,6 +36,8 @@ const (
 	CheckDBStale        = "db_stale"
 	CheckMonitorMissed  = "monitor_missed"
 	CheckChecksum       = "scanner_checksum_mismatch"
+	CheckUnsandboxed    = "scanner_unsandboxed"
+	CheckDBUpdate       = "db_update_failed"
 	maxSBOMBytes        = 256 << 20
 	monitorMissedFactor = 1.5
 )
@@ -69,8 +71,11 @@ type Engine struct {
 	DBMaxAge time.Duration
 	// MonitorInterval is the expected cadence of Monitor (0 disables the check).
 	MonitorInterval time.Duration
-	Now             func() time.Time
-	Log             *slog.Logger
+	// Sandboxed is true when scanners run confined (scanner.Confined). While it is false,
+	// Preflight keeps a scanner_unsandboxed health finding open.
+	Sandboxed bool
+	Now       func() time.Time
+	Log       *slog.Logger
 }
 
 func (e *Engine) now() time.Time {
@@ -463,6 +468,43 @@ func (e *Engine) checkDBAge(ctx context.Context, t model.Tool) {
 	e.healthy(ctx, CheckDBStale, t.Name)
 }
 
+// Preflight runs before scanning: it records whether scanners are confined and refreshes
+// the matchers' vulnerability DBs. A failed update is a health finding, not a reason to
+// skip the cycle: matching then uses the DB on disk and checkDBAge judges its age.
+func (e *Engine) Preflight(ctx context.Context) error {
+	if e.Sandboxed {
+		e.healthy(ctx, CheckUnsandboxed, "scanners")
+	} else {
+		e.health(ctx, CheckUnsandboxed, "scanners", "high",
+			errors.New("scanners parse image content with the invoking user's filesystem and network (scanners.sandbox.backend: none)"))
+	}
+	return e.UpdateDBs(ctx)
+}
+
+// UpdateDBs refreshes the vulnerability DB of every matcher that keeps one. These are the
+// only scanner processes with network, and they never receive image content or SBOMs.
+func (e *Engine) UpdateDBs(ctx context.Context) error {
+	var errs []error
+	for _, m := range e.Scanners.Matchers {
+		u, ok := m.(scanner.DBUpdater)
+		if !ok {
+			continue
+		}
+		e.log().Info("updating vulnerability DB", "matcher", m.Name())
+		if err := u.UpdateDB(scanner.WithPolicy(ctx, scanner.Policy{Network: true})); err != nil {
+			check, severity := CheckDBUpdate, "medium"
+			if errors.Is(err, scanner.ErrChecksumMismatch) {
+				check, severity = CheckChecksum, "high"
+			}
+			e.health(ctx, check, m.Name(), severity, err)
+			errs = append(errs, fmt.Errorf("%s: %s", m.Name(), redact.Error(err)))
+			continue
+		}
+		e.healthy(ctx, CheckDBUpdate, m.Name())
+	}
+	return errors.Join(errs...)
+}
+
 // MonitorSummary summarizes one monitoring cycle.
 type MonitorSummary struct {
 	RunID           int64
@@ -472,8 +514,9 @@ type MonitorSummary struct {
 	ExpiredDecision []int64
 }
 
-// Monitor runs one ConMon cycle over every target: expire decisions,
-// check the schedule, then scan (resolve + rematch, pulling only new digests).
+// Monitor runs one ConMon cycle over every target: check the schedule, expire
+// decisions, preflight (sandbox posture, DB updates), then scan (resolve + rematch,
+// pulling only new digests).
 func (e *Engine) Monitor(ctx context.Context) (MonitorSummary, error) {
 	sum := MonitorSummary{Failures: map[string]string{}}
 	now := e.now()
@@ -501,6 +544,12 @@ func (e *Engine) Monitor(ctx context.Context) (MonitorSummary, error) {
 	targets, err := e.Store.ListTargets(ctx)
 	if err != nil {
 		return sum, err
+	}
+	// Without targets nothing is matched, so the cycle needs no DB and no network.
+	if len(targets) > 0 {
+		if err := e.Preflight(ctx); err != nil {
+			e.log().Warn("vulnerability DB update failed; matching with the DBs on disk", "err", err)
+		}
 	}
 	errCount := 0
 	for _, t := range targets {

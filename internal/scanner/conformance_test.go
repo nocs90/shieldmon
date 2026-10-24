@@ -13,6 +13,18 @@ func TestBuiltinPluginsConform(t *testing.T) {
 	}
 }
 
+// TestSandboxBackendsConform probes every backend that confines scanners ("none" is the
+// explicit opt-out). Backends that cannot run on this host are skipped, except the one
+// named by SHIELDMON_TEST_SANDBOX.
+func TestSandboxBackendsConform(t *testing.T) {
+	for _, b := range scanner.SandboxBackends() {
+		if !scanner.Confined(b.New()) {
+			continue
+		}
+		t.Run(b.Name, func(t *testing.T) { scannertest.CheckSandbox(t, b.Name) })
+	}
+}
+
 func TestBuiltinParsersConform(t *testing.T) {
 	t.Run("grype", func(t *testing.T) {
 		scannertest.CheckParser(t, "grype", scanner.ParseGrype, "testdata/grype-alpine-3.18.0.json")

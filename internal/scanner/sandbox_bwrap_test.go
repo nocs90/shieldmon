@@ -180,7 +180,8 @@ func TestRunnerGivesEachProcessScratchAndCache(t *testing.T) {
 	}
 }
 
-// TestBwrapSandbox runs real bubblewrap where it is installed and allowed. CI sets
+// TestBwrapSandbox checks, with real bubblewrap, what only its namespaces provide; the
+// properties every backend shares are probed by scannertest.CheckSandbox. CI sets
 // SHIELDMON_TEST_SANDBOX=bwrap so that a runner that cannot start it fails the build
 // instead of skipping.
 func TestBwrapSandbox(t *testing.T) {
@@ -195,11 +196,9 @@ func TestBwrapSandbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	host := t.TempDir()
-	secret, input, out := filepath.Join(host, "secret"), filepath.Join(host, "input"), filepath.Join(host, "out")
-	for _, f := range []string{secret, input} {
-		if err := os.WriteFile(f, []byte("data"), 0o600); err != nil {
-			t.Fatal(err)
-		}
+	input, out := filepath.Join(host, "input"), filepath.Join(host, "out")
+	if err := os.WriteFile(input, []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.Mkdir(out, 0o700); err != nil {
 		t.Fatal(err)
@@ -217,10 +216,6 @@ func TestBwrapSandbox(t *testing.T) {
 		t.Fatalf("output written in the sandbox is missing: %q %v", b, err)
 	}
 	denied := map[string]string{
-		"read outside the policy":  "cat " + secret,
-		"write a read-only input":  "echo x > " + input,
-		"write outside the policy": "echo x > " + host + "/new",
-		"list the home directory":  "ls " + os.Getenv("HOME"),
 		"see a network device":     "grep -v -e lo: -e Inter -e face /proc/net/dev | grep -q :",
 		"see the host's processes": "test $(ls -d /proc/[0-9]* | wc -l) -gt 10",
 		"inherit the host's HOME":  `test "$HOME" != /tmp`,

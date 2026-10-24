@@ -15,15 +15,21 @@ import (
 // and the cache directory can be read-only.
 var trivyCommonFlags = []string{"--quiet", "--disable-telemetry", "--skip-version-check", "--cache-backend", "memory"}
 
+// trivyNoDBUpdate keeps the processes that read image content or SBOMs from downloading
+// DBs: UpdateDB refreshes them in a separate step.
+var trivyNoDBUpdate = []string{"--skip-db-update", "--skip-java-db-update"}
+
 // Trivy acts both as an SBOM generator (CycloneDX) and as a matcher for its
 // own SBOMs.
 type Trivy struct {
 	Bin    Binary
 	Runner Runner
-	// SkipDBUpdate prevents trivy from downloading its DB during matching.
+	// SkipDBUpdate makes UpdateDB a no-op, for setups that manage trivy's vulnerability
+	// and Java DBs out of band. trivy itself never updates while scanning.
 	SkipDBUpdate bool
 	// OfflineScan stops trivy from querying external APIs (e.g. Maven Central)
-	// while cataloging; improves privacy at the cost of Java coverage.
+	// while cataloging; improves privacy at the cost of Java coverage. Always on
+	// when the runner is confined, which has no network.
 	OfflineScan bool
 }
 
@@ -80,7 +86,8 @@ func (t *Trivy) Generate(ctx context.Context, src Source, outDir string) ([]SBOM
 	}
 	out := filepath.Join(outDir, "trivy.cdx.json")
 	args := append([]string{"image", "--input", src.OCIDir, "--format", "cyclonedx", "--output", out}, trivyCommonFlags...)
-	if t.OfflineScan {
+	args = append(args, trivyNoDBUpdate...)
+	if t.OfflineScan || t.Runner.Confined() {
 		args = append(args, "--offline-scan")
 	}
 	if _, err := t.runner().Run(ctx, bin, args...); err != nil {
@@ -95,9 +102,7 @@ func (t *Trivy) Match(ctx context.Context, sbomPath string) (Result, error) {
 		return Result{}, err
 	}
 	args := append([]string{"sbom", "--format", "json", "--scanners", "vuln"}, trivyCommonFlags...)
-	if t.SkipDBUpdate {
-		args = append(args, "--skip-db-update")
-	}
+	args = append(args, trivyNoDBUpdate...)
 	args = append(args, "--", sbomPath)
 	out, err := t.runner().Run(ctx, bin, args...)
 	if err != nil {
@@ -112,6 +117,25 @@ func (t *Trivy) Match(ctx context.Context, sbomPath string) (Result, error) {
 		res.Tool = tool
 	}
 	return res, nil
+}
+
+// UpdateDB downloads trivy's vulnerability DB and the Java index DB used to identify JARs
+// while cataloging. trivy downloads only when its copy is due for an update.
+func (t *Trivy) UpdateDB(ctx context.Context) error {
+	if t.SkipDBUpdate {
+		return nil
+	}
+	bin, err := t.Bin.Resolve()
+	if err != nil {
+		return err
+	}
+	for _, only := range []string{"--download-db-only", "--download-java-db-only"} {
+		args := append([]string{"image", only}, trivyCommonFlags...)
+		if _, err := t.runner().Run(ctx, bin, args...); err != nil {
+			return fmt.Errorf("trivy %s: %w", only, err)
+		}
+	}
+	return nil
 }
 
 type trivyDoc struct {

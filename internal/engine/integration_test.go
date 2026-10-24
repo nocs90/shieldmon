@@ -51,6 +51,10 @@ func TestRealScanners(t *testing.T) {
 	}
 	p := model.Platform{OS: "linux", Architecture: "amd64"}
 
+	// Matchers never download DBs while matching; the separate step does.
+	if err := eng.UpdateDBs(ctx); err != nil {
+		t.Fatal(err)
+	}
 	r, err := eng.Scan(ctx, alpineRef, p)
 	if err != nil {
 		t.Fatal(err)
