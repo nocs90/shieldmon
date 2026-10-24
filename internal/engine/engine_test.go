@@ -69,11 +69,31 @@ type fakeMatcher struct {
 	vulns     map[string][]model.RawMatch // digest -> matches
 	fail      bool
 	dbBuilt   time.Time
+	// updateFail makes UpdateDB fail; calls records "update"/"match" with the network
+	// grant of each process, e.g. "update+net".
+	updateFail bool
+	calls      []string
+}
+
+func (m *fakeMatcher) record(ctx context.Context, call string) {
+	if scanner.PolicyFrom(ctx).Network {
+		call += "+net"
+	}
+	m.calls = append(m.calls, call)
 }
 
 func (m *fakeMatcher) Name() string      { return m.name }
 func (m *fakeMatcher) Generator() string { return m.gen }
-func (m *fakeMatcher) Match(_ context.Context, path string) (scanner.Result, error) {
+func (m *fakeMatcher) UpdateDB(ctx context.Context) error {
+	m.record(ctx, "update")
+	if m.updateFail {
+		return errors.New("db listing unreachable: https://user:hunter2@mirror.test/listing.json")
+	}
+	return nil
+}
+
+func (m *fakeMatcher) Match(ctx context.Context, path string) (scanner.Result, error) {
+	m.record(ctx, "match")
 	if m.fail {
 		return scanner.Result{}, errors.New("db download failed: token=abc123secret")
 	}
@@ -418,6 +438,56 @@ func TestMonitorDetectsMissedSchedule(t *testing.T) {
 	}
 	if hf := h.health(engine.CheckMonitorMissed, "schedule"); hf == nil || hf.State != "open" {
 		t.Fatal("5-day gap must open a monitor_missed health finding")
+	}
+}
+
+func TestMonitorUpdatesDBsOfflineFromScanning(t *testing.T) {
+	h := newHarness(t)
+	h.image(ref, digestA, vuln("busybox", "1.36.0-r9", "CVE-2022-48174", model.SeverityCritical))
+	h.scan(ref)
+	h.grype.calls = nil
+
+	// Unsandboxed: the cycle keeps a health finding open, DBs update with network
+	// before matching, and matching has none.
+	if _, err := h.eng.Monitor(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if hf := h.health(engine.CheckUnsandboxed, "scanners"); hf == nil || hf.State != "open" || hf.Severity != "high" {
+		t.Fatalf("scanners without a sandbox must be a high health finding: %+v", hf)
+	}
+	if got := strings.Join(h.grype.calls, ","); got != "update+net,match" {
+		t.Fatalf("grype calls = %s, want the DB update with network, then matching without", got)
+	}
+
+	// A failed update is a health finding (redacted), and the cycle still matches.
+	h.advance(24 * time.Hour)
+	h.eng.Sandboxed = true
+	h.grype.updateFail = true
+	sum, err := h.eng.Monitor(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.Status != "ok" || len(sum.Results) != 1 || sum.Results[0].Status != store.ScanComplete {
+		t.Fatalf("a failed DB update must not fail the cycle: %+v", sum)
+	}
+	hf := h.health(engine.CheckDBUpdate, "grype")
+	if hf == nil || hf.State != "open" {
+		t.Fatalf("failed DB update must be a health finding: %+v", hf)
+	}
+	if strings.Contains(hf.Detail, "hunter2") {
+		t.Fatalf("health detail leaks a secret: %s", hf.Detail)
+	}
+	if hf := h.health(engine.CheckUnsandboxed, "scanners"); hf.State != "resolved" {
+		t.Fatalf("sandboxed scanners must resolve scanner_unsandboxed: %+v", hf)
+	}
+
+	h.advance(24 * time.Hour)
+	h.grype.updateFail = false
+	if _, err := h.eng.Monitor(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if hf := h.health(engine.CheckDBUpdate, "grype"); hf.State != "resolved" {
+		t.Fatalf("a successful DB update must resolve db_update_failed: %+v", hf)
 	}
 }
 

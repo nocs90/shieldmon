@@ -32,6 +32,11 @@ var (
 	bwrapEtcNetwork = []string{"/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf"}
 )
 
+// apparmorUsernsSysctl is 1 on Ubuntu >= 23.10: a user namespace created by a program
+// without an AppArmor profile granting "userns" has no capabilities, so bwrap cannot set
+// up its sandbox.
+const apparmorUsernsSysctl = "/proc/sys/kernel/apparmor_restrict_unprivileged_userns"
+
 // bwrap confines scanners with bubblewrap: new user, mount, PID, IPC, UTS, cgroup and,
 // unless the policy grants network, network namespaces; no capabilities; only system
 // directories, the scanner binary and the policy's paths are visible
@@ -176,9 +181,20 @@ func bwrapAvailable() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if _, err := (Runner{Timeout: 10 * time.Second}).Run(ctx, argv[0], argv[1:]...); err != nil {
-		return fmt.Errorf("cannot create a sandbox: %s", redact.String(err.Error()))
+		return bwrapStartError(err, apparmorUsernsSysctl)
 	}
 	return nil
+}
+
+// bwrapStartError explains a failed probe, naming the fix when AppArmor restricts user
+// namespaces (sysctl is the path of that setting).
+func bwrapStartError(err error, sysctl string) error {
+	msg := "cannot create a sandbox: " + redact.String(err.Error())
+	if b, rerr := os.ReadFile(sysctl); rerr == nil && strings.TrimSpace(string(b)) == "1" {
+		msg += "; AppArmor restricts user namespaces on this host (kernel.apparmor_restrict_unprivileged_userns=1):" +
+			" install the bwrap profile in deploy/apparmor/shieldmon-bwrap"
+	}
+	return errors.New(msg)
 }
 
 func init() {

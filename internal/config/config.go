@@ -203,12 +203,16 @@ scanners:
   max_output_bytes: 536870912
   # Per-plugin settings. Pin binaries by SHA-256 ('shieldmon doctor' prints
   # current values); a mismatch aborts the scan and opens a health finding.
+  # Scanners never download DBs while scanning: 'shieldmon db update' (run first by
+  # monitor, scan and rematch) refreshes them. Set db_auto_update: false (grype) or
+  # skip_db_update: true (trivy) when the DBs are managed out of band.
   tools:
     syft:  { path: "", sha256: "" }
     grype: { path: "", sha256: "", options: { db_auto_update: true } }
     trivy: { path: "", sha256: "", options: { skip_db_update: false, offline_scan: false } }
   # Confinement for scanner processes, which parse hostile image content:
-  # none, or bwrap on Linux hosts with bubblewrap installed ('shieldmon plugins'
+  # none, or bwrap on Linux hosts with bubblewrap installed (Ubuntu >= 23.10 also
+  # needs the AppArmor profile in deploy/apparmor/shieldmon-bwrap) ('shieldmon plugins'
   # lists the backends and whether they run here; docs/adr/0011-scanner-sandbox.md).
   # Scanner DBs and caches live in <data_dir>/cache.
   sandbox:

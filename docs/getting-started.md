@@ -21,7 +21,7 @@ go build -o bin/crane github.com/google/go-containerregistry/cmd/crane   # regis
 export DEMO=/tmp/shieldmon-demo                                         # isolated data dir
 alias sc='./bin/shieldmon --data-dir $DEMO --config $DEMO/config.yaml'
 sc init
-sc doctor
+sc doctor   # fails on "sandbox none" until a backend runs here; expected on macOS
 ```
 
 ## 1. Start a local registry (separate terminal)

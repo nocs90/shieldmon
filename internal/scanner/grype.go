@@ -14,8 +14,8 @@ import (
 type Grype struct {
 	Bin    Binary
 	Runner Runner
-	// DBAutoUpdate lets grype refresh its DB before matching (default true in
-	// grype). Disable in air-gapped setups that manage the DB out of band.
+	// DBAutoUpdate lets UpdateDB refresh the DB (default true). Disable in air-gapped
+	// setups that manage the DB out of band. grype itself never updates while matching.
 	DBAutoUpdate bool
 }
 
@@ -24,8 +24,7 @@ func (g *Grype) Generator() string { return "syft" }
 
 func (g *Grype) runner() Runner {
 	r := g.Runner
-	r.ExtraEnv = append(r.ExtraEnv, "GRYPE_CHECK_FOR_APP_UPDATE=false",
-		fmt.Sprintf("GRYPE_DB_AUTO_UPDATE=%t", g.DBAutoUpdate))
+	r.ExtraEnv = append(r.ExtraEnv, "GRYPE_CHECK_FOR_APP_UPDATE=false", "GRYPE_DB_AUTO_UPDATE=false")
 	if r.CacheDir != "" {
 		r.ExtraEnv = append(r.ExtraEnv, "GRYPE_DB_CACHE_DIR="+filepath.Join(r.CacheDir, "grype", "db"))
 	}
@@ -46,6 +45,21 @@ func (g *Grype) Match(ctx context.Context, sbomPath string) (Result, error) {
 		return Result{}, fmt.Errorf("grype: %w", err)
 	}
 	return ParseGrype(out)
+}
+
+// UpdateDB runs `grype db update`, which downloads only when the listing has a newer DB.
+func (g *Grype) UpdateDB(ctx context.Context) error {
+	if !g.DBAutoUpdate {
+		return nil
+	}
+	bin, err := g.Bin.Resolve()
+	if err != nil {
+		return err
+	}
+	if _, err := g.runner().Run(ctx, bin, "db", "update", "--quiet"); err != nil {
+		return fmt.Errorf("grype db update: %w", err)
+	}
+	return nil
 }
 
 type grypeCVSS struct {

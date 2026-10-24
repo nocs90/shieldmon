@@ -81,7 +81,7 @@ when a later scan provides evidence.`,
 	for group, cmds := range map[string][]*cobra.Command{
 		"monitor": {a.scanCmd(), a.monitorCmd(), a.rematchCmd(), a.targetsCmd()},
 		"triage":  {a.findingsCmd(), a.healthCmd(), a.reportCmd(), a.sbomCmd()},
-		"setup":   {a.initCmd(), a.doctorCmd(), a.pluginsCmd(), a.versionCmd()},
+		"setup":   {a.initCmd(), a.doctorCmd(), a.dbCmd(), a.pluginsCmd(), a.versionCmd()},
 	} {
 		for _, c := range cmds {
 			c.GroupID = group
@@ -134,13 +134,14 @@ func (a *app) setup(cmd *cobra.Command) error {
 	}
 	a.store = st
 
-	set, err := a.scannerSet()
+	set, confined, err := a.scannerSet()
 	if err != nil {
 		return err
 	}
 	a.engine = &engine.Engine{
 		Store:           st,
 		Scanners:        set,
+		Sandboxed:       confined,
 		Fetcher:         engine.RegistryFetcher{Options: a.ociOptions()},
 		DataDir:         cfg.DataDir,
 		DBMaxAge:        cfg.Health.DBMaxAge.Duration,
@@ -161,17 +162,18 @@ func (a *app) ociOptions() oci.Options {
 	}
 }
 
-func (a *app) scannerSet() (scanner.Set, error) {
+// scannerSet builds the configured scanners and reports whether they run confined.
+func (a *app) scannerSet() (scanner.Set, bool, error) {
 	sc := a.cfg.Scanners
 	_, sandbox, err := scanner.SelectSandbox(sc.Sandbox.Backend)
 	if err != nil {
-		return scanner.Set{}, err
+		return scanner.Set{}, false, err
 	}
 	// Scanner DBs, caches and scratch space live in the data dir, so that a sandbox can
 	// expose them without the user's home directory.
 	data, err := filepath.Abs(a.cfg.DataDir)
 	if err != nil {
-		return scanner.Set{}, err
+		return scanner.Set{}, false, err
 	}
 	r := scanner.Runner{
 		Timeout: sc.Timeout.Duration, MaxOutput: sc.MaxOutputBytes, Sandbox: sandbox,
@@ -185,7 +187,16 @@ func (a *app) scannerSet() (scanner.Set, error) {
 			Options: scanner.Options(t.Options),
 		}
 	}
-	return scanner.Build(sc.Matchers, specs, r)
+	set, err := scanner.Build(sc.Matchers, specs, r)
+	return set, scanner.Confined(sandbox), err
+}
+
+// preflight records the sandbox posture and refreshes vulnerability DBs before a
+// command matches. A failed update is reported but does not stop the command.
+func (a *app) preflight(cmd *cobra.Command) {
+	if err := a.engine.Preflight(cmd.Context()); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: vulnerability DB update failed, matching with the DBs on disk: %v\n", err)
+	}
 }
 
 func (a *app) lock() (func(), error) { return engine.Lock(a.cfg.DataDir) }
@@ -264,10 +275,15 @@ func (a *app) doctorCmd() *cobra.Command {
 			}
 			fmt.Fprintf(w, "data dir: %s\n", a.cfg.DataDir)
 			if name, sb, _ := scanner.SelectSandbox(a.cfg.Scanners.Sandbox.Backend); sb != nil {
-				if _, err := sb.Command(scanner.Policy{}, "true", nil); err != nil {
+				_, err := sb.Command(scanner.Policy{}, "true", nil)
+				switch {
+				case err != nil:
 					fmt.Fprintf(w, "✗ sandbox %v\n", err)
 					problems++
-				} else {
+				case !scanner.Confined(sb):
+					fmt.Fprintf(w, "✗ sandbox %s: scanners parse image content unconfined ('shieldmon plugins' lists the backends)\n", name)
+					problems++
+				default:
 					fmt.Fprintf(w, "• sandbox %s\n", name)
 				}
 			}
@@ -369,6 +385,7 @@ becomes a monitoring target that 'shieldmon monitor' re-evaluates.`,
 				return err
 			}
 			defer unlock()
+			a.preflight(cmd)
 			var results []engine.Result
 			failed := 0
 			for _, ref := range args {
@@ -482,6 +499,7 @@ func (a *app) rematchCmd() *cobra.Command {
 				return err
 			}
 			defer unlock()
+			a.preflight(cmd)
 			var results []engine.Result
 			for _, arg := range args {
 				d, err := a.resolveDigest(cmd.Context(), arg)
@@ -499,6 +517,34 @@ func (a *app) rematchCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&all, "all", false, "rematch the current digest of every target")
 	cmd.Flags().StringVarP(&format, "output", "o", "text", "output format: text, json")
+	return cmd
+}
+
+func (a *app) dbCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "db",
+		Short: "Manage the scanners' vulnerability DBs",
+	}
+	cmd.AddCommand(&cobra.Command{
+		Use:   "update",
+		Short: "Refresh vulnerability DBs (the only scanner step with network; monitor, scan and rematch run it first)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := a.setup(cmd); err != nil {
+				return err
+			}
+			unlock, err := a.lock()
+			if err != nil {
+				return err
+			}
+			defer unlock()
+			if err := a.engine.UpdateDBs(cmd.Context()); err != nil {
+				return fmt.Errorf("vulnerability DB update failed (see 'shieldmon health'): %w", err)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "vulnerability DBs up to date")
+			return nil
+		},
+	})
 	return cmd
 }
 

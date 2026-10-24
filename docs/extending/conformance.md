@@ -9,6 +9,12 @@ re-deriving every edge case.
 | `CheckPlugin(t, name)` | registered; has a description; constructs with defaults; implements Generator and/or Matcher; names match; a matcher's generator is registered and is a Generator |
 | `CheckParser(t, scanner, parse, fixtures...)` | real fixtures parse with Scanner set, non-empty IDs, PURL or name+version, valid severity; output survives normalization; hostile inputs (empty, HTML error page, truncated JSON, wrong types, 10k-deep nesting, control bytes) never panic and never yield matches |
 | `CheckMatcher(t, m, sbom)` (integration) | real run reports tool name, version and DB build time; honours context cancellation |
+| `CheckSandbox(t, backend)` | registered with a description; confines (is not the `none` opt-out); a probe process inside it can read its inputs, write its output and scratch directories, and write the DB cache and connect only when the policy grants network; it cannot read or list anything else (home directory included), write its inputs, write outside its policy, write the DB cache or connect while offline, or leave a child running after a timeout. Skipped where the backend cannot run, unless `SHIELDMON_TEST_SANDBOX` names it |
 
-Built-in adapters run the kit in `internal/scanner/conformance_test.go`. When a new
+Built-in adapters and sandbox backends run the kit in `internal/scanner/conformance_test.go`.
+The sandbox probe is the test binary re-running itself (`scannertest` hooks `init`), so a
+backend needs no shell or network tools inside the sandbox to be tested. Reads are judged by
+the content returned and writes by what reaches the host, not by whether the call
+succeeded: a backend may show the process stand-in paths (bwrap creates the parents of its
+mounts inside the scratch directory, so a write there succeeds and is discarded). When a new
 extension point is added, it ships with its own kit in the same style.

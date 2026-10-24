@@ -49,6 +49,15 @@ type Matcher interface {
 	Match(ctx context.Context, sbomPath string) (Result, error)
 }
 
+// DBUpdater is a matcher that refreshes its vulnerability DB. Matching never updates
+// the DB: the process that reads an SBOM has no network (docs/adr/0011-scanner-sandbox.md).
+// UpdateDB runs in a separate step, with network, and never sees image content or SBOMs.
+type DBUpdater interface {
+	// UpdateDB downloads a newer DB if there is one. It does nothing when the
+	// configuration manages the DB out of band.
+	UpdateDB(ctx context.Context) error
+}
+
 // Result is the output of one matcher run.
 type Result struct {
 	Tool    model.Tool

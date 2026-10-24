@@ -209,3 +209,86 @@ func TestRequiredGenerators(t *testing.T) {
 		t.Error("grype without syft must be a configuration error")
 	}
 }
+
+// fakeScanner writes a script that logs its arguments and grype's auto-update setting,
+// one line per run, and prints an empty JSON document.
+func fakeScanner(t *testing.T) (Binary, func() []string) {
+	t.Helper()
+	dir := t.TempDir()
+	log, bin := filepath.Join(dir, "log"), filepath.Join(dir, "scanner")
+	script := "#!/bin/sh\n{ printf '%s ' \"$@\"; printf '| GRYPE_DB_AUTO_UPDATE=%s\\n' \"$GRYPE_DB_AUTO_UPDATE\"; } >> " + log + "\necho '{}'\n"
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return Binary{Name: "fake", Path: bin}, func() []string {
+		b, _ := os.ReadFile(log)
+		_ = os.Remove(log)
+		return strings.Split(strings.TrimSpace(string(b)), "\n")
+	}
+}
+
+func TestMatchersNeverUpdateWhileScanning(t *testing.T) {
+	bin, runs := fakeScanner(t)
+	ctx := context.Background()
+	for _, confined := range []bool{false, true} {
+		var r Runner
+		if confined {
+			r.Sandbox = &passSandbox{}
+		}
+		g := &Grype{Bin: bin, Runner: r, DBAutoUpdate: true}
+		if _, err := g.Match(ctx, "/data/x.json"); err != nil {
+			t.Fatal(err)
+		}
+		if got := runs(); len(got) != 1 || !strings.HasSuffix(got[0], "| GRYPE_DB_AUTO_UPDATE=false") {
+			t.Errorf("grype must not update its DB while matching: %q", got)
+		}
+
+		tr := &Trivy{Bin: bin, Runner: r}
+		if _, err := tr.Generate(ctx, Source{OCIDir: "/data/oci"}, t.TempDir()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tr.Match(ctx, "/data/x.json"); err != nil {
+			t.Fatal(err)
+		}
+		got := runs()
+		if len(got) != 3 { // generate, match, version
+			t.Fatalf("trivy runs = %q", got)
+		}
+		for _, run := range got[:2] {
+			if !strings.Contains(run, "--skip-db-update --skip-java-db-update") {
+				t.Errorf("trivy must not update its DBs while scanning: %q", run)
+			}
+		}
+		if strings.Contains(got[0], "--offline-scan") != confined {
+			t.Errorf("confined=%t: trivy cataloging must be offline exactly when confined: %q", confined, got[0])
+		}
+	}
+}
+
+func TestMatchersUpdateDBUnlessManagedOutOfBand(t *testing.T) {
+	bin, runs := fakeScanner(t)
+	ctx := context.Background()
+	if err := (&Grype{Bin: bin, DBAutoUpdate: true}).UpdateDB(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := runs(); len(got) != 1 || !strings.HasPrefix(got[0], "db update ") {
+		t.Errorf("grype update runs = %q", got)
+	}
+	if err := (&Trivy{Bin: bin}).UpdateDB(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got := runs()
+	if len(got) != 2 || !strings.HasPrefix(got[0], "image --download-db-only ") || !strings.HasPrefix(got[1], "image --download-java-db-only ") {
+		t.Errorf("trivy update runs = %q", got)
+	}
+
+	if err := (&Grype{Bin: bin}).UpdateDB(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&Trivy{Bin: bin, SkipDBUpdate: true}).UpdateDB(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := runs(); len(got) != 1 || got[0] != "" {
+		t.Errorf("DBs managed out of band must not be updated: %q", got)
+	}
+}

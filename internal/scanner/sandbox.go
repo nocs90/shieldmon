@@ -141,6 +141,14 @@ func selectAuto(all []SandboxBackend) (SandboxBackend, error) {
 		ErrNoSandbox, strings.Join(reasons, "; "))
 }
 
+// Confined reports whether sb keeps scanners away from the host's files and network. Only
+// the explicit opt-out (and no sandbox at all) does not; a backend that cannot run here
+// counts as confined because it refuses to start scanners.
+func Confined(sb Sandbox) bool {
+	_, none := sb.(unconfined)
+	return sb != nil && !none
+}
+
 // refusing stands in for a backend that cannot run, so the failure surfaces when a scan
 // starts a scanner rather than when the configuration loads.
 type refusing struct{ err error }

@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -180,7 +181,8 @@ func TestRunnerGivesEachProcessScratchAndCache(t *testing.T) {
 	}
 }
 
-// TestBwrapSandbox runs real bubblewrap where it is installed and allowed. CI sets
+// TestBwrapSandbox checks, with real bubblewrap, what only its namespaces provide; the
+// properties every backend shares are probed by scannertest.CheckSandbox. CI sets
 // SHIELDMON_TEST_SANDBOX=bwrap so that a runner that cannot start it fails the build
 // instead of skipping.
 func TestBwrapSandbox(t *testing.T) {
@@ -195,11 +197,9 @@ func TestBwrapSandbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	host := t.TempDir()
-	secret, input, out := filepath.Join(host, "secret"), filepath.Join(host, "input"), filepath.Join(host, "out")
-	for _, f := range []string{secret, input} {
-		if err := os.WriteFile(f, []byte("data"), 0o600); err != nil {
-			t.Fatal(err)
-		}
+	input, out := filepath.Join(host, "input"), filepath.Join(host, "out")
+	if err := os.WriteFile(input, []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.Mkdir(out, 0o700); err != nil {
 		t.Fatal(err)
@@ -217,10 +217,6 @@ func TestBwrapSandbox(t *testing.T) {
 		t.Fatalf("output written in the sandbox is missing: %q %v", b, err)
 	}
 	denied := map[string]string{
-		"read outside the policy":  "cat " + secret,
-		"write a read-only input":  "echo x > " + input,
-		"write outside the policy": "echo x > " + host + "/new",
-		"list the home directory":  "ls " + os.Getenv("HOME"),
 		"see a network device":     "grep -v -e lo: -e Inter -e face /proc/net/dev | grep -q :",
 		"see the host's processes": "test $(ls -d /proc/[0-9]* | wc -l) -gt 10",
 		"inherit the host's HOME":  `test "$HOME" != /tmp`,
@@ -228,6 +224,30 @@ func TestBwrapSandbox(t *testing.T) {
 	for what, script := range denied {
 		if err := sh(script); err == nil {
 			t.Errorf("a sandboxed scanner could %s", what)
+		}
+	}
+}
+
+func TestBwrapStartErrorNamesAppArmorFix(t *testing.T) {
+	dir := t.TempDir()
+	probe := errors.New("bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted")
+	for _, c := range []struct {
+		value string // "" leaves the setting absent (older kernels, other distros)
+		hint  bool
+	}{{"1\n", true}, {"0\n", false}, {"", false}} {
+		sysctl := filepath.Join(dir, "absent")
+		if c.value != "" {
+			sysctl = filepath.Join(dir, strings.TrimSpace(c.value))
+			if err := os.WriteFile(sysctl, []byte(c.value), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		msg := bwrapStartError(probe, sysctl).Error()
+		if !strings.Contains(msg, "RTM_NEWADDR") {
+			t.Errorf("the probe's error is lost: %q", msg)
+		}
+		if got := strings.Contains(msg, "deploy/apparmor/shieldmon-bwrap"); got != c.hint {
+			t.Errorf("sysctl %q: AppArmor hint = %t, want %t: %q", c.value, got, c.hint, msg)
 		}
 	}
 }
