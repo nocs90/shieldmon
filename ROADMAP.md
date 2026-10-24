@@ -24,8 +24,9 @@ safety, regression, stale DB, auth failure and report numbers.
 
 ## M2 — Hardening & packaging
 
-- Run scanners in a sandbox: rootless OCI runtime or bubblewrap, read-only rootfs, tmpfs
-  with quota, no network except DB mirrors, seccomp.
+- Run scanners in a sandbox ([ADR 0011](docs/adr/0011-scanner-sandbox.md)): bubblewrap on
+  Linux hosts, Landlock in containers, seccomp, tmpfs with quota; no network while touching
+  image content, vulnerability DBs refreshed by a separate `db update` step.
 - Container image for ShieldMon (distroless, non-root, scanners installed by
   `scripts/install-scanners.sh`), multi-arch pins.
 - Scanner signature verification (cosign) in addition to checksums.

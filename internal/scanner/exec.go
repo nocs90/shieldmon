@@ -92,6 +92,9 @@ type Runner struct {
 	MaxOutput int64
 	// ExtraEnv is appended after the allowlisted environment.
 	ExtraEnv []string
+	// Sandbox confines every process to the Policy attached to its context. Nil runs
+	// processes unconfined; the CLI always sets one (scanners.sandbox.backend).
+	Sandbox Sandbox
 }
 
 func (r Runner) env() []string {
@@ -141,9 +144,16 @@ func (r Runner) Run(ctx context.Context, bin string, args ...string) ([]byte, er
 	if maxOut <= 0 {
 		maxOut = 512 << 20
 	}
+	argv := append([]string{bin}, args...)
+	if r.Sandbox != nil {
+		var err error
+		if argv, err = r.Sandbox.Command(PolicyFrom(ctx), bin, args); err != nil {
+			return nil, fmt.Errorf("%s: %w", bin, err)
+		}
+	}
 	// G204 is the point of this function: argv-only exec of a resolved, optionally
-	// checksum-pinned scanner binary, never through a shell.
-	cmd := exec.CommandContext(ctx, bin, args...) //nolint:gosec // G204: see comment above
+	// checksum-pinned scanner binary (or its sandbox launcher), never through a shell.
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // G204: see comment above
 	cmd.Env = r.env()
 	cmd.Stdin = nil
 	// On overflow the process tree is killed rather than left blocked on a full pipe.

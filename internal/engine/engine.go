@@ -264,7 +264,8 @@ func (e *Engine) generate(ctx context.Context, g scanner.Generator, r oci.Resolv
 		return err
 	}
 	e.log().Info("generating SBOM", "generator", g.Name(), "version", tool.Version, "digest", r.Digest)
-	files, err := g.Generate(ctx, scanner.Source{OCIDir: ociDir, Name: r.Repository, Version: r.Digest}, out)
+	gctx := scanner.WithPolicy(ctx, scanner.Policy{ReadOnly: []string{ociDir}, Writable: []string{out}})
+	files, err := g.Generate(gctx, scanner.Source{OCIDir: ociDir, Name: r.Repository, Version: r.Digest}, out)
 	if err != nil {
 		return err
 	}
@@ -382,7 +383,8 @@ func (e *Engine) match(ctx context.Context, digest string, targetID int64, kind 
 			continue
 		}
 		e.log().Info("matching", "matcher", m.Name(), "digest", digest)
-		out, err := m.Match(ctx, filepath.Join(e.DataDir, sb.Path))
+		sbomPath := filepath.Join(e.DataDir, sb.Path)
+		out, err := m.Match(scanner.WithPolicy(ctx, scanner.Policy{ReadOnly: []string{sbomPath}}), sbomPath)
 		if err != nil {
 			check := CheckMatcher
 			if errors.Is(err, scanner.ErrChecksumMismatch) {

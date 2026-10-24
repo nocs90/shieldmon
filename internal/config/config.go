@@ -49,6 +49,10 @@ type Config struct {
 		Timeout        Duration        `yaml:"timeout"`
 		MaxOutputBytes int64           `yaml:"max_output_bytes"`
 		Tools          map[string]Tool `yaml:"tools"`
+		// Sandbox confines scanner processes (docs/adr/0011-scanner-sandbox.md).
+		Sandbox struct {
+			Backend string `yaml:"backend"`
+		} `yaml:"sandbox"`
 	} `yaml:"scanners"`
 
 	Limits struct {
@@ -83,6 +87,7 @@ func Default() Config {
 	c.Scanners.Timeout = Duration{30 * time.Minute}
 	c.Scanners.MaxOutputBytes = 512 << 20
 	c.Scanners.Tools = map[string]Tool{}
+	c.Scanners.Sandbox.Backend = "none"
 	c.Limits.MaxLayers = 256
 	c.Limits.MaxLayerBytes = 4 << 30
 	c.Limits.MaxTotalBytes = 16 << 30
@@ -202,6 +207,10 @@ scanners:
     syft:  { path: "", sha256: "" }
     grype: { path: "", sha256: "", options: { db_auto_update: true } }
     trivy: { path: "", sha256: "", options: { skip_db_update: false, offline_scan: false } }
+  # Confinement for scanner processes, which parse hostile image content
+  # ('shieldmon plugins' lists the backends; docs/adr/0011-scanner-sandbox.md).
+  sandbox:
+    backend: none
 
 limits:
   max_layers: 256
