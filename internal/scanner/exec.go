@@ -191,17 +191,28 @@ func (r Runner) Run(ctx context.Context, bin string, args ...string) ([]byte, er
 		return nil, fmt.Errorf("%s: %w", bin, err)
 	}
 	defer cleanup()
-	argv := append([]string{bin}, args...)
+	launch := Launch{Argv: append([]string{bin}, args...)}
 	if r.Sandbox != nil {
-		if argv, err = r.Sandbox.Command(p, bin, args); err != nil {
+		if launch, err = r.Sandbox.Command(p, bin, args); err != nil {
 			return nil, fmt.Errorf("%s: %w", bin, err)
 		}
 	}
+	files, err := launchFiles(launch.Files)
+	defer func() {
+		for _, f := range files {
+			f.Close()
+		}
+	}()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", bin, err)
+	}
+	argv := launch.Argv
 	// G204 is the point of this function: argv-only exec of a resolved, optionally
 	// checksum-pinned scanner binary (or its sandbox launcher), never through a shell.
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // G204: see comment above
 	cmd.Env = env
 	cmd.Stdin = nil
+	cmd.ExtraFiles = files
 	// On overflow the process tree is killed rather than left blocked on a full pipe.
 	stdout := &limitedBuffer{max: maxOut, onOverflow: cancel}
 	stderr := &limitedBuffer{max: 64 << 10, truncate: true}
@@ -231,6 +242,29 @@ func (r Runner) Run(ctx context.Context, bin string, args ...string) ([]byte, er
 		return nil, fmt.Errorf("%s: %w: %s", name, err, msg)
 	}
 	return stdout.buf.Bytes(), nil
+}
+
+// launchFiles turns a Launch's data into files the child inherits: unlinked temporary files,
+// so that nothing is left behind and no reader can block a writer.
+func launchFiles(data [][]byte) ([]*os.File, error) {
+	var files []*os.File
+	for _, d := range data {
+		f, err := os.CreateTemp("", "shieldmon-fd-")
+		if err != nil {
+			return files, err
+		}
+		files = append(files, f)
+		if err := os.Remove(f.Name()); err != nil {
+			return files, err
+		}
+		if _, err := f.Write(d); err != nil {
+			return files, err
+		}
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
+			return files, err
+		}
+	}
+	return files, nil
 }
 
 // limitedBuffer stops accepting writes past max bytes. The buffer is a named

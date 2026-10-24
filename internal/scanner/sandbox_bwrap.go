@@ -42,15 +42,34 @@ const apparmorUsernsSysctl = "/proc/sys/kernel/apparmor_restrict_unprivileged_us
 // directories, the scanner binary and the policy's paths are visible
 // (docs/adr/0011-scanner-sandbox.md).
 type bwrap struct {
-	path  string
-	lstat func(string) (fs.FileInfo, error)
-	link  func(string) (string, error)
+	path    string
+	seccomp []byte // compiled filter, passed as fd 3
+	lstat   func(string) (fs.FileInfo, error)
+	link    func(string) (string, error)
 }
 
-func newBwrap(path string) *bwrap { return &bwrap{path: path, lstat: os.Lstat, link: os.Readlink} }
+func newBwrap(path string) (*bwrap, error) {
+	prog, err := seccompProgram()
+	if err != nil {
+		return nil, err
+	}
+	return &bwrap{path: path, seccomp: prog, lstat: os.Lstat, link: os.Readlink}, nil
+}
 
-func (b *bwrap) Command(p Policy, bin string, args []string) ([]string, error) {
-	argv := []string{b.path, "--die-with-parent", "--new-session", "--unshare-all", "--cap-drop", "ALL"}
+func (b *bwrap) Command(p Policy, bin string, args []string) (Launch, error) {
+	argv, err := b.argv(p, bin, args)
+	if err != nil {
+		return Launch{}, err
+	}
+	return Launch{Argv: argv, Files: [][]byte{b.seccomp}}, nil
+}
+
+func (b *bwrap) argv(p Policy, bin string, args []string) ([]string, error) {
+	if len(b.seccomp) == 0 {
+		return nil, errors.New("bwrap: no seccomp filter")
+	}
+	// bwrap applies the filter right before it execs the scanner, after its own setup.
+	argv := []string{b.path, "--die-with-parent", "--new-session", "--unshare-all", "--cap-drop", "ALL", "--seccomp", "3"}
 	if p.Network {
 		argv = append(argv, "--share-net")
 	}
@@ -174,13 +193,15 @@ func bwrapAvailable() error {
 	if err != nil {
 		return errors.New("bwrap not found in PATH (install bubblewrap)")
 	}
-	argv, err := newBwrap(path).Command(Policy{}, path, []string{"--version"})
+	b, err := newBwrap(path)
 	if err != nil {
 		return err
 	}
+	// The probe runs through a Runner like a scanner, so the kernel also validates the
+	// seccomp filter.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if _, err := (Runner{Timeout: 10 * time.Second}).Run(ctx, argv[0], argv[1:]...); err != nil {
+	if _, err := (Runner{Timeout: 10 * time.Second, Sandbox: b}).Run(ctx, path, "--version"); err != nil {
 		return bwrapStartError(err, apparmorUsernsSysctl)
 	}
 	return nil
@@ -200,7 +221,7 @@ func bwrapStartError(err error, sysctl string) error {
 func init() {
 	RegisterSandbox(SandboxBackend{
 		Name:        "bwrap",
-		Description: "bubblewrap namespaces on Linux hosts: no network while reading image content, only declared paths visible",
+		Description: "bubblewrap namespaces and seccomp on Linux hosts: no network while reading image content, only declared paths visible",
 		Auto:        1,
 		Available:   bwrapAvailable,
 		New: func() Sandbox {
@@ -208,7 +229,11 @@ func init() {
 			if err != nil {
 				return refusing{fmt.Errorf("%w: bwrap: %w", ErrNoSandbox, err)}
 			}
-			return newBwrap(path)
+			b, err := newBwrap(path)
+			if err != nil {
+				return refusing{fmt.Errorf("%w: bwrap: %w", ErrNoSandbox, err)}
+			}
+			return b
 		},
 	})
 }

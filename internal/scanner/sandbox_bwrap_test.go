@@ -27,7 +27,8 @@ func mergedUsr() *bwrap {
 	entries := map[string]fs.FileMode{"/usr": fs.ModeDir, "/bin": fs.ModeSymlink, "/lib": fs.ModeSymlink, "/lib64": fs.ModeDir}
 	links := map[string]string{"/bin": "usr/bin", "/lib": "usr/lib"}
 	return &bwrap{
-		path: "/usr/bin/bwrap",
+		path:    "/usr/bin/bwrap",
+		seccomp: []byte("filter"),
 		lstat: func(p string) (fs.FileInfo, error) {
 			m, ok := entries[p]
 			if !ok {
@@ -55,9 +56,13 @@ func TestBwrapCommandConfinesToPolicy(t *testing.T) {
 		Writable: []string{"/data/tmp/scan-1/syft"},
 		Scratch:  "/data/tmp/proc-1",
 	}
-	argv, err := mergedUsr().Command(p, "/opt/scanners/grype", []string{"sbom:/data/sboms/x.json", "-o", "json"})
+	l, err := mergedUsr().Command(p, "/opt/scanners/grype", []string{"sbom:/data/sboms/x.json", "-o", "json"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	argv := l.Argv
+	if !hasArgs(argv, "--seccomp", "3") || len(l.Files) != 1 || string(l.Files[0]) != "filter" {
+		t.Errorf("the seccomp filter must be passed as fd 3: %q %q", argv, l.Files)
 	}
 	sep := slices.Index(argv, "--")
 	if sep < 0 || !slices.Equal(argv[sep+1:], []string{"/opt/scanners/grype", "sbom:/data/sboms/x.json", "-o", "json"}) {
@@ -112,10 +117,11 @@ func TestBwrapCommandNetworkAndOrdering(t *testing.T) {
 		ReadOnly: []string{"/data/cache/grype/db", "/data/cache"},
 		Writable: []string{"/data/cache"},
 	}
-	argv, err := mergedUsr().Command(p, "/usr/bin/grype", []string{"db", "update"})
+	l, err := mergedUsr().Command(p, "/usr/bin/grype", []string{"db", "update"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	argv := l.Argv
 	if !slices.Contains(argv, "--share-net") || !hasArgs(argv, "--ro-bind-try", "/etc/resolv.conf", "/etc/resolv.conf") {
 		t.Errorf("a network policy needs the network namespace and resolver config: %q", argv)
 	}
@@ -140,14 +146,19 @@ func TestBwrapCommandRejectsUnsafePolicy(t *testing.T) {
 			t.Errorf("policy %+v must be refused", p)
 		}
 	}
+	noFilter := mergedUsr()
+	noFilter.seccomp = nil
+	if _, err := noFilter.Command(Policy{}, "/usr/bin/grype", nil); err == nil {
+		t.Error("bwrap must refuse to run a scanner without the seccomp filter")
+	}
 }
 
 // passSandbox records the policy and runs the command unconfined.
 type passSandbox struct{ got Policy }
 
-func (s *passSandbox) Command(p Policy, bin string, args []string) ([]string, error) {
+func (s *passSandbox) Command(p Policy, bin string, args []string) (Launch, error) {
 	s.got = p
-	return append([]string{bin}, args...), nil
+	return Launch{Argv: append([]string{bin}, args...)}, nil
 }
 
 func TestRunnerGivesEachProcessScratchAndCache(t *testing.T) {
@@ -204,7 +215,11 @@ func TestBwrapSandbox(t *testing.T) {
 	if err := os.Mkdir(out, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	r := Runner{Timeout: time.Minute, Sandbox: newBwrap(path), TempDir: filepath.Join(host, "tmp")}
+	b, err := newBwrap(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := Runner{Timeout: time.Minute, Sandbox: b, TempDir: filepath.Join(host, "tmp")}
 	ctx := WithPolicy(context.Background(), Policy{ReadOnly: []string{input}, Writable: []string{out}})
 	sh := func(script string) error {
 		_, err := r.Run(ctx, "/bin/sh", "-c", script)

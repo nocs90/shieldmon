@@ -40,10 +40,18 @@ func PolicyFrom(ctx context.Context) Policy {
 	return p
 }
 
+// Launch is how to start one confined process.
+type Launch struct {
+	Argv []string
+	// Files are passed to the process as file descriptors 3, 4, ... in order, each read
+	// from its start (bwrap reads its seccomp filter from one).
+	Files [][]byte
+}
+
 // Sandbox confines scanner processes.
 type Sandbox interface {
-	// Command returns the argv that runs bin with args confined by p.
-	Command(p Policy, bin string, args []string) ([]string, error)
+	// Command returns how to run bin with args confined by p.
+	Command(p Policy, bin string, args []string) (Launch, error)
 }
 
 // SandboxBackend describes a sandbox implementation. Backends register themselves from
@@ -153,13 +161,13 @@ func Confined(sb Sandbox) bool {
 // starts a scanner rather than when the configuration loads.
 type refusing struct{ err error }
 
-func (r refusing) Command(Policy, string, []string) ([]string, error) { return nil, r.err }
+func (r refusing) Command(Policy, string, []string) (Launch, error) { return Launch{}, r.err }
 
 // unconfined runs scanners as ordinary child processes: the explicit opt-out.
 type unconfined struct{}
 
-func (unconfined) Command(_ Policy, bin string, args []string) ([]string, error) {
-	return append([]string{bin}, args...), nil
+func (unconfined) Command(_ Policy, bin string, args []string) (Launch, error) {
+	return Launch{Argv: append([]string{bin}, args...)}, nil
 }
 
 func init() {

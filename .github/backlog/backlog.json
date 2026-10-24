@@ -728,6 +728,72 @@
       "milestone": "M2 — Hardening & packaging",
       "epic": null,
       "body": "## Context\n\n`examples/ubi9-node/e2e.py` (CI job `e2e-ubi9-node`) is the end-to-end quality gate: multi-stage build, OS+npm findings, remediation decision policy, rebuild, base migration, reports. Base tags and npm pins are fixed in the script and age over time.\n\n## Acceptance criteria\n\n- [ ] Renovate (or a scheduled job) proposes bumps of the pinned base tags\n- [ ] Assertions stay independent of the exact number of CVEs in the vulnerability DB\n- [ ] Reports from the job are linked from the README as a live example"
+    },
+    {
+      "key": "s1-seccomp",
+      "title": "Seccomp filter for sandboxed scanners",
+      "labels": [
+        "kind/feature",
+        "area/scanner",
+        "security",
+        "priority/high"
+      ],
+      "milestone": "M2 — Hardening & packaging",
+      "epic": "epic-s1",
+      "body": "## Context\n\nADR 0011, decision 5: one deny-list seccomp filter shared by every sandbox backend, generated in pure Go (the binary is built with `CGO_ENABLED=0`). The `bwrap` backend runs scanners without one today, so a compromised parser can still create user namespaces, use io_uring or bpf, and reach the kernel attack surface they expose.\n\n## Acceptance criteria\n\n- [ ] Filter generated in Go for amd64 and arm64 with `golang.org/x/sys/unix` (no new module); any other architecture, and the i386 and x32 ABIs, are refused\n- [ ] Denies namespace creation (`unshare`, `setns`, `clone` with `CLONE_NEW*`, `clone3`), `ptrace` and `process_vm_*`, the mount family, keyrings, `bpf`, `perf_event_open`, `userfaultfd`, io_uring, kernel modules, `kexec`, and `personality` changes\n- [ ] `bwrap` loads it with `--seccomp`; the `landlock` launcher applies the same filter\n- [ ] Unit tests evaluate the BPF program; `scannertest.CheckSandbox` proves a confined process cannot create a user namespace"
+    },
+    {
+      "key": "s1-landlock",
+      "title": "Landlock sandbox backend for containers (`shieldmon sandbox-exec`)",
+      "labels": [
+        "kind/feature",
+        "area/scanner",
+        "security",
+        "priority/high"
+      ],
+      "milestone": "M2 — Hardening & packaging",
+      "epic": "epic-s1",
+      "body": "## Context\n\nADR 0011, decision 4: container runtimes deny `unshare(CLONE_NEWUSER)` by default, so `bwrap` cannot start in a Kubernetes CronJob (#7, #11). Landlock is unprivileged, needs no namespace and is inherited across `execve`. It replaces the rootless OCI runtime named in the epic, which needs the same user namespaces.\n\n## Acceptance criteria\n\n- [ ] Hidden `shieldmon sandbox-exec` launcher applies Landlock filesystem rules from the policy, denies TCP connect/bind when offline (Landlock ABI ≥ 4, otherwise it refuses), sets `RLIMIT_FSIZE`/`RLIMIT_NOFILE`, `no_new_privs` and the seccomp filter, then execs the scanner\n- [ ] Registered as `landlock`, tried by `auto` after `bwrap`; availability reports the kernel's Landlock ABI\n- [ ] Passes `scannertest.CheckSandbox` in CI (`SHIELDMON_TEST_SANDBOX=landlock`)\n- [ ] Implemented with `golang.org/x/sys/unix` (no new module)"
+    },
+    {
+      "key": "s1-quota",
+      "title": "Disk quota for sandboxed scanners' scratch space",
+      "labels": [
+        "kind/feature",
+        "area/scanner",
+        "security",
+        "priority/medium"
+      ],
+      "milestone": "M2 — Hardening & packaging",
+      "epic": "epic-s1",
+      "body": "## Context\n\nScratch space is a per-process directory under `<data_dir>/tmp` on disk: a RAM-backed tmpfs big enough for real images would let a decompression bomb exhaust host memory (ADR 0011, implementation notes). A hostile layer can therefore still fill the data dir's disk.\n\n## Acceptance criteria\n\n- [ ] Each scanner process's writes are bounded: single files (`RLIMIT_FSIZE`) and the scratch directory in total\n- [ ] Exceeding the quota stops the scanner and fails the scan with a health finding, without filling the disk\n- [ ] `scannertest.CheckSandbox` probes the quota"
+    },
+    {
+      "key": "s1-default-auto",
+      "title": "Sandbox scanners by default (`scanners.sandbox.backend: auto`)",
+      "labels": [
+        "kind/feature",
+        "area/scanner",
+        "area/cli",
+        "security",
+        "priority/medium"
+      ],
+      "milestone": "M2 — Hardening & packaging",
+      "epic": "epic-s1",
+      "body": "## Context\n\nADR 0011, decision 4: the default `auto` picks `bwrap`, then `landlock`, and refuses to scan when neither runs. The default stays `none` until the Landlock backend lands, so that ShieldMon still scans in containers.\n\n## Acceptance criteria\n\n- [ ] Built-in default and `shieldmon init` template use `auto`\n- [ ] Getting started and deployment docs cover hosts without a backend (macOS development: explicit `backend: none`)\n- [ ] Configs that set `backend` explicitly keep their value; the release notes say what changes for configs that do not"
+    },
+    {
+      "key": "s1-apparmor-restrict",
+      "title": "AppArmor: evaluate the upstream bwrap-userns-restrict profile for hosts",
+      "labels": [
+        "kind/chore",
+        "area/packaging",
+        "security",
+        "priority/medium"
+      ],
+      "milestone": "M2 — Hardening & packaging",
+      "epic": "epic-s1",
+      "body": "## Context\n\n`deploy/apparmor/shieldmon-bwrap` grants `userns` to `/usr/bin/bwrap` unconfined. On a shared Ubuntu host every local user can then use bwrap to regain the kernel attack surface that `kernel.apparmor_restrict_unprivileged_userns` removes (ADR 0011, implementation notes). AppArmor's `bwrap-userns-restrict` profile lets bwrap set up its namespaces while the processes it starts run without capabilities.\n\n## Acceptance criteria\n\n- [ ] Tried on `ubuntu-24.04` with ShieldMon's bwrap arguments: `scannertest.CheckSandbox` passes\n- [ ] If it works, `deploy/apparmor` and ADR 0011 recommend it for hosts; CI may keep the simple profile\n- [ ] If it does not, ADR 0011 records why"
     }
   ]
 }
