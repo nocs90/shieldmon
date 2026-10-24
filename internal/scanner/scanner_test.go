@@ -144,12 +144,21 @@ func TestRunnerDoesNotLeakCredentials(t *testing.T) {
 	t.Setenv("GITLAB_TOKEN", "glpat-xxxxxxxxxxxxxxxxxxxx")
 	t.Setenv("DOCKER_CONFIG", "/home/user/.docker")
 	t.Setenv("GRYPE_DB_CACHE_DIR", "/cache/grype")
+	// Scanner-prefixed registry credentials: trivy would send these to its DB registry.
+	t.Setenv("TRIVY_PASSWORD", "registry-secret")
+	t.Setenv("TRIVY_REGISTRY_TOKEN", "registry-token")
+	t.Setenv("GRYPE_REGISTRY_AUTH_TOKEN", "registry-token")
+	t.Setenv("SYFT_REGISTRY_AUTH_USERNAME", "robot")
 	out, err := Runner{}.Run(context.Background(), "/usr/bin/env")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := string(out)
-	for _, leaked := range []string{"AWS_SECRET_ACCESS_KEY", "GITLAB_TOKEN", "DOCKER_CONFIG"} {
+	leaks := []string{
+		"AWS_SECRET_ACCESS_KEY", "GITLAB_TOKEN", "DOCKER_CONFIG",
+		"TRIVY_PASSWORD", "TRIVY_REGISTRY_TOKEN", "GRYPE_REGISTRY_AUTH_TOKEN", "SYFT_REGISTRY_AUTH_USERNAME",
+	}
+	for _, leaked := range leaks {
 		if strings.Contains(env, leaked) {
 			t.Errorf("%s leaked into scanner environment", leaked)
 		}

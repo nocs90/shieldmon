@@ -11,6 +11,7 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode"
 
 	"github.com/spf13/cobra"
 
@@ -84,7 +85,7 @@ func printResults(w io.Writer, results []engine.Result, format string) error {
 			if !t.DBBuilt.IsZero() {
 				s += " (DB " + t.DBBuilt.Format(time.DateOnly) + ")"
 			}
-			tools = append(tools, s)
+			tools = append(tools, printable(s))
 		}
 		fmt.Fprintf(w, "  scan     #%d %s, %s — %s\n", r.ScanID, r.Kind, r.Status, strings.Join(tools, ", "))
 		fmt.Fprintf(w, "  matches  %d (%d new findings", r.Matches, r.Created)
@@ -99,7 +100,7 @@ func printResults(w io.Writer, results []engine.Result, format string) error {
 		}
 		fmt.Fprintln(w)
 		for _, e := range r.Errors {
-			fmt.Fprintf(w, "  error    %s\n", e)
+			fmt.Fprintf(w, "  error    %s\n", printable(e))
 		}
 	}
 	return nil
@@ -219,19 +220,20 @@ func (a *app) findingsCmd() *cobra.Command {
 				return err
 			}
 			w := cmd.OutOrStdout()
-			fmt.Fprintf(w, "Finding #%d  %s  [%s]\n", f.ID, f.VulnID, f.State)
+			fmt.Fprintf(w, "Finding #%d  %s  [%s]\n", f.ID, printable(f.VulnID), f.State)
 			if len(f.Aliases) > 0 {
-				fmt.Fprintf(w, "  aliases        %s\n", strings.Join(f.Aliases, ", "))
+				fmt.Fprintf(w, "  aliases        %s\n", printable(strings.Join(f.Aliases, ", ")))
 			}
 			if f.Title != "" {
-				fmt.Fprintf(w, "  title          %s\n", f.Title)
+				fmt.Fprintf(w, "  title          %s\n", printable(f.Title))
 			}
-			fmt.Fprintf(w, "  severity       %s (CVSS %.1f %s)\n", f.Severity, f.CVSSScore, f.CVSSVector)
+			fmt.Fprintf(w, "  severity       %s (CVSS %.1f %s)\n", f.Severity, f.CVSSScore, printable(f.CVSSVector))
 			if f.EPSS > 0 || f.KEV {
 				fmt.Fprintf(w, "  exploitation   EPSS %.3f, KEV %t\n", f.EPSS, f.KEV)
 			}
-			fmt.Fprintf(w, "  package        %s %s (%s)\n  purl           %s\n", f.PkgName, f.PkgVersion, f.PkgType, f.PURL)
-			fmt.Fprintf(w, "  fix            %s\n", fixLabel(f))
+			fmt.Fprintf(w, "  package        %s %s (%s)\n  purl           %s\n",
+				printable(f.PkgName), printable(f.PkgVersion), printable(f.PkgType), printable(f.PURL))
+			fmt.Fprintf(w, "  fix            %s\n", printable(fixLabel(f)))
 			if policy, err := a.cfg.Policy(); err == nil {
 				if d := slaDue(policy, f); !d.IsZero() {
 					fmt.Fprintf(w, "  sla due        %s (%s, %s: %d days)\n", d.Format(time.DateOnly), policy.Profile, f.Severity, policy.SLADays[f.Severity])
@@ -255,7 +257,7 @@ func (a *app) findingsCmd() *cobra.Command {
 					if d.Deviation != "" {
 						kind += " (" + d.Deviation + ")"
 					}
-					fmt.Fprintf(w, "  #%d %s by %s on %s, %s: %s\n", d.ID, kind, d.Author, d.CreatedAt.Format(time.DateOnly), exp, d.Justification)
+					fmt.Fprintf(w, "  #%d %s by %s on %s, %s: %s\n", d.ID, kind, printable(d.Author), d.CreatedAt.Format(time.DateOnly), exp, printable(d.Justification))
 				}
 			}
 			fmt.Fprintln(w, "\nAudit trail:")
@@ -268,7 +270,7 @@ func (a *app) findingsCmd() *cobra.Command {
 				if e.ScanID != 0 {
 					ev = fmt.Sprintf(" (evidence: scan #%d)", e.ScanID)
 				}
-				fmt.Fprintf(w, "  %s  %s → %s  by %s: %s%s\n", fmtTime(e.At), from, e.To, e.Actor, e.Reason, ev)
+				fmt.Fprintf(w, "  %s  %s → %s  by %s: %s%s\n", fmtTime(e.At), from, e.To, printable(e.Actor), printable(e.Reason), ev)
 			}
 			return nil
 		},
@@ -441,11 +443,15 @@ func printFindings(w io.Writer, fs []store.Finding, format string, policy lifecy
 			if d := slaDue(policy, f); !d.IsZero() {
 				due = d.Format(time.DateOnly)
 			}
-			_ = cw.Write([]string{
+			rec := []string{
 				strconv.FormatInt(f.ID, 10), f.Severity.String(), f.VulnID, f.PkgName, f.PkgVersion,
 				strings.Join(f.FixVersions, " "), string(f.FixState), string(f.State), f.FirstDetected.Format(time.RFC3339), due,
 				strings.Join(f.Targets, "; "), f.Digest, f.PURL,
-			})
+			}
+			for i, v := range rec {
+				rec[i] = report.CSVSafe(v)
+			}
+			_ = cw.Write(rec)
 		}
 		cw.Flush()
 		return cw.Error()
@@ -453,7 +459,7 @@ func printFindings(w io.Writer, fs []store.Finding, format string, policy lifecy
 		tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(tw, "ID\tSEVERITY\tVULNERABILITY\tPACKAGE\tVERSION\tFIX\tSTATE\tAGE\tSLA DUE\tTARGET")
 		for _, f := range fs {
-			vuln := f.VulnID
+			vuln := printable(f.VulnID)
 			if f.KEV {
 				vuln += " [KEV]"
 			}
@@ -468,8 +474,8 @@ func printFindings(w io.Writer, fs []store.Finding, format string, policy lifecy
 					due += " ⚠"
 				}
 			}
-			fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%dd\t%s\t%s\n", f.ID, f.Severity, vuln, short(f.PkgName, 30),
-				short(f.PkgVersion, 24), short(fixLabel(f), 24), f.State,
+			fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%dd\t%s\t%s\n", f.ID, f.Severity, vuln, short(printable(f.PkgName), 30),
+				short(printable(f.PkgVersion), 24), short(printable(fixLabel(f)), 24), f.State,
 				int(time.Since(f.FirstDetected).Hours()/24), due, target)
 		}
 		if err := tw.Flush(); err != nil {
@@ -503,8 +509,8 @@ func (a *app) healthCmd() *cobra.Command {
 			tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 			fmt.Fprintln(tw, "STATE\tCHECK\tSUBJECT\tSEVERITY\tSINCE\tCOUNT\tDETAIL")
 			for _, h := range hs {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d\t%s\n", h.State, h.Check, h.Subject, h.Severity,
-					fmtTime(h.FirstSeen), h.Occurrences, short(h.Detail, 120))
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d\t%s\n", h.State, h.Check, printable(h.Subject), h.Severity,
+					fmtTime(h.FirstSeen), h.Occurrences, short(printable(h.Detail), 120))
 			}
 			return tw.Flush()
 		},
@@ -635,6 +641,26 @@ func short(s string, n int) string {
 	}
 	return s
 }
+
+// printable escapes control and bidirectional-formatting characters, which scanner
+// output can carry over from hostile image content, so that they cannot drive or spoof
+// the operator's terminal. JSON and CSV output do their own escaping.
+func printable(s string) string {
+	if !strings.ContainsFunc(s, unprintable) {
+		return s
+	}
+	var b strings.Builder
+	for _, r := range s {
+		if unprintable(r) {
+			fmt.Fprintf(&b, `\u%04x`, r)
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+func unprintable(r rune) bool { return unicode.IsControl(r) || unicode.Is(unicode.Bidi_Control, r) }
 
 func orDash(s string) string {
 	if s == "" {

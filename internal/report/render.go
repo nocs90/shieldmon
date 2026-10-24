@@ -92,7 +92,7 @@ func renderCSV(w io.Writer, r Monthly) error {
 			strconv.FormatBool(x.SLABreached),
 		}
 		for i, v := range rec {
-			rec[i] = csvSafe(v)
+			rec[i] = CSVSafe(v)
 		}
 		if err := cw.Write(rec); err != nil {
 			return err
@@ -102,9 +102,9 @@ func renderCSV(w io.Writer, r Monthly) error {
 	return cw.Error()
 }
 
-// csvSafe neutralizes spreadsheet formula injection: package names and
-// titles come from hostile image content.
-func csvSafe(v string) string {
+// CSVSafe neutralizes spreadsheet formula injection in one CSV cell: package
+// names and titles come from hostile image content.
+func CSVSafe(v string) string {
 	if v != "" && strings.ContainsRune("=+-@\t\r", rune(v[0])) {
 		if _, err := strconv.ParseFloat(v, 64); err != nil {
 			return "'" + v

@@ -95,6 +95,23 @@ func TestHelpWithoutTerminalIsPlain(t *testing.T) {
 	}
 }
 
+func TestPrintableEscapesTerminalControls(t *testing.T) {
+	// A package name carrying an OSC 52 clipboard write, a screen clear and a
+	// right-to-left override, as hostile image metadata could.
+	in := "libssl\x1b]52;c;ZXZpbA==\x07\x1b[2J\u202efake\nFinding #1 [fixed]"
+	got := printable(in)
+	if strings.ContainsFunc(got, unprintable) {
+		t.Fatalf("control characters survived: %q", got)
+	}
+	want := `libssl\u001b]52;c;ZXZpbA==\u0007\u001b[2J\u202efake\u000aFinding #1 [fixed]`
+	if got != want {
+		t.Errorf("printable(%q) = %q, want %q", in, got, want)
+	}
+	if s := "openssl 3.0.13-r0 ✓"; printable(s) != s {
+		t.Errorf("printable altered a clean string: %q", printable(s))
+	}
+}
+
 func TestBanner(t *testing.T) {
 	for _, row := range logo {
 		if len(row) != len(logo[0]) {

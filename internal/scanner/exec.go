@@ -80,6 +80,12 @@ var envAllowlist = []string{
 // envPrefixAllowlist passes through scanner-specific configuration.
 var envPrefixAllowlist = []string{"GRYPE_", "SYFT_", "TRIVY_"}
 
+// credentialEnvMarkers keep credentials out of the prefixed variables (TRIVY_PASSWORD,
+// GRYPE_REGISTRY_AUTH_TOKEN, ...). Scanners only read local layouts and SBOMs, and trivy
+// presents --username/--password to every registry it contacts, including its
+// vulnerability DB repository.
+var credentialEnvMarkers = []string{"AUTH", "CREDENTIAL", "HEADER", "KEY", "PASSWORD", "SECRET", "TOKEN", "USERNAME"}
+
 // Runner executes scanner processes with bounded time and output.
 type Runner struct {
 	Timeout   time.Duration
@@ -100,7 +106,7 @@ func (r Runner) env() []string {
 			}
 		}
 		for _, p := range envPrefixAllowlist {
-			if strings.HasPrefix(k, p) {
+			if strings.HasPrefix(k, p) && !isCredentialVar(k) {
 				ok = true
 				break
 			}
@@ -110,6 +116,16 @@ func (r Runner) env() []string {
 		}
 	}
 	return append(out, r.ExtraEnv...)
+}
+
+func isCredentialVar(k string) bool {
+	k = strings.ToUpper(k)
+	for _, m := range credentialEnvMarkers {
+		if strings.Contains(k, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // Run executes bin with args (never through a shell) and returns stdout.
