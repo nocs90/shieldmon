@@ -18,7 +18,8 @@
   - Linux hosts (systemd timer). User namespaces are available, so bubblewrap can build
     a full mount/PID/network sandbox without root. Ubuntu ≥ 23.10, including the
     `ubuntu-24.04` runners used by CI, restricts unprivileged user namespaces through
-    AppArmor, and the distro `bwrap` package ships the profile that allows it.
+    AppArmor. (The distro `bwrap` package does not ship a profile that allows it; see the
+    implementation notes.)
   - Containers (Kubernetes CronJob, #7). The runtime's default seccomp profile refuses
     `unshare(CLONE_NEWUSER)` without `CAP_SYS_ADMIN`, so neither bubblewrap nor a nested
     rootless OCI runtime starts without weakening the pod. Landlock (Linux ≥ 5.13 for
@@ -131,3 +132,17 @@
   - `scannertest.CheckSandbox` is the kit for backends. Its probe is the test binary
     re-executing itself inside the sandbox, so it needs no shell or `nc` there and works
     the same for `landlock`. The scratch quota is not probed yet: no backend enforces one.
+- 2026-10-24, AppArmor on Ubuntu hosts and CI:
+  - The `bubblewrap` package of Ubuntu 24.04 ships no AppArmor profile, and
+    `kernel.apparmor_restrict_unprivileged_userns=1` gives the user namespace of an
+    unprofiled program no capabilities: bwrap fails with `loopback: Failed RTM_NEWADDR:
+    Operation not permitted` (it broke ci/test from the first `bwrap` commit). The context
+    above assumed the opposite.
+  - `deploy/apparmor/shieldmon-bwrap` grants `userns` to `/usr/bin/bwrap` and nothing else
+    (`flags=(unconfined)`, the pattern Ubuntu documents). ci/test loads it before the tests;
+    hosts install it once. The `bwrap` availability error names it when the sysctl is set.
+  - Rejected: `sysctl kernel.apparmor_restrict_unprivileged_userns=0`, which lifts the
+    restriction for every program on the host instead of one.
+  - Residual risk: every local user who can run bwrap may create user namespaces. Scanners
+    inside get no capabilities (`--cap-drop ALL`), and the seccomp filter (decision 5)
+    will also deny them `unshare`/`setns`.

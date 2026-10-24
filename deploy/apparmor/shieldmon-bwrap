@@ -1,0 +1,28 @@
+# AppArmor profile that lets bubblewrap create user namespaces on hosts that restrict
+# them: Ubuntu >= 23.10 sets kernel.apparmor_restrict_unprivileged_userns=1, and a
+# program without a profile granting "userns" gets a namespace without capabilities,
+# so bwrap fails with "loopback: Failed RTM_NEWADDR: Operation not permitted".
+# The distro bubblewrap package ships no such profile (docs/adr/0011-scanner-sandbox.md).
+#
+# Install (skip if `aa-status` already lists a profile for /usr/bin/bwrap):
+#   sudo install -m 0644 deploy/apparmor/shieldmon-bwrap /etc/apparmor.d/shieldmon-bwrap
+#   sudo apparmor_parser -r /etc/apparmor.d/shieldmon-bwrap
+# Remove:
+#   sudo apparmor_parser -R /etc/apparmor.d/shieldmon-bwrap
+#   sudo rm /etc/apparmor.d/shieldmon-bwrap
+#
+# It grants only "userns" to /usr/bin/bwrap and is otherwise unconfined, which is the
+# pattern Ubuntu documents for programs that need user namespaces. Every local user who
+# can run bwrap gets the same permission. Scanners inside the sandbox get no capabilities
+# from bwrap (--cap-drop ALL); the seccomp filter planned in ADR 0011 also denies them
+# unshare/setns.
+
+abi <abi/4.0>,
+
+include <tunables/global>
+
+profile shieldmon-bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+
+  include if exists <local/shieldmon-bwrap>
+}

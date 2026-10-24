@@ -53,6 +53,8 @@ not be falsifiable.
   (`bwrap` on Linux hosts; Landlock for containers is planned, ADR 0011). While they do,
   a `scanner_unsandboxed` health finding stays open. Mitigation: run ShieldMon in a
   dedicated, unprivileged container with no other secrets.
+- On Ubuntu ≥ 23.10 the `bwrap` backend needs `deploy/apparmor/shieldmon-bwrap`, which
+  lets every local user who can run bwrap create user namespaces (ADR 0011).
 - Uncompressed layer size is bounded only by the scanner and disk.
 - Vulnerability DB integrity relies on the scanners' own verification.
 - Integrity of `install-scanners.sh` pins relies on the release's checksum file

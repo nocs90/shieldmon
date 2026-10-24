@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -223,6 +224,30 @@ func TestBwrapSandbox(t *testing.T) {
 	for what, script := range denied {
 		if err := sh(script); err == nil {
 			t.Errorf("a sandboxed scanner could %s", what)
+		}
+	}
+}
+
+func TestBwrapStartErrorNamesAppArmorFix(t *testing.T) {
+	dir := t.TempDir()
+	probe := errors.New("bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted")
+	for _, c := range []struct {
+		value string // "" leaves the setting absent (older kernels, other distros)
+		hint  bool
+	}{{"1\n", true}, {"0\n", false}, {"", false}} {
+		sysctl := filepath.Join(dir, "absent")
+		if c.value != "" {
+			sysctl = filepath.Join(dir, strings.TrimSpace(c.value))
+			if err := os.WriteFile(sysctl, []byte(c.value), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		msg := bwrapStartError(probe, sysctl).Error()
+		if !strings.Contains(msg, "RTM_NEWADDR") {
+			t.Errorf("the probe's error is lost: %q", msg)
+		}
+		if got := strings.Contains(msg, "deploy/apparmor/shieldmon-bwrap"); got != c.hint {
+			t.Errorf("sysctl %q: AppArmor hint = %t, want %t: %q", c.value, got, c.hint, msg)
 		}
 	}
 }

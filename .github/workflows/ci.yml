@@ -43,6 +43,12 @@ jobs:
           go-version-file: go.mod
       - name: Install bubblewrap for the scanner sandbox tests
         run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends bubblewrap
+      # ubuntu-24.04 restricts unprivileged user namespaces through AppArmor and the distro
+      # package ships no profile for bwrap (docs/adr/0011-scanner-sandbox.md).
+      - name: Allow bubblewrap to create user namespaces
+        run: |
+          sudo install -m 0644 deploy/apparmor/shieldmon-bwrap /etc/apparmor.d/shieldmon-bwrap
+          sudo apparmor_parser -r /etc/apparmor.d/shieldmon-bwrap
       - run: make test-race
         env:
           SHIELDMON_TEST_SANDBOX: bwrap # fail instead of skipping when bwrap cannot start here
