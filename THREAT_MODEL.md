@@ -43,7 +43,7 @@ not be falsifiable.
 | D | Silent stop: cron broken, DB stale, auth expired. | Self-health findings: `monitor_missed`, `db_stale`, `registry_auth`, `*_failed` ✅ (alerting ⬜ M4) |
 | **E**levation of privilege | Image content executed. | Never run images; no Docker daemon; scanners only parse files ✅ |
 | E | Argument/flag injection through image refs. | Strict reference parsing (rejects leading `-`, whitespace); no shell; digest refs passed to scanners as local paths ✅ |
-| E | Scanner exploited by a crafted layer → host compromise. | Run scanners in a sandbox (rootless container / bubblewrap / gVisor: read-only FS, no network except DB mirrors, tmpfs quota) ⬜ M2 |
+| E | Scanner exploited by a crafted layer → host compromise. | Run scanners in a sandbox (ADR 0011: bubblewrap on hosts, Landlock in containers, seccomp, tmpfs quota, no network while handling image content) ⬜ M2 |
 | E | Over-scoped registry credentials. | Least-privilege IAM policy, short-lived creds only ⬜ M3 |
 | Report injection | Package names like `=HYPERLINK(...)` or Markdown/HTML in titles. | CSV formula neutralization, Markdown/HTML escaping ✅ |
 

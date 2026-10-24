@@ -163,7 +163,11 @@ func (a *app) ociOptions() oci.Options {
 
 func (a *app) scannerSet() (scanner.Set, error) {
 	sc := a.cfg.Scanners
-	r := scanner.Runner{Timeout: sc.Timeout.Duration, MaxOutput: sc.MaxOutputBytes}
+	_, sandbox, err := scanner.SelectSandbox(sc.Sandbox.Backend)
+	if err != nil {
+		return scanner.Set{}, err
+	}
+	r := scanner.Runner{Timeout: sc.Timeout.Duration, MaxOutput: sc.MaxOutputBytes, Sandbox: sandbox}
 	specs := map[string]scanner.Spec{}
 	for name, t := range sc.Tools {
 		specs[name] = scanner.Spec{
@@ -250,6 +254,14 @@ func (a *app) doctorCmd() *cobra.Command {
 				needed[m.Name()] = true
 			}
 			fmt.Fprintf(w, "data dir: %s\n", a.cfg.DataDir)
+			if name, sb, _ := scanner.SelectSandbox(a.cfg.Scanners.Sandbox.Backend); sb != nil {
+				if _, err := sb.Command(scanner.Policy{}, "true", nil); err != nil {
+					fmt.Fprintf(w, "✗ sandbox %v\n", err)
+					problems++
+				} else {
+					fmt.Fprintf(w, "• sandbox %s\n", name)
+				}
+			}
 			names := make([]string, 0, len(needed))
 			for n := range needed {
 				names = append(names, n)
@@ -495,6 +507,14 @@ func (a *app) pluginsCmd() *cobra.Command {
 					opts = " (options: " + strings.Join(p.Options, ", ") + ")"
 				}
 				fmt.Fprintf(w, "  %-8s %s%s\n", p.Name, p.Description, opts)
+			}
+			fmt.Fprintln(w, "Sandbox backends:")
+			for _, b := range scanner.SandboxBackends() {
+				status := "available"
+				if err := b.Available(); err != nil {
+					status = "unavailable: " + err.Error()
+				}
+				fmt.Fprintf(w, "  %-8s %s (%s)\n", b.Name, b.Description, status)
 			}
 			fmt.Fprintln(w, "Report formats:")
 			for _, f := range report.Formats() {
