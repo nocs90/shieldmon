@@ -26,6 +26,9 @@ func (g *Grype) runner() Runner {
 	r := g.Runner
 	r.ExtraEnv = append(r.ExtraEnv, "GRYPE_CHECK_FOR_APP_UPDATE=false",
 		fmt.Sprintf("GRYPE_DB_AUTO_UPDATE=%t", g.DBAutoUpdate))
+	if r.CacheDir != "" {
+		r.ExtraEnv = append(r.ExtraEnv, "GRYPE_DB_CACHE_DIR="+filepath.Join(r.CacheDir, "grype", "db"))
+	}
 	return r
 }
 

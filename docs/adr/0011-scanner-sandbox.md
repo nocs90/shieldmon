@@ -90,3 +90,24 @@
   profile allows `bwrap` without changing sysctls.
 - This replaces the "rootless OCI runtime in containers" backend named in epic #1: it
   needs the same user namespaces that container runtimes deny by default.
+
+## Implementation notes
+
+- 2026-10-24, `bwrap` backend:
+  - `--size` exists since bubblewrap 0.7 and Ubuntu 24.04 ships 0.9, so the tmpfs quota is
+    available. Whether the `ubuntu-24.04` runner's AppArmor policy lets `bwrap` start is
+    checked by ci/test (`SHIELDMON_TEST_SANDBOX=bwrap`).
+  - Scratch space is a per-process directory under `<data_dir>/tmp`, mounted at `/tmp`
+    and removed when the process exits, not a tmpfs. SBOM generators can unpack layers
+    into `TMPDIR`, so a RAM-backed `/tmp` big enough for real images would let a
+    decompression bomb exhaust host memory. The tmpfs with `--size` is used only for
+    processes without scratch space. A disk quota for scratch space is still open.
+    `RLIMIT_FSIZE` from the `landlock` launcher will bound single files.
+  - Scanner DBs and caches move from the user's cache directory to `<data_dir>/cache`
+    (`XDG_CACHE_HOME`, `GRYPE_DB_CACHE_DIR`, `TRIVY_CACHE_DIR`). The cache is read-only
+    to every process without network. trivy keeps its scan cache in memory
+    (`--cache-backend memory`), so results derived from hostile layers are never reused.
+    Existing DBs under `~/.cache` are not migrated: the first run downloads them again.
+  - Until the `db update` step lands, the confined matchers cannot refresh their DBs.
+    `bwrap` needs `db_auto_update: false` and `skip_db_update: true`, with DBs refreshed
+    by a run under `backend: none`.

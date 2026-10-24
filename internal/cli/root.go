@@ -167,7 +167,16 @@ func (a *app) scannerSet() (scanner.Set, error) {
 	if err != nil {
 		return scanner.Set{}, err
 	}
-	r := scanner.Runner{Timeout: sc.Timeout.Duration, MaxOutput: sc.MaxOutputBytes, Sandbox: sandbox}
+	// Scanner DBs, caches and scratch space live in the data dir, so that a sandbox can
+	// expose them without the user's home directory.
+	data, err := filepath.Abs(a.cfg.DataDir)
+	if err != nil {
+		return scanner.Set{}, err
+	}
+	r := scanner.Runner{
+		Timeout: sc.Timeout.Duration, MaxOutput: sc.MaxOutputBytes, Sandbox: sandbox,
+		CacheDir: filepath.Join(data, "cache"), TempDir: filepath.Join(data, "tmp"),
+	}
 	specs := map[string]scanner.Spec{}
 	for name, t := range sc.Tools {
 		specs[name] = scanner.Spec{

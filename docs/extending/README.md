@@ -13,7 +13,7 @@ The core never imports an adapter; adapters never touch the lifecycle or storage
 | SBOM generator | `scanner.Generator` | `scanner.Register` | `scannertest.CheckPlugin` | syft, trivy | ✅ |
 | Vulnerability matcher | `scanner.Matcher` | `scanner.Register` | `scannertest.CheckPlugin`, `CheckParser`, `CheckMatcher` | grype, trivy | ✅ |
 | Report format / exporter | `report.Format` | `report.RegisterFormat` | golden tests | md, json, csv | ✅ |
-| Scanner sandbox | `scanner.Sandbox` | `scanner.RegisterSandbox` | `scannertest.CheckSandbox` (planned) | none; bwrap and landlock planned | 🟡 M2, [ADR 0011](../adr/0011-scanner-sandbox.md) |
+| Scanner sandbox | `scanner.Sandbox` | `scanner.RegisterSandbox` | `scannertest.CheckSandbox` (planned) | none, bwrap; landlock planned | 🟡 M2, [ADR 0011](../adr/0011-scanner-sandbox.md) |
 | Registry provider | `RegistryProvider` (keychain + listing) | planned | planned | docker config + credential helpers | ⬜ M3 |
 | Enricher (EPSS, KEV, CVSS) | `Enricher` | planned | planned | (EPSS/KEV from grype output) | ⬜ M4 |
 | Notifier | `Notifier` | planned | planned | — | ⬜ M4 |

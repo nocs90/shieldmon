@@ -18,6 +18,9 @@ type Policy struct {
 	ReadOnly []string
 	// Writable are directories the process writes its results to.
 	Writable []string
+	// Scratch is the process's private temporary directory, seen as /tmp when confined.
+	// Runner fills it in.
+	Scratch string
 	// Network is granted only to vulnerability DB updates, never to a process that
 	// reads image content or SBOMs.
 	Network bool

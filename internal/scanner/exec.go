@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -95,6 +96,13 @@ type Runner struct {
 	// Sandbox confines every process to the Policy attached to its context. Nil runs
 	// processes unconfined; the CLI always sets one (scanners.sandbox.backend).
 	Sandbox Sandbox
+	// CacheDir holds the scanners' vulnerability DBs and caches (XDG_CACHE_HOME). Processes
+	// without network see it read-only, so that a compromised parser cannot poison the DB
+	// that later scans trust.
+	CacheDir string
+	// TempDir is where every process gets a private scratch directory (TMPDIR), removed
+	// when it exits. Empty leaves TMPDIR alone.
+	TempDir string
 }
 
 func (r Runner) env() []string {
@@ -131,6 +139,37 @@ func isCredentialVar(k string) bool {
 	return false
 }
 
+// prepare adds the cache and a fresh scratch directory to the policy and environment of
+// one process. cleanup removes the scratch directory.
+func (r Runner) prepare(p Policy) (Policy, []string, func(), error) {
+	env := r.env()
+	cleanup := func() {}
+	if r.CacheDir != "" {
+		if err := os.MkdirAll(r.CacheDir, 0o700); err != nil {
+			return p, nil, cleanup, err
+		}
+		env = append(env, "XDG_CACHE_HOME="+r.CacheDir)
+		if p.Network {
+			p.Writable = append(slices.Clone(p.Writable), r.CacheDir)
+		} else {
+			p.ReadOnly = append(slices.Clone(p.ReadOnly), r.CacheDir)
+		}
+	}
+	if r.TempDir != "" {
+		if err := os.MkdirAll(r.TempDir, 0o700); err != nil {
+			return p, nil, cleanup, err
+		}
+		scratch, err := os.MkdirTemp(r.TempDir, "proc-")
+		if err != nil {
+			return p, nil, cleanup, err
+		}
+		cleanup = func() { _ = os.RemoveAll(scratch) }
+		p.Scratch = scratch
+		env = append(env, "TMPDIR="+scratch)
+	}
+	return p, env, cleanup, nil
+}
+
 // Run executes bin with args (never through a shell) and returns stdout.
 func (r Runner) Run(ctx context.Context, bin string, args ...string) ([]byte, error) {
 	var cancel context.CancelFunc
@@ -144,17 +183,21 @@ func (r Runner) Run(ctx context.Context, bin string, args ...string) ([]byte, er
 	if maxOut <= 0 {
 		maxOut = 512 << 20
 	}
+	p, env, cleanup, err := r.prepare(PolicyFrom(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", bin, err)
+	}
+	defer cleanup()
 	argv := append([]string{bin}, args...)
 	if r.Sandbox != nil {
-		var err error
-		if argv, err = r.Sandbox.Command(PolicyFrom(ctx), bin, args); err != nil {
+		if argv, err = r.Sandbox.Command(p, bin, args); err != nil {
 			return nil, fmt.Errorf("%s: %w", bin, err)
 		}
 	}
 	// G204 is the point of this function: argv-only exec of a resolved, optionally
 	// checksum-pinned scanner binary (or its sandbox launcher), never through a shell.
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // G204: see comment above
-	cmd.Env = r.env()
+	cmd.Env = env
 	cmd.Stdin = nil
 	// On overflow the process tree is killed rather than left blocked on a full pipe.
 	stdout := &limitedBuffer{max: maxOut, onOverflow: cancel}
@@ -163,7 +206,7 @@ func (r Runner) Run(ctx context.Context, bin string, args ...string) ([]byte, er
 	setProcessGroup(cmd)
 	cmd.WaitDelay = 5 * time.Second
 
-	err := cmd.Run()
+	err = cmd.Run()
 	if stdout.overflow {
 		return nil, fmt.Errorf("%s: %w (%d bytes)", bin, ErrOutputTooLarge, maxOut)
 	}

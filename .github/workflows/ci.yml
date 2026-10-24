@@ -41,7 +41,11 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
+      - name: Install bubblewrap for the scanner sandbox tests
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends bubblewrap
       - run: make test-race
+        env:
+          SHIELDMON_TEST_SANDBOX: bwrap # fail instead of skipping when bwrap cannot start here
       - run: make cover
       - run: make build
       - run: make vuln

@@ -207,8 +207,10 @@ scanners:
     syft:  { path: "", sha256: "" }
     grype: { path: "", sha256: "", options: { db_auto_update: true } }
     trivy: { path: "", sha256: "", options: { skip_db_update: false, offline_scan: false } }
-  # Confinement for scanner processes, which parse hostile image content
-  # ('shieldmon plugins' lists the backends; docs/adr/0011-scanner-sandbox.md).
+  # Confinement for scanner processes, which parse hostile image content:
+  # none, or bwrap on Linux hosts with bubblewrap installed ('shieldmon plugins'
+  # lists the backends and whether they run here; docs/adr/0011-scanner-sandbox.md).
+  # Scanner DBs and caches live in <data_dir>/cache.
   sandbox:
     backend: none
 
