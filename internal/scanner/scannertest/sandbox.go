@@ -42,6 +42,12 @@ func probe(op string, args []string) error {
 		}
 		_, err = os.Stdout.Write(b)
 		return err
+	case op == "noop" && len(args) == 0:
+		return nil
+	case op == "userns" && len(args) == 0:
+		return probeUserns()
+	case op == "personality" && len(args) == 0:
+		return probePersonality()
 	case op == "list" && len(args) == 1:
 		_, err := os.ReadDir(args[0])
 		return err
@@ -82,7 +88,8 @@ func probe(op string, args []string) error {
 
 // CheckSandbox runs probes inside the named sandbox backend: a scanner can use its
 // declared paths and scratch space, and cannot read or write anything else, write the
-// shared DB cache, reach the network while offline, or outlive its timeout. A backend
+// shared DB cache, reach the network while offline, create a user namespace or weaken
+// exploit mitigations (the seccomp filter), or outlive its timeout. A backend
 // that cannot run on this host is skipped, unless SHIELDMON_TEST_SANDBOX names it, in
 // which case the test fails (CI sets it where the backend must work).
 func CheckSandbox(t *testing.T, name string) {
@@ -187,6 +194,12 @@ func CheckSandbox(t *testing.T, name string) {
 	}
 	if err := run(offline, r, "connect", addr); err == nil {
 		t.Error("a sandboxed scanner could connect while offline")
+	}
+	if err := run(offline, r, "userns"); err == nil {
+		t.Error("a sandboxed scanner could create a user namespace")
+	}
+	if err := run(offline, r, "personality"); err == nil {
+		t.Error("a sandboxed scanner could turn off address space randomization")
 	}
 	// A write may succeed on a stand-in path; it must not reach the host.
 	poisoned := filepath.Join(r.CacheDir, "poisoned")

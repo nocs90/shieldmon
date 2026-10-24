@@ -146,3 +146,22 @@
   - Residual risk: every local user who can run bwrap may create user namespaces. Scanners
     inside get no capabilities (`--cap-drop ALL`), and the seccomp filter (decision 5)
     will also deny them `unshare`/`setns`.
+- 2026-10-25, seccomp filter (#45):
+  - No new module: `internal/scanner/seccomp.go` emits the classic BPF program itself (four
+    instruction kinds) from a syscall table per architecture (amd64, arm64; any other
+    architecture has no filter, so no backend runs there). The table is checked against
+    `golang.org/x/sys/unix` on Linux, which therefore became a direct requirement (it was
+    already in the module graph). The candidate libraries named under Consequences are not
+    needed; Landlock (#46) uses `x/sys/unix` too.
+  - Denied syscalls return `EPERM`, so a scanner reports an error instead of dying.
+    `clone` is allowed without `CLONE_NEW*` flags (threads and processes);
+    `clone3` returns `ENOSYS`, because its flags are in memory the filter cannot read
+    and glibc then falls back to `clone`. `personality` accepts only the values the
+    container runtimes allow. Another ABI (i386 on amd64) or the x32 ABI kills the process.
+  - `Sandbox.Command` returns a `Launch`: argv plus data the Runner passes as fds 3, 4, ...
+    (unlinked temporary files). bwrap gets the filter with `--seccomp 3` and applies it
+    right before exec'ing the scanner. The availability probe runs with the filter, so
+    the kernel validates the program before a scan does.
+  - `scannertest.CheckSandbox` proves the filter is in place: a probe can neither start a
+    child in a new user namespace (`clone`; `unshare(CLONE_NEWUSER)` fails with EINVAL in
+    any multithreaded process, so it proves nothing) nor turn off ASLR with `personality`.
