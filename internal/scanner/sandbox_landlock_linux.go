@@ -104,7 +104,7 @@ func landlockAvailable() error {
 	return nil
 }
 
-// sandboxExec confines the calling process and execs the scanner. Landlock, no_new_privs and
+// sandboxExec confines the calling process and execs the scanner. no_new_privs, Landlock and
 // seccomp are per thread, so everything happens on one locked thread, which execve keeps.
 func sandboxExec(args []string) error {
 	spec, err := parseLaunch(args)
@@ -119,14 +119,16 @@ func sandboxExec(args []string) error {
 	if abi < landlockMinABI {
 		return fmt.Errorf("landlock ABI %d, need %d", abi, landlockMinABI)
 	}
+	// no_new_privs first: without CAP_SYS_ADMIN, both landlock_restrict_self and a seccomp
+	// filter require it, and fail with EPERM otherwise.
+	if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
+		return fmt.Errorf("no_new_privs: %w", err)
+	}
 	if err := landlockRestrict(spec, abi); err != nil {
 		return err
 	}
 	if err := limitFiles(); err != nil {
 		return err
-	}
-	if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
-		return fmt.Errorf("no_new_privs: %w", err)
 	}
 	if err := loadSeccomp(seccompOptions{offline: !spec.net, denyTruncate: abi < 3}); err != nil {
 		return err

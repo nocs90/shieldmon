@@ -169,9 +169,10 @@
 - 2026-10-25, `landlock` backend (#46):
   - The launcher is ShieldMon re-executing itself (`shieldmon sandbox-exec`), caught in
     `init` before `main`, so it works in any binary that links `internal/scanner`, test
-    binaries included. On one locked thread it applies the Landlock ruleset,
-    `RLIMIT_NOFILE` (hard limit 65536: Go programs raise the soft limit to it),
-    `no_new_privs` and the seccomp filter, then execs the scanner in place, which keeps
+    binaries included. On one locked thread it sets `no_new_privs` (which an unprivileged
+    `landlock_restrict_self` and seccomp filter both require), applies the Landlock
+    ruleset, `RLIMIT_NOFILE` (hard limit 65536: Go programs raise the soft limit to it)
+    and the seccomp filter, then execs the scanner in place, which keeps
     the Runner's process group and timeout kill.
   - The Landlock rules mirror the `bwrap` view: system directories read and execute; the
     same `/etc` files (resolver files only with network); `/dev/null`, `/dev/zero`,
