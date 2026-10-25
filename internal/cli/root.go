@@ -178,6 +178,7 @@ func (a *app) scannerSet() (scanner.Set, bool, error) {
 	r := scanner.Runner{
 		Timeout: sc.Timeout.Duration, MaxOutput: sc.MaxOutputBytes, Sandbox: sandbox,
 		CacheDir: filepath.Join(data, "cache"), TempDir: filepath.Join(data, "tmp"),
+		ScratchQuota: a.cfg.Limits.MaxScratchBytes, MinFreeBytes: a.cfg.Limits.MinFreeDiskBytes,
 	}
 	specs := map[string]scanner.Spec{}
 	for name, t := range sc.Tools {

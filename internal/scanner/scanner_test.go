@@ -292,3 +292,83 @@ func TestMatchersUpdateDBUnlessManagedOutOfBand(t *testing.T) {
 		t.Errorf("DBs managed out of band must not be updated: %q", got)
 	}
 }
+
+func TestRunnerEnforcesScratchQuota(t *testing.T) {
+	r := Runner{Timeout: time.Minute, TempDir: t.TempDir(), ScratchQuota: 4 << 20}
+	// A decompression bomb: keeps unpacking into TMPDIR, 1 MiB at a time.
+	bomb := `i=0; while :; do head -c 1048576 /dev/zero > "$TMPDIR/f$i"; i=$((i+1)); sleep 0.01; done`
+	start := time.Now()
+	_, err := r.Run(context.Background(), "/bin/sh", "-c", bomb)
+	if !errors.Is(err, ErrScratchQuota) {
+		t.Fatalf("want ErrScratchQuota, got %v", err)
+	}
+	if time.Since(start) > 10*time.Second {
+		t.Errorf("the quota was enforced after %s", time.Since(start))
+	}
+
+	// Many empty files are bounded too: they cost inodes and measuring time, not bytes.
+	old := scratchMaxEntries
+	scratchMaxEntries = 50
+	t.Cleanup(func() { scratchMaxEntries = old })
+	files := `i=0; while :; do : > "$TMPDIR/e$i"; i=$((i+1)); done`
+	if _, err := r.Run(context.Background(), "/bin/sh", "-c", files); !errors.Is(err, ErrScratchQuota) {
+		t.Fatalf("too many entries: want ErrScratchQuota, got %v", err)
+	}
+
+	if out, err := r.Run(context.Background(), "/bin/sh", "-c", `head -c 1024 /dev/zero > "$TMPDIR/small" && printf ok`); err != nil || string(out) != "ok" {
+		t.Fatalf("a process within its quota must run: %q %v", out, err)
+	}
+}
+
+func TestRunnerEnforcesFreeDiskFloor(t *testing.T) {
+	if _, err := diskFree(t.TempDir()); err != nil {
+		t.Skip("free disk space unknown here:", err)
+	}
+	r := Runner{Timeout: time.Minute, TempDir: t.TempDir(), MinFreeBytes: 1 << 62}
+	start := time.Now()
+	if _, err := r.Run(context.Background(), "/bin/sh", "-c", "sleep 30"); !errors.Is(err, ErrDiskSpace) {
+		t.Fatalf("want ErrDiskSpace, got %v", err)
+	}
+	if time.Since(start) > 10*time.Second {
+		t.Errorf("the floor was enforced after %s", time.Since(start))
+	}
+}
+
+func TestScratchUsageCountsAllocatedSpace(t *testing.T) {
+	dir := t.TempDir()
+	// A sparse file: its size is huge, the disk space it uses is not.
+	f, err := os.Create(filepath.Join(dir, "sparse"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(1 << 40); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if used, _, over := scratchUsage(dir, 1<<30); over {
+		t.Errorf("a sparse 1 TiB file counted as %d bytes", used)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "real"), make([]byte, 64<<10), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, entries, over := scratchUsage(dir, 32<<10); !over || entries < 2 {
+		t.Errorf("64 KiB of data must exceed a 32 KiB quota (entries %d)", entries)
+	}
+}
+
+func TestRunnerBoundsFilesOfOfflineProcesses(t *testing.T) {
+	sb := &passSandbox{}
+	r := Runner{Sandbox: sb, ScratchQuota: 1 << 20}
+	if _, err := r.Run(WithPolicy(context.Background(), Policy{}), "/bin/sh", "-c", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if sb.got.MaxFileBytes != 1<<20 {
+		t.Errorf("an offline process must get the quota as its file size limit: %+v", sb.got)
+	}
+	if _, err := r.Run(WithPolicy(context.Background(), Policy{Network: true}), "/bin/sh", "-c", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if sb.got.MaxFileBytes != 0 {
+		t.Errorf("a DB update writes DBs bigger than the quota: %+v", sb.got)
+	}
+}

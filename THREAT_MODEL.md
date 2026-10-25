@@ -37,7 +37,7 @@ not be falsifiable.
 | **I**nformation disclosure | Credentials leak into logs, errors, health findings, reports. | Central redaction (headers, URL userinfo, AWS/GitLab/GitHub tokens, JWTs, signed URLs) ✅; scanners get an env allowlist without registry/cloud credentials ✅ |
 | I | Scanner telemetry/update checks leak inventory. | `--disable-telemetry`, `--skip-version-check`, `*_CHECK_FOR_APP_UPDATE=false` ✅; `trivy.offline_scan` option ✅; DBs refreshed by a separate step that never sees image content, so scanning needs no network ✅; no network at all while scanning under a sandbox ✅ (`bwrap`) |
 | I | SBOMs (full inventory) readable by other users. | data dir 0700, files 0600 ✅ |
-| **D**enial of service | Decompression bomb / giant layers / thousands of layers. | Manifest-declared layer count/size/total limits before download ✅; scanner timeouts ✅; uncompressed-size limits require sandboxing ⬜ |
+| **D**enial of service | Decompression bomb / giant layers / thousands of layers. | Manifest-declared layer count/size/total limits before download ✅; scanner timeouts ✅; per-process scratch quota (bytes and entries) and free-disk floor, enforced by killing the scanner ✅; per-file size limit under `landlock` ✅ |
 | D | Scanner hangs or forks helpers. | Own process group, SIGKILL on timeout/overflow, `WaitDelay` ✅ |
 | D | Two cycles race and corrupt state. | Exclusive data-dir lock ✅; immediate transactions ✅ |
 | D | Silent stop: cron broken, DB stale, auth expired. | Self-health findings: `monitor_missed`, `db_stale`, `registry_auth`, `*_failed` ✅ (alerting ⬜ M4) |
@@ -56,7 +56,8 @@ not be falsifiable.
   dedicated, unprivileged container with no other secrets.
 - On Ubuntu ≥ 23.10 the `bwrap` backend needs `deploy/apparmor/shieldmon-bwrap`, which
   lets every local user who can run bwrap create user namespaces (ADR 0011).
-- Uncompressed layer size is bounded only by the scanner and disk.
+- A scanner can overshoot its scratch quota by what it writes in 100 ms; the free-disk
+  floor absorbs it.
 - Vulnerability DB integrity relies on the scanners' own verification.
 - Integrity of `install-scanners.sh` pins relies on the release's checksum file
   (same trust domain as the artifact); cosign/sigstore verification is planned.

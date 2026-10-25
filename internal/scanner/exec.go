@@ -8,10 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nocs90/shieldmon/internal/redact"
@@ -21,6 +24,14 @@ import (
 // number of bytes to stdout. Scanner output is derived from hostile image
 // content and must be bounded.
 var ErrOutputTooLarge = errors.New("scanner output exceeds limit")
+
+// ErrScratchQuota is returned when a scanner's scratch directory outgrows
+// Runner.ScratchQuota: image content can unpack to far more than it downloads.
+var ErrScratchQuota = errors.New("scanner exceeded its scratch space quota")
+
+// ErrDiskSpace is returned when free space under Runner.TempDir drops below
+// Runner.MinFreeBytes while a scanner runs, wherever it writes.
+var ErrDiskSpace = errors.New("free disk space below the configured floor")
 
 // ErrChecksumMismatch is returned when a pinned scanner binary does not
 // match its expected SHA-256.
@@ -103,7 +114,22 @@ type Runner struct {
 	// TempDir is where every process gets a private scratch directory (TMPDIR), removed
 	// when it exits. Empty leaves TMPDIR alone.
 	TempDir string
+	// ScratchQuota bounds the disk space and entries of a process's scratch directory
+	// (0: unbounded); a backend that can also bounds each file the process writes.
+	// Exceeding it kills the process tree with ErrScratchQuota.
+	ScratchQuota int64
+	// MinFreeBytes kills the process tree with ErrDiskSpace when free space on
+	// TempDir's filesystem drops below it (0: no floor).
+	MinFreeBytes int64
 }
+
+// watchInterval is how often a running process's disk use is checked; between two checks
+// it can write at most this long at the disk's speed.
+var watchInterval = 100 * time.Millisecond
+
+// scratchMaxEntries bounds the files and directories in a scratch directory, so that
+// neither the inode table nor the walk that measures the directory can be exhausted.
+var scratchMaxEntries = 1 << 20
 
 // Confined reports whether processes started by r run in a sandbox (see Confined).
 func (r Runner) Confined() bool { return Confined(r.Sandbox) }
@@ -170,7 +196,80 @@ func (r Runner) prepare(p Policy) (Policy, []string, func(), error) {
 		p.Scratch = scratch
 		env = append(env, "TMPDIR="+scratch)
 	}
+	if r.ScratchQuota > 0 && !p.Network {
+		// No single file can be larger than the quota. DB updates write DBs bigger than a
+		// small quota into the cache, and never read image content.
+		p.MaxFileBytes = r.ScratchQuota
+	}
 	return p, env, cleanup, nil
+}
+
+// watch enforces ScratchQuota and MinFreeBytes while a process runs: on a breach it cancels
+// the process (killing its group) and stop returns why.
+func (r Runner) watch(scratch string, cancel context.CancelFunc) (stop func() error) {
+	quota := r.ScratchQuota > 0 && scratch != ""
+	floor := r.MinFreeBytes > 0 && r.TempDir != ""
+	if !quota && !floor {
+		return func() error { return nil }
+	}
+	done := make(chan struct{})
+	var reason error
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		tick := time.NewTicker(watchInterval)
+		defer tick.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-tick.C:
+			}
+			if floor {
+				if floorBytes := r.MinFreeBytes; floorBytes > 0 {
+					if free, err := diskFree(r.TempDir); err == nil && free < uint64(floorBytes) {
+						reason = fmt.Errorf("%w: %d bytes free, floor %d", ErrDiskSpace, free, floorBytes)
+					}
+				}
+			}
+			if quota && reason == nil {
+				if used, entries, over := scratchUsage(scratch, r.ScratchQuota); over {
+					reason = fmt.Errorf("%w: %d bytes in %d entries (quota %d bytes, %d entries)",
+						ErrScratchQuota, used, entries, r.ScratchQuota, scratchMaxEntries)
+				}
+			}
+			if reason != nil {
+				cancel()
+				return
+			}
+		}
+	}()
+	return func() error {
+		close(done)
+		wg.Wait()
+		return reason
+	}
+}
+
+// scratchUsage measures dir, stopping as soon as it exceeds quota bytes or scratchMaxEntries.
+// Symlinks are not followed; entries that vanish while walking are skipped.
+func scratchUsage(dir string, quota int64) (used int64, entries int, over bool) {
+	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		entries++
+		if fi, err := d.Info(); err == nil {
+			used += allocated(fi)
+		}
+		if used > quota || entries > scratchMaxEntries {
+			over = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return used, entries, over
 }
 
 // Run executes bin with args (never through a shell) and returns stdout.
@@ -220,9 +319,14 @@ func (r Runner) Run(ctx context.Context, bin string, args ...string) ([]byte, er
 	setProcessGroup(cmd)
 	cmd.WaitDelay = 5 * time.Second
 
+	stop := r.watch(p.Scratch, cancel)
 	err = cmd.Run()
+	breach := stop()
 	if stdout.overflow {
 		return nil, fmt.Errorf("%s: %w (%d bytes)", bin, ErrOutputTooLarge, maxOut)
+	}
+	if breach != nil {
+		return nil, fmt.Errorf("%s: %w", bin, breach)
 	}
 	if err != nil {
 		if ctx.Err() != nil {

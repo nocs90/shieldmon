@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -46,6 +47,9 @@ func (l landlock) Command(p Policy, bin string, args []string) (Launch, error) {
 	if p.Network {
 		argv = append(argv, "--net")
 	}
+	if p.MaxFileBytes > 0 {
+		argv = append(argv, "--max-file-bytes="+strconv.FormatInt(p.MaxFileBytes, 10))
+	}
 	argv = append(argv, "--", bin)
 	return Launch{Argv: append(argv, args...)}, nil
 }
@@ -55,6 +59,8 @@ type launchSpec struct {
 	ro, rw  []string
 	scratch string
 	net     bool
+	// maxFileBytes is RLIMIT_FSIZE (0: unchanged).
+	maxFileBytes int64
 	// check applies the confinement and exits instead of exec'ing: the availability probe.
 	check bool
 	argv  []string // the scanner and its arguments; argv[0] is an absolute path
@@ -80,6 +86,12 @@ func parseLaunch(args []string) (launchSpec, error) {
 			s.rw = append(s.rw, strings.TrimPrefix(a, "--rw="))
 		case strings.HasPrefix(a, "--scratch="):
 			s.scratch = strings.TrimPrefix(a, "--scratch=")
+		case strings.HasPrefix(a, "--max-file-bytes="):
+			n, err := strconv.ParseInt(strings.TrimPrefix(a, "--max-file-bytes="), 10, 64)
+			if err != nil || n <= 0 {
+				return s, fmt.Errorf("invalid %q", a)
+			}
+			s.maxFileBytes = n
 		default:
 			return s, fmt.Errorf("unknown argument %q", a)
 		}

@@ -127,7 +127,7 @@ func sandboxExec(args []string) error {
 	if err := landlockRestrict(spec, abi); err != nil {
 		return err
 	}
-	if err := limitFiles(); err != nil {
+	if err := limitFiles(spec.maxFileBytes); err != nil {
 		return err
 	}
 	if err := loadSeccomp(seccompOptions{offline: !spec.net, denyTruncate: abi < 3}); err != nil {
@@ -234,18 +234,29 @@ func landlockAllow(ruleset int, path string, access uint64) error {
 	return nil
 }
 
-// limitFiles bounds open files. Go programs raise their soft limit to the hard one at
-// startup, so the hard limit is what counts.
-func limitFiles() error {
-	const maxFiles = 65536
-	var lim unix.Rlimit
-	if err := unix.Getrlimit(unix.RLIMIT_NOFILE, &lim); err != nil {
-		return err
+// limitFiles bounds open files and, when maxFileBytes > 0, the size of every file written
+// (a larger write fails with EFBIG and SIGXFSZ). Go programs raise their soft NOFILE limit
+// to the hard one at startup, so hard limits are what count.
+func limitFiles(maxFileBytes int64) error {
+	type rlimit struct {
+		resource int
+		name     string
+		max      uint64
 	}
-	lim.Max = min(lim.Max, maxFiles)
-	lim.Cur = min(lim.Cur, lim.Max)
-	if err := unix.Setrlimit(unix.RLIMIT_NOFILE, &lim); err != nil {
-		return fmt.Errorf("RLIMIT_NOFILE: %w", err)
+	limits := []rlimit{{unix.RLIMIT_NOFILE, "RLIMIT_NOFILE", 65536}}
+	if maxFileBytes > 0 {
+		limits = append(limits, rlimit{unix.RLIMIT_FSIZE, "RLIMIT_FSIZE", uint64(maxFileBytes)})
+	}
+	for _, l := range limits {
+		var lim unix.Rlimit
+		if err := unix.Getrlimit(l.resource, &lim); err != nil {
+			return fmt.Errorf("%s: %w", l.name, err)
+		}
+		lim.Max = min(lim.Max, l.max)
+		lim.Cur = min(lim.Cur, lim.Max)
+		if err := unix.Setrlimit(l.resource, &lim); err != nil {
+			return fmt.Errorf("%s: %w", l.name, err)
+		}
 	}
 	return nil
 }
