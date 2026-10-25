@@ -214,3 +214,29 @@
   - The quota is a property of the Runner, not of a backend, so it is tested in the
     scanner package (portable) rather than in `scannertest.CheckSandbox`; the landlock
     file size limit has a Linux test.
+- 2026-10-25, one confinement path, W^X, degraded bwrap (#53). Supersedes, from the notes
+  above, bwrap's `--seccomp 3` and `Launch` (seccomp filter note), "bwrap cannot set
+  rlimits" and "the quota is tested in the scanner package rather than in the kit"
+  (quota note):
+  - `bwrap` runs the scanner through the launcher inside its namespaces:
+    `bwrap … -- shieldmon sandbox-exec --scratch=/tmp --proc --landlock=optional … -- scanner`.
+    `no_new_privs`, rlimits (`RLIMIT_FSIZE` included), Landlock and seccomp now come from
+    one place for both backends; `Sandbox.Command` returns argv only again. `--proc`
+    grants read access to bwrap's private `/proc`, which holds only the sandbox's
+    processes; the `landlock` backend never gets it.
+  - W^X: Landlock never grants `EXECUTE` on a writable path (scratch space, output
+    directories, the DB cache during updates). A dropped binary or script cannot run.
+  - Inside bwrap, Landlock is optional: bwrap's mount namespace already confines paths,
+    and Landlock adds W^X. Without Landlock ABI ≥ 2, bwrap keeps working; the backend
+    implements `scanner.Degrader`, `doctor` warns, and every preflight keeps a
+    `scanner_sandbox_degraded` health finding (medium) open — visible like
+    `scanner_unsandboxed`, but it does not lock out older kernels, where refusing would
+    leave `backend: none` as the only option. Rejected: requiring Landlock for bwrap
+    (excludes Ubuntu 22.04's GA kernel and similar hosts) and degrading silently.
+  - `scannertest.CheckSandbox` runs its probes through a Runner with a scratch quota, as
+    in production, and checks W^X (skipped with a log line when the backend reports
+    itself degraded), the scratch quota (`ErrScratchQuota`), the file size limit, and that
+    a DB update may still write a file larger than the quota.
+  - Still open: the total scratch quota is enforced by the Runner's watch, not by the
+    kernel. Only a size-limited filesystem can do that, and creating one needs
+    privileges neither backend has; only the deployment can provide one.

@@ -13,9 +13,9 @@ func TestSelectSandboxByName(t *testing.T) {
 	if err != nil || name != "none" {
 		t.Fatalf("none: %q %v", name, err)
 	}
-	l, err := sb.Command(Policy{}, "/usr/bin/grype", []string{"version"})
-	if err != nil || !reflect.DeepEqual(l, Launch{Argv: []string{"/usr/bin/grype", "version"}}) {
-		t.Fatalf("none must run the scanner as is: %+v %v", l, err)
+	argv, err := sb.Command(Policy{}, "/usr/bin/grype", []string{"version"})
+	if err != nil || !reflect.DeepEqual(argv, []string{"/usr/bin/grype", "version"}) {
+		t.Fatalf("none must run the scanner as is: %q %v", argv, err)
 	}
 	if _, _, err := SelectSandbox("chroot"); err == nil || !strings.Contains(err.Error(), "unknown backend") {
 		t.Fatalf("unknown backend must be a configuration error: %v", err)
@@ -49,11 +49,9 @@ func TestSelectAutoPrefersFirstAvailable(t *testing.T) {
 
 type recordingSandbox struct{ got Policy }
 
-func (s *recordingSandbox) Command(p Policy, bin string, args []string) (Launch, error) {
+func (s *recordingSandbox) Command(p Policy, bin string, args []string) ([]string, error) {
 	s.got = p
-	// The script also reads fd 3, which the Runner must pass from Launch.Files.
-	argv := append([]string{"/bin/sh", "-c", `printf 'confined:%s ' "$@"; cat <&3`, "sh", bin}, args...)
-	return Launch{Argv: argv, Files: [][]byte{[]byte("fd3")}}, nil
+	return append([]string{"/bin/sh", "-c", `printf 'confined:%s ' "$@"`, "sh", bin}, args...), nil
 }
 
 func TestRunnerRunsThroughSandbox(t *testing.T) {
@@ -64,7 +62,7 @@ func TestRunnerRunsThroughSandbox(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(out); got != "confined:/usr/bin/grype confined:sbom:/data/sboms/x.json fd3" {
+	if got := string(out); got != "confined:/usr/bin/grype confined:sbom:/data/sboms/x.json " {
 		t.Errorf("scanner did not run through the sandbox: %q", got)
 	}
 	if !reflect.DeepEqual(sb.got, want) {

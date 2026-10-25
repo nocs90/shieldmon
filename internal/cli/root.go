@@ -134,14 +134,15 @@ func (a *app) setup(cmd *cobra.Command) error {
 	}
 	a.store = st
 
-	set, confined, err := a.scannerSet()
+	set, sandbox, err := a.scannerSet()
 	if err != nil {
 		return err
 	}
 	a.engine = &engine.Engine{
 		Store:           st,
 		Scanners:        set,
-		Sandboxed:       confined,
+		Sandboxed:       scanner.Confined(sandbox),
+		SandboxDegraded: scanner.SandboxDegraded(sandbox),
 		Fetcher:         engine.RegistryFetcher{Options: a.ociOptions()},
 		DataDir:         cfg.DataDir,
 		DBMaxAge:        cfg.Health.DBMaxAge.Duration,
@@ -162,18 +163,18 @@ func (a *app) ociOptions() oci.Options {
 	}
 }
 
-// scannerSet builds the configured scanners and reports whether they run confined.
-func (a *app) scannerSet() (scanner.Set, bool, error) {
+// scannerSet builds the configured scanners and returns the sandbox they run in.
+func (a *app) scannerSet() (scanner.Set, scanner.Sandbox, error) {
 	sc := a.cfg.Scanners
 	_, sandbox, err := scanner.SelectSandbox(sc.Sandbox.Backend)
 	if err != nil {
-		return scanner.Set{}, false, err
+		return scanner.Set{}, nil, err
 	}
 	// Scanner DBs, caches and scratch space live in the data dir, so that a sandbox can
 	// expose them without the user's home directory.
 	data, err := filepath.Abs(a.cfg.DataDir)
 	if err != nil {
-		return scanner.Set{}, false, err
+		return scanner.Set{}, nil, err
 	}
 	r := scanner.Runner{
 		Timeout: sc.Timeout.Duration, MaxOutput: sc.MaxOutputBytes, Sandbox: sandbox,
@@ -189,7 +190,7 @@ func (a *app) scannerSet() (scanner.Set, bool, error) {
 		}
 	}
 	set, err := scanner.Build(sc.Matchers, specs, r)
-	return set, scanner.Confined(sandbox), err
+	return set, sandbox, err
 }
 
 // preflight records the sandbox posture and refreshes vulnerability DBs before a
@@ -286,6 +287,10 @@ func (a *app) doctorCmd() *cobra.Command {
 					problems++
 				default:
 					fmt.Fprintf(w, "• sandbox %s\n", name)
+					// A warning, not a problem: the scanners are still confined.
+					if err := scanner.SandboxDegraded(sb); err != nil {
+						fmt.Fprintf(w, "! sandbox %s is degraded: %v\n", name, err)
+					}
 				}
 			}
 			names := make([]string, 0, len(needed))

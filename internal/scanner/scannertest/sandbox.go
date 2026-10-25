@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -55,6 +56,45 @@ func probe(op string, args []string) error {
 		return err
 	case op == "write" && len(args) == 1:
 		return os.WriteFile(args[0], []byte("x"), 0o600) //nolint:gosec // G703: probing the sandbox is the point; the kit chooses the target
+	case op == "exec-script" && len(args) == 1:
+		// A dropped script, not a binary: small enough for any quota, and executing it
+		// needs the execute right on the written file itself.
+		dir := args[0]
+		if dir == "$TMPDIR" {
+			dir = os.TempDir()
+		}
+		script := filepath.Join(dir, "probe.sh")
+		if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil { //nolint:gosec // G306,G703: an executable is what the probe tries to run
+			return err
+		}
+		return exec.Command(script).Run() //nolint:gosec // G204: the probe runs what it wrote, which the sandbox must refuse
+	case op == "fill-tmp" && len(args) == 0:
+		// A decompression bomb: 1 MiB at a time into TMPDIR, up to 256 MiB.
+		chunk := make([]byte, 1<<20)
+		for i := range 256 {
+			if err := os.WriteFile(filepath.Join(os.TempDir(), fmt.Sprintf("bomb%d", i)), chunk, 0o600); err != nil { //nolint:gosec // G303,G703: TMPDIR is the process's private scratch directory
+				return err
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		return nil
+	case op == "write-big" && len(args) == 2:
+		mib, err := strconv.Atoi(args[1])
+		if err != nil {
+			return err
+		}
+		f, err := os.Create(args[0]) //nolint:gosec // G703: probing the sandbox is the point; the kit chooses the target
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		chunk := make([]byte, 1<<20)
+		for range mib {
+			if _, err := f.Write(chunk); err != nil {
+				return err
+			}
+		}
+		return f.Close()
 	case op == "write-tmp" && len(args) == 0:
 		return os.WriteFile(filepath.Join(os.TempDir(), "probe"), []byte("x"), 0o600) //nolint:gosec // G303: TMPDIR is the process's private scratch directory
 	case op == "connect" && len(args) == 1:
@@ -94,13 +134,14 @@ func RequiredSandbox(name string) bool {
 	return slices.Contains(strings.Split(os.Getenv("SHIELDMON_TEST_SANDBOX"), ","), name)
 }
 
-// CheckSandbox runs probes inside the named sandbox backend: a scanner can use its
-// declared paths and scratch space, and cannot read or write anything else, write the
-// shared DB cache, reach the network while offline, create a user namespace or weaken
-// exploit mitigations (the seccomp filter), or outlive its timeout. A backend
-// that cannot run on this host is skipped, unless SHIELDMON_TEST_SANDBOX (a comma-separated
-// list) names it, in
-// which case the test fails (CI sets it where the backend must work).
+// CheckSandbox runs probes inside the named sandbox backend, through a Runner as in
+// production: a scanner can use its declared paths and scratch space, and cannot read or
+// write anything else, write the shared DB cache, reach the network while offline, create
+// a user namespace or weaken exploit mitigations (the seccomp filter), execute what it
+// wrote (W^X, unless the backend reports itself degraded on this host), outgrow its
+// scratch quota or file size limit, or outlive its timeout. A backend that cannot run on
+// this host is skipped, unless SHIELDMON_TEST_SANDBOX (a comma-separated list) names it,
+// in which case the test fails (CI sets it where the backend must work).
 func CheckSandbox(t *testing.T, name string) {
 	t.Helper()
 	var backend *scanner.SandboxBackend
@@ -157,9 +198,11 @@ func CheckSandbox(t *testing.T, name string) {
 	}()
 	addr := ln.Addr().String()
 
+	const quota = 8 << 20
 	r := scanner.Runner{
 		Timeout: time.Minute, Sandbox: sb,
 		CacheDir: filepath.Join(host, "cache"), TempDir: filepath.Join(host, "tmp"),
+		ScratchQuota: quota,
 	}
 	offline := scanner.WithPolicy(context.Background(), scanner.Policy{ReadOnly: []string{input}, Writable: []string{out}})
 	online := scanner.WithPolicy(context.Background(), scanner.Policy{Network: true})
@@ -182,6 +225,8 @@ func CheckSandbox(t *testing.T, name string) {
 		{"write its scratch directory", offline, []string{"write-tmp"}},
 		{"write the DB cache while updating", online, []string{"write", filepath.Join(r.CacheDir, "db")}},
 		{"connect while updating", online, []string{"connect", addr}},
+		// DBs are bigger than a small quota; updates never read image content.
+		{"write a DB larger than the quota while updating", online, []string{"write-big", filepath.Join(r.CacheDir, "big-db"), "16"}},
 	}
 	for _, c := range allowed {
 		if err := run(c.ctx, r, c.args...); err != nil {
@@ -209,6 +254,25 @@ func CheckSandbox(t *testing.T, name string) {
 	}
 	if err := run(offline, r, "personality"); err == nil {
 		t.Error("a sandboxed scanner could turn off address space randomization")
+	}
+	if degraded := scanner.SandboxDegraded(sb); degraded != nil {
+		t.Logf("%s runs degraded here, W^X not checked: %v", name, degraded)
+	} else {
+		for what, dir := range map[string]string{"its scratch space": "$TMPDIR", "its output directory": out} {
+			if err := run(offline, r, "exec-script", dir); err == nil {
+				t.Errorf("a sandboxed scanner could execute a file it wrote in %s", what)
+			}
+		}
+	}
+	if err := run(offline, r, "fill-tmp"); !errors.Is(err, scanner.ErrScratchQuota) {
+		t.Errorf("filling the scratch space past the quota must stop the scanner with ErrScratchQuota, got %v", err)
+	}
+	big := filepath.Join(out, "big")
+	if err := run(offline, r, "write-big", big, "16"); err == nil {
+		t.Error("a scanner could write a file larger than its quota")
+	}
+	if st, err := os.Stat(big); err == nil && st.Size() > quota {
+		t.Errorf("a %d-byte file outgrew the %d-byte limit", st.Size(), quota)
 	}
 	// A write may succeed on a stand-in path; it must not reach the host.
 	poisoned := filepath.Join(r.CacheDir, "poisoned")

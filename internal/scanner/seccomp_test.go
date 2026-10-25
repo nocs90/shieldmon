@@ -1,9 +1,6 @@
 package scanner
 
 import (
-	"bytes"
-	"encoding/binary"
-	"runtime"
 	"testing"
 )
 
@@ -146,23 +143,5 @@ func TestSeccompOptions(t *testing.T) {
 				t.Errorf("%s %+v: options must not drop the base deny-list", goarch, c.o)
 			}
 		}
-	}
-}
-
-func TestSeccompProgramEncoding(t *testing.T) {
-	if _, ok := seccompArches[runtime.GOARCH]; !ok {
-		t.Skip("no filter for", runtime.GOARCH)
-	}
-	b, err := seccompProgram(runtime.GOARCH, seccompOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	prog, _ := seccompFilter(runtime.GOARCH, seccompOptions{})
-	if len(b) != 8*len(prog) {
-		t.Fatalf("%d bytes for %d instructions: struct sock_filter is 8 bytes", len(b), len(prog))
-	}
-	var first sockFilter
-	if err := binary.Read(bytes.NewReader(b[:8]), binary.NativeEndian, &first); err != nil || first != prog[0] {
-		t.Fatalf("first instruction decodes to %+v, want %+v (%v)", first, prog[0], err)
 	}
 }

@@ -1,8 +1,6 @@
 package scanner
 
 import (
-	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
@@ -174,19 +172,4 @@ func seccompFilter(goarch string, o seccompOptions) ([]sockFilter, error) {
 		sockFilter{Code: bpfJsetK, Jt: 0, Jf: 1, K: cloneNewMask}, ret(retErrno|errnoEPERM),
 		ret(retAllow))
 	return prog, nil
-}
-
-// seccompProgram returns the filter for goarch (runtime.GOARCH: the scanner runs on the
-// same kernel ABI as ShieldMon) as the bytes of a struct sock_filter array, which is what
-// bwrap --seccomp reads.
-func seccompProgram(goarch string, o seccompOptions) ([]byte, error) {
-	prog, err := seccompFilter(goarch, o)
-	if err != nil {
-		return nil, err
-	}
-	var buf bytes.Buffer
-	if err := binary.Write(&buf, binary.NativeEndian, prog); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
 }

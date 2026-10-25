@@ -491,6 +491,32 @@ func TestMonitorUpdatesDBsOfflineFromScanning(t *testing.T) {
 	}
 }
 
+func TestMonitorReportsDegradedSandbox(t *testing.T) {
+	h := newHarness(t)
+	h.image(ref, digestA)
+	h.scan(ref)
+	h.eng.Sandboxed = true
+	h.eng.SandboxDegraded = errors.New("without Landlock, a scanner can execute files it writes")
+	if _, err := h.eng.Monitor(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if hf := h.health(engine.CheckSandboxDegraded, "scanners"); hf == nil || hf.State != "open" || hf.Severity != "medium" {
+		t.Fatalf("a degraded sandbox must be a medium health finding: %+v", hf)
+	}
+	if hf := h.health(engine.CheckUnsandboxed, "scanners"); hf != nil && hf.State == "open" {
+		t.Fatalf("a degraded sandbox is still a sandbox: %+v", hf)
+	}
+
+	h.advance(24 * time.Hour)
+	h.eng.SandboxDegraded = nil
+	if _, err := h.eng.Monitor(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if hf := h.health(engine.CheckSandboxDegraded, "scanners"); hf.State != "resolved" {
+		t.Fatalf("full guarantees must resolve scanner_sandbox_degraded: %+v", hf)
+	}
+}
+
 func TestRematchNeedsNoRegistry(t *testing.T) {
 	h := newHarness(t)
 	h.image(ref, digestA, vuln("busybox", "1.36.0-r9", "CVE-2022-48174", model.SeverityCritical))

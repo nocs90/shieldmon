@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,38 +40,38 @@ const apparmorUsernsSysctl = "/proc/sys/kernel/apparmor_restrict_unprivileged_us
 
 // bwrap confines scanners with bubblewrap: new user, mount, PID, IPC, UTS, cgroup and,
 // unless the policy grants network, network namespaces; no capabilities; only system
-// directories, the scanner binary and the policy's paths are visible
-// (docs/adr/0011-scanner-sandbox.md).
+// directories, the launcher, the scanner binary and the policy's paths are visible. Inside,
+// the launcher adds what namespaces cannot: seccomp, rlimits and, where the kernel has
+// Landlock, W^X (docs/adr/0011-scanner-sandbox.md).
 type bwrap struct {
-	path   string
-	goarch string // selects the seccomp filter
-	lstat  func(string) (fs.FileInfo, error)
-	link   func(string) (string, error)
+	path  string
+	self  string // the ShieldMon executable, which is the launcher
+	lstat func(string) (fs.FileInfo, error)
+	link  func(string) (string, error)
 }
 
 func newBwrap(path string) (*bwrap, error) {
 	if _, err := seccompFilter(runtime.GOARCH, seccompOptions{}); err != nil {
 		return nil, err
 	}
-	return &bwrap{path: path, goarch: runtime.GOARCH, lstat: os.Lstat, link: os.Readlink}, nil
+	self, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	return &bwrap{path: path, self: self, lstat: os.Lstat, link: os.Readlink}, nil
 }
 
-// Command passes the seccomp filter as fd 3; bwrap applies it right before it execs the
-// scanner, after its own setup.
-func (b *bwrap) Command(p Policy, bin string, args []string) (Launch, error) {
-	filter, err := seccompProgram(b.goarch, seccompOptions{offline: !p.Network})
-	if err != nil {
-		return Launch{}, err
+// Degraded reports the guarantee bwrap lacks without Landlock: its bind mounts cannot be
+// noexec, so a scanner could execute what it writes.
+func (b *bwrap) Degraded() error {
+	if _, err := landlockSupport(); err != nil {
+		return fmt.Errorf("without Landlock (%w), a scanner can execute files it writes", err)
 	}
-	argv, err := b.argv(p, bin, args)
-	if err != nil {
-		return Launch{}, err
-	}
-	return Launch{Argv: argv, Files: [][]byte{filter}}, nil
+	return nil
 }
 
-func (b *bwrap) argv(p Policy, bin string, args []string) ([]string, error) {
-	argv := []string{b.path, "--die-with-parent", "--new-session", "--unshare-all", "--cap-drop", "ALL", "--seccomp", "3"}
+func (b *bwrap) Command(p Policy, bin string, args []string) ([]string, error) {
+	argv := []string{b.path, "--die-with-parent", "--new-session", "--unshare-all", "--cap-drop", "ALL"}
 	if p.Network {
 		argv = append(argv, "--share-net")
 	}
@@ -115,12 +116,19 @@ func (b *bwrap) argv(p Policy, bin string, args []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !underSystemDir(bin) {
-		binds = append([]string{"--ro-bind", bin, bin}, binds...)
+	// The scanner and the launcher are visible read-only (once, if they are the same file).
+	for _, exe := range []string{bin, b.self} {
+		if !underSystemDir(exe) && !slices.Contains(binds, exe) {
+			binds = append([]string{"--ro-bind", exe, exe}, binds...)
+		}
 	}
 	argv = append(argv, binds...)
-	argv = append(argv, "--chdir", "/tmp", "--", bin)
-	return append(argv, args...), nil
+	argv = append(argv, "--chdir", "/tmp", "--")
+	launch, err := launcherArgs(b.self, p, launcherFlags{scratchAs: "/tmp", landlockOptional: true, proc: true}, bin, args)
+	if err != nil {
+		return nil, err
+	}
+	return append(argv, launch...), nil
 }
 
 // bwrapBinds mounts the policy's paths at the same location inside the sandbox, parents
@@ -198,11 +206,12 @@ func bwrapAvailable() error {
 	if err != nil {
 		return err
 	}
-	// The probe runs through a Runner like a scanner, so the kernel also validates the
-	// seccomp filter.
+	// The probe runs the launcher in --check mode through a Runner like a scanner: bwrap
+	// starts, and the kernel accepts the seccomp filter (and the Landlock ruleset, if any).
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if _, err := (Runner{Timeout: 10 * time.Second, Sandbox: b}).Run(ctx, path, "--version"); err != nil {
+	r := Runner{Timeout: 10 * time.Second, Sandbox: b}
+	if _, err := r.Run(ctx, b.self, launcherArg, "--check", "--landlock=optional"); err != nil {
 		return bwrapStartError(err, apparmorUsernsSysctl)
 	}
 	return nil
@@ -222,7 +231,7 @@ func bwrapStartError(err error, sysctl string) error {
 func init() {
 	RegisterSandbox(SandboxBackend{
 		Name:        "bwrap",
-		Description: "bubblewrap namespaces and seccomp on Linux hosts: no network while reading image content, only declared paths visible",
+		Description: "bubblewrap namespaces plus the launcher (seccomp, rlimits, Landlock if present) on Linux hosts: only declared paths visible, no network while reading image content",
 		Auto:        1,
 		Available:   bwrapAvailable,
 		New: func() Sandbox {
