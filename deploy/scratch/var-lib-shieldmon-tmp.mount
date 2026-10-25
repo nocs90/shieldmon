@@ -1,0 +1,13 @@
+# Size-limited, non-executable scratch space for ShieldMon's scanners at
+# /var/lib/shieldmon/tmp (<data_dir>/tmp). See deploy/scratch/README.md.
+[Unit]
+Description=ShieldMon scanner scratch space
+
+[Mount]
+What=/var/lib/shieldmon-scratch.img
+Where=/var/lib/shieldmon/tmp
+Type=ext4
+Options=loop,nodev,nosuid,noexec
+
+[Install]
+WantedBy=multi-user.target

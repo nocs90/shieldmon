@@ -12,3 +12,8 @@ func diskFree(string) (uint64, error) {
 }
 
 func allocated(fi fs.FileInfo) int64 { return fi.Size() }
+
+// InspectMount describes the filesystem dir is on.
+func InspectMount(string) (Mount, error) {
+	return Mount{}, errors.New("filesystem details unknown on this platform")
+}

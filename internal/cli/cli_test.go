@@ -132,3 +132,16 @@ func TestBanner(t *testing.T) {
 		}
 	}
 }
+
+func TestDoctorReportsScratchFilesystem(t *testing.T) {
+	dir := t.TempDir()
+	common := []string{"--config", filepath.Join(dir, "config.yaml"), "--data-dir", filepath.Join(dir, "data")}
+	if _, errOut, code := run(t, append([]string{"init"}, common...)...); code != 0 {
+		t.Fatal(errOut)
+	}
+	// doctor fails here (no sandbox, maybe no scanners); the scratch line is information.
+	out, _, _ := run(t, append([]string{"doctor"}, common...)...)
+	if !strings.Contains(out, "• scratch "+filepath.Join(dir, "data", "tmp")+": on the data dir's filesystem") {
+		t.Errorf("doctor must say the scratch space shares the data dir's filesystem:\n%s", out)
+	}
+}

@@ -807,6 +807,20 @@
       "milestone": "M2 — Hardening & packaging",
       "epic": "epic-s1",
       "body": "## Context\n\nReview of #47 found three gaps: writable directories are executable under both backends (Landlock grants EXECUTE on them, bwrap's bind mounts are not noexec), `RLIMIT_FSIZE` is set only under `landlock`, and `scannertest.CheckSandbox` does not probe the scratch quota. Seccomp is applied by two code paths (bwrap `--seccomp`, the Landlock launcher).\n\n## Acceptance criteria\n\n- [ ] `bwrap` runs the scanner through `shieldmon sandbox-exec` inside its namespaces: `no_new_privs`, rlimits (`RLIMIT_FSIZE` included), Landlock when the kernel has it, and seccomp come from one launcher for both backends\n- [ ] W^X: no process can execute a file in a directory it can write (Landlock rights)\n- [ ] `bwrap` on a kernel without Landlock keeps working and keeps a `scanner_sandbox_degraded` health finding open; `doctor` warns\n- [ ] `scannertest.CheckSandbox` probes W^X, the scratch quota and the file size limit through a Runner"
+    },
+    {
+      "key": "s1-scratch-fs",
+      "title": "Dedicated scratch filesystem: deployment examples and doctor check",
+      "labels": [
+        "kind/feature",
+        "area/scanner",
+        "area/packaging",
+        "security",
+        "priority/medium"
+      ],
+      "milestone": "M2 — Hardening & packaging",
+      "epic": "epic-s1",
+      "body": "## Context\n\nThe scratch quota is enforced by the Runner's watch, which can overshoot by 100 ms of writing (ADR 0011, #47). A kernel-enforced total needs a size-limited filesystem, which only the deployment can create. Mounted `noexec,nosuid,nodev` at `<data_dir>/tmp`, it also gives W^X to every scanner output at mount level, including under `bwrap` on kernels without Landlock (#53).\n\n## Acceptance criteria\n\n- [ ] Examples for a host (loop image or LV, mount unit) and Kubernetes (generic ephemeral volume) in `deploy/scratch`\n- [ ] `shieldmon doctor` reports whether `<data_dir>/tmp` is a dedicated filesystem, its size against `limits.max_scratch_bytes`, and missing `noexec`/`nosuid`/`nodev`; warnings, not failures\n- [ ] Not required: without it, the watch and the free-disk floor stay the default protection"
     }
   ]
 }
