@@ -195,3 +195,22 @@
   - `RLIMIT_FSIZE` moves to the scratch quota (#47), which needs the same limit.
   - `SHIELDMON_TEST_SANDBOX` is now a comma-separated list; ci/test requires
     `bwrap,landlock`.
+- 2026-10-25, scratch quota and free-disk floor (#47):
+  - The `Runner` watches every process it starts, whatever the backend (`none` included):
+    every 100 ms it measures the scratch directory (allocated blocks, so sparse files are
+    not overcounted; at most 2^20 entries, which also bounds inode use and the walk) and
+    the free space under the data dir's `tmp`. Over `limits.max_scratch_bytes` (default
+    32 GiB) or under `limits.min_free_disk_bytes` (default 2 GiB) it kills the process
+    group: `ErrScratchQuota` / `ErrDiskSpace`, so the scan fails with the generator's or
+    matcher's health finding. The floor is what keeps the disk from filling even when a
+    process writes outside its scratch space (`none`, or its output directory).
+  - Overshoot between two checks is bounded by 100 ms of writing; the floor absorbs it.
+    No quota filesystem: a size-limited mount needs privileges neither backend has, and a
+    tmpfs would put the bytes in memory.
+  - `landlock` also sets `RLIMIT_FSIZE` to the quota for offline processes, so no single
+    file can outgrow it, even outside the scratch directory. bwrap cannot set rlimits on
+    the process it starts, so it relies on the watch. DB updates are not limited: DBs can
+    be larger than a small quota, and the update never reads image content.
+  - The quota is a property of the Runner, not of a backend, so it is tested in the
+    scanner package (portable) rather than in `scannertest.CheckSandbox`; the landlock
+    file size limit has a Linux test.

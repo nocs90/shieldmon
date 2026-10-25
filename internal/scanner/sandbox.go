@@ -24,6 +24,9 @@ type Policy struct {
 	// Network is granted only to vulnerability DB updates, never to a process that
 	// reads image content or SBOMs.
 	Network bool
+	// MaxFileBytes bounds every file the process writes (0: unbounded), for backends that
+	// can set RLIMIT_FSIZE on it. Runner fills it in from ScratchQuota.
+	MaxFileBytes int64
 }
 
 type policyKey struct{}

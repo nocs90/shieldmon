@@ -9,9 +9,10 @@ import (
 func TestLandlockCommandRoundTrip(t *testing.T) {
 	l := landlock{self: "/usr/local/bin/shieldmon"}
 	p := Policy{
-		ReadOnly: []string{"/data/sboms/x.json", "/data/cache"},
-		Writable: []string{"/data/tmp/scan-1/syft"},
-		Scratch:  "/data/tmp/proc-1",
+		ReadOnly:     []string{"/data/sboms/x.json", "/data/cache"},
+		Writable:     []string{"/data/tmp/scan-1/syft"},
+		Scratch:      "/data/tmp/proc-1",
+		MaxFileBytes: 1 << 30,
 	}
 	launch, err := l.Command(p, "/opt/scanners/grype", []string{"sbom:/data/sboms/x.json", "--", "-o"})
 	if err != nil {
@@ -29,7 +30,7 @@ func TestLandlockCommandRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := launchSpec{
-		ro: p.ReadOnly, rw: p.Writable, scratch: p.Scratch,
+		ro: p.ReadOnly, rw: p.Writable, scratch: p.Scratch, maxFileBytes: 1 << 30,
 		// Arguments after the scanner path are the scanner's, even if they look like ours.
 		argv: []string{"/opt/scanners/grype", "sbom:/data/sboms/x.json", "--", "-o"},
 	}
@@ -66,6 +67,8 @@ func TestParseLaunchRejects(t *testing.T) {
 		{"--"},                        // nothing after --
 		{"--rw", "/out", "--", "/x"},  // flag without =
 		{"--seccomp=0", "--", "/bin"}, // unknown flag
+		{"--max-file-bytes=0", "--", "/bin/x"},
+		{"--max-file-bytes=1G", "--", "/bin/x"},
 	} {
 		if _, err := parseLaunch(args); err == nil {
 			t.Errorf("parseLaunch(%q) must fail", args)

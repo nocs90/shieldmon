@@ -59,6 +59,10 @@ type Config struct {
 		MaxLayers     int   `yaml:"max_layers"`
 		MaxLayerBytes int64 `yaml:"max_layer_bytes"`
 		MaxTotalBytes int64 `yaml:"max_total_bytes"`
+		// MaxScratchBytes bounds what one scanner process unpacks into its scratch space.
+		MaxScratchBytes int64 `yaml:"max_scratch_bytes"`
+		// MinFreeDiskBytes stops a scanner before the data dir's disk fills up.
+		MinFreeDiskBytes int64 `yaml:"min_free_disk_bytes"`
 	} `yaml:"limits"`
 
 	Health struct {
@@ -91,6 +95,8 @@ func Default() Config {
 	c.Limits.MaxLayers = 256
 	c.Limits.MaxLayerBytes = 4 << 30
 	c.Limits.MaxTotalBytes = 16 << 30
+	c.Limits.MaxScratchBytes = 32 << 30
+	c.Limits.MinFreeDiskBytes = 2 << 30
 	c.Health.DBMaxAge = Duration{72 * time.Hour}
 	c.Health.MonitorInterval = Duration{24 * time.Hour}
 	c.SLA.Profile = "standard"
@@ -146,6 +152,9 @@ func (c Config) Validate() error {
 	}
 	if c.Decisions.VendorDependencyMaxDays <= 0 || c.Decisions.OperationalRequirementMaxDays <= 0 {
 		return fmt.Errorf("decisions: max days must be positive")
+	}
+	if c.Limits.MaxScratchBytes < 0 || c.Limits.MinFreeDiskBytes < 0 {
+		return fmt.Errorf("limits: max_scratch_bytes and min_free_disk_bytes must not be negative (0 disables)")
 	}
 	return nil
 }
@@ -227,6 +236,12 @@ limits:
   max_layers: 256
   max_layer_bytes: 4294967296
   max_total_bytes: 17179869184
+  # Bounds on scanner processes, which may unpack layers to far more than they download:
+  # scratch space of one process (under landlock, also the size of any file it writes),
+  # and free space left on the data dir's disk. A breach kills the scanner and fails the
+  # scan with a health finding. 0 disables a bound.
+  max_scratch_bytes: 34359738368
+  min_free_disk_bytes: 2147483648
 
 health:
   db_max_age: 72h        # older vulnerability DBs open a db_stale health finding
