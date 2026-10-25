@@ -14,7 +14,7 @@ Every gate runs in CI and can be run locally. Required checks on `main` are mark
 | ✱ Fuzzing of hostile-input parsers | `make fuzz` | ci/fuzz (20s/target on PR, 5m nightly) | crash or invariant violation; failing inputs are committed under `testdata/fuzz` as regressions |
 | Integration (real syft/grype/trivy, pinned digest) | `make test-integration` | ci/integration (main, nightly, PRs labelled `run/integration`) | pipeline regression |
 | Conformance kit for adapters | part of unit tests | ci/test | an adapter violates its contract |
-| ✱ Scanner sandbox (bubblewrap, Linux) | on Ubuntu ≥ 23.10 load `deploy/apparmor/shieldmon-bwrap` first (see its header); `SHIELDMON_TEST_SANDBOX=bwrap go test -run 'TestBwrapSandbox\|TestSandboxBackendsConform' ./internal/scanner` | ci/test | a sandboxed process reads, writes, connects or sees outside its policy, outlives its timeout, or bwrap cannot start on the runner |
+| ✱ Scanner sandbox (bubblewrap and Landlock, Linux) | on Ubuntu ≥ 23.10 load `deploy/apparmor/shieldmon-bwrap` first (see its header); `SHIELDMON_TEST_SANDBOX=bwrap,landlock go test -run 'TestBwrapSandbox\|TestSandboxBackendsConform' ./internal/scanner` | ci/test | a sandboxed process reads, writes, connects or sees outside its policy, escapes the seccomp filter, outlives its timeout, or a backend cannot run on the runner |
 | ✱ CodeQL (security-extended) | — | security/codeql (public repo only) | new alert |
 | ✱ Secret scanning (gitleaks, `.gitleaks.toml`) | `gitleaks detect` | security/secrets | secret in history; synthetic test credentials are allowlisted by path only |
 | ✱ Dependency review | — | security/dependency-review (PR, public repo only) | vulnerable (≥ moderate) or AGPL-incompatible dependency |

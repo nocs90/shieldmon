@@ -43,14 +43,15 @@ not be falsifiable.
 | D | Silent stop: cron broken, DB stale, auth expired. | Self-health findings: `monitor_missed`, `db_stale`, `registry_auth`, `*_failed` ✅ (alerting ⬜ M4) |
 | **E**levation of privilege | Image content executed. | Never run images; no Docker daemon; scanners only parse files ✅ |
 | E | Argument/flag injection through image refs. | Strict reference parsing (rejects leading `-`, whitespace); no shell; digest refs passed to scanners as local paths ✅ |
-| E | Scanner exploited by a crafted layer → host compromise. | Sandbox (ADR 0011): `bwrap` on Linux hosts with seccomp deny-list (no new namespaces, ptrace, mounts, bpf, io_uring, keyrings, userfaultfd, modules) and no network while handling image content ✅ (opt-in); Landlock in containers, scratch quota, sandbox by default ⬜ M2 |
+| E | Scanner exploited by a crafted layer → host compromise. | Sandbox (ADR 0011): `bwrap` on Linux hosts with seccomp deny-list (no new namespaces, ptrace, mounts, bpf, io_uring, keyrings, userfaultfd, modules) and no sockets while handling image content ✅ (opt-in); `landlock` backend for containers ✅ (opt-in); scratch quota, sandbox by default ⬜ M2 |
 | E | Over-scoped registry credentials. | Least-privilege IAM policy, short-lived creds only ⬜ M3 |
 | Report injection | Package names like `=HYPERLINK(...)` or Markdown/HTML in titles. | CSV formula neutralization, Markdown/HTML escaping ✅ |
 
 ## Residual risks (accepted for M1, tracked in ROADMAP)
 
 - Scanners run unsandboxed as the invoking user unless a sandbox backend is configured
-  (`bwrap` on Linux hosts; Landlock for containers is planned, ADR 0011). While they do,
+  (`bwrap` on Linux hosts, `landlock` in containers; ADR 0011). Under `landlock` on
+  kernels before Landlock ABI 6, a scanner can still signal the user's other processes. While they do,
   a `scanner_unsandboxed` health finding stays open. Mitigation: run ShieldMon in a
   dedicated, unprivileged container with no other secrets.
 - On Ubuntu ≥ 23.10 the `bwrap` backend needs `deploy/apparmor/shieldmon-bwrap`, which
