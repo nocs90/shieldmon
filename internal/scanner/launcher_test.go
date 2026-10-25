@@ -6,23 +6,18 @@ import (
 	"testing"
 )
 
-func TestLandlockCommandRoundTrip(t *testing.T) {
-	l := landlock{self: "/usr/local/bin/shieldmon"}
+func TestLauncherArgsRoundTrip(t *testing.T) {
 	p := Policy{
 		ReadOnly:     []string{"/data/sboms/x.json", "/data/cache"},
 		Writable:     []string{"/data/tmp/scan-1/syft"},
 		Scratch:      "/data/tmp/proc-1",
 		MaxFileBytes: 1 << 30,
 	}
-	launch, err := l.Command(p, "/opt/scanners/grype", []string{"sbom:/data/sboms/x.json", "--", "-o"})
+	argv, err := landlock{self: "/usr/local/bin/shieldmon"}.Command(p, "/opt/scanners/grype", []string{"sbom:/data/sboms/x.json", "--", "-o"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(launch.Files) != 0 {
-		t.Error("the launcher builds its own seccomp filter and needs no file descriptors")
-	}
-	argv := launch.Argv
-	if !slices.Equal(argv[:2], []string{"/usr/local/bin/shieldmon", landlockExecArg}) {
+	if !slices.Equal(argv[:2], []string{"/usr/local/bin/shieldmon", launcherArg}) {
 		t.Fatalf("the launcher is ShieldMon itself: %q", argv)
 	}
 	spec, err := parseLaunch(argv[2:])
@@ -38,16 +33,19 @@ func TestLandlockCommandRoundTrip(t *testing.T) {
 		t.Errorf("parsed %+v, want %+v", spec, want)
 	}
 
-	launch, err = l.Command(Policy{Network: true}, "/usr/bin/grype", []string{"db", "update"})
+	argv, err = launcherArgs("/s", Policy{Network: true, Scratch: "/data/tmp/proc-2"},
+		launcherFlags{scratchAs: "/tmp", landlockOptional: true, proc: true}, "/usr/bin/grype", []string{"db", "update"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if spec, err := parseLaunch(launch.Argv[2:]); err != nil || !spec.net || spec.ro != nil {
-		t.Errorf("a network policy must reach the launcher: %+v %v", spec, err)
+	spec, err = parseLaunch(argv[2:])
+	want = launchSpec{scratch: "/tmp", net: true, landlockOptional: true, proc: true, argv: []string{"/usr/bin/grype", "db", "update"}}
+	if err != nil || !reflect.DeepEqual(spec, want) {
+		t.Errorf("backend flags: parsed %+v (%v), want %+v", spec, err, want)
 	}
 }
 
-func TestLandlockRefusesUnsafePolicy(t *testing.T) {
+func TestLauncherRefusesUnsafePolicy(t *testing.T) {
 	l := landlock{self: "/usr/local/bin/shieldmon"}
 	for _, p := range []Policy{{Writable: []string{"/"}}, {ReadOnly: []string{""}}, {Scratch: "/"}} {
 		if _, err := l.Command(p, "/usr/bin/grype", nil); err == nil {
@@ -69,6 +67,7 @@ func TestParseLaunchRejects(t *testing.T) {
 		{"--seccomp=0", "--", "/bin"}, // unknown flag
 		{"--max-file-bytes=0", "--", "/bin/x"},
 		{"--max-file-bytes=1G", "--", "/bin/x"},
+		{"--landlock=off", "--", "/bin/x"}, // Landlock can be optional, never off
 	} {
 		if _, err := parseLaunch(args); err == nil {
 			t.Errorf("parseLaunch(%q) must fail", args)

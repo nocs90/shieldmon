@@ -28,18 +28,19 @@ import (
 
 // Health check names.
 const (
-	CheckRegistryAuth   = "registry_auth"
-	CheckResolve        = "resolve_failed"
-	CheckFetch          = "fetch_failed"
-	CheckGenerator      = "sbom_generator_failed"
-	CheckMatcher        = "matcher_failed"
-	CheckDBStale        = "db_stale"
-	CheckMonitorMissed  = "monitor_missed"
-	CheckChecksum       = "scanner_checksum_mismatch"
-	CheckUnsandboxed    = "scanner_unsandboxed"
-	CheckDBUpdate       = "db_update_failed"
-	maxSBOMBytes        = 256 << 20
-	monitorMissedFactor = 1.5
+	CheckRegistryAuth    = "registry_auth"
+	CheckResolve         = "resolve_failed"
+	CheckFetch           = "fetch_failed"
+	CheckGenerator       = "sbom_generator_failed"
+	CheckMatcher         = "matcher_failed"
+	CheckDBStale         = "db_stale"
+	CheckMonitorMissed   = "monitor_missed"
+	CheckChecksum        = "scanner_checksum_mismatch"
+	CheckUnsandboxed     = "scanner_unsandboxed"
+	CheckSandboxDegraded = "scanner_sandbox_degraded"
+	CheckDBUpdate        = "db_update_failed"
+	maxSBOMBytes         = 256 << 20
+	monitorMissedFactor  = 1.5
 )
 
 // Fetcher abstracts image resolution and download (tests use a fake).
@@ -74,8 +75,11 @@ type Engine struct {
 	// Sandboxed is true when scanners run confined (scanner.Confined). While it is false,
 	// Preflight keeps a scanner_unsandboxed health finding open.
 	Sandboxed bool
-	Now       func() time.Time
-	Log       *slog.Logger
+	// SandboxDegraded says which guarantee the sandbox lacks on this host
+	// (scanner.SandboxDegraded); while set, Preflight keeps scanner_sandbox_degraded open.
+	SandboxDegraded error
+	Now             func() time.Time
+	Log             *slog.Logger
 }
 
 func (e *Engine) now() time.Time {
@@ -472,11 +476,17 @@ func (e *Engine) checkDBAge(ctx context.Context, t model.Tool) {
 // the matchers' vulnerability DBs. A failed update is a health finding, not a reason to
 // skip the cycle: matching then uses the DB on disk and checkDBAge judges its age.
 func (e *Engine) Preflight(ctx context.Context) error {
-	if e.Sandboxed {
-		e.healthy(ctx, CheckUnsandboxed, "scanners")
-	} else {
+	switch {
+	case !e.Sandboxed:
 		e.health(ctx, CheckUnsandboxed, "scanners", "high",
 			errors.New("scanners parse image content with the invoking user's filesystem and network (scanners.sandbox.backend: none)"))
+		e.healthy(ctx, CheckSandboxDegraded, "scanners")
+	case e.SandboxDegraded != nil:
+		e.healthy(ctx, CheckUnsandboxed, "scanners")
+		e.health(ctx, CheckSandboxDegraded, "scanners", "medium", e.SandboxDegraded)
+	default:
+		e.healthy(ctx, CheckUnsandboxed, "scanners")
+		e.healthy(ctx, CheckSandboxDegraded, "scanners")
 	}
 	return e.UpdateDBs(ctx)
 }

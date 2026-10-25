@@ -45,7 +45,7 @@ These are not features; violating one is a bug.
 
 | ID | Requirement | Status |
 |---|---|---|
-| S1 | Never execute image content. Bound sizes, time and output; protect against path traversal / symlink escape. | 🟡 manifest/layer/total limits, digest verification, scanner timeouts, output limits, SBOM size/shape validation, scanner sandbox with seccomp — `bwrap` (Linux hosts) or `landlock` (containers), opt-in — offline scanning with a separate DB update step, scratch quota and free-disk floor · ⬜ sandbox by default |
+| S1 | Never execute image content. Bound sizes, time and output; protect against path traversal / symlink escape. | 🟡 manifest/layer/total limits, digest verification, scanner timeouts, output limits, SBOM size/shape validation, scanner sandbox with seccomp and W^X — `bwrap` (Linux hosts) or `landlock` (containers), opt-in — offline scanning with a separate DB update step, scratch quota and free-disk floor · ⬜ sandbox by default |
 | S2 | Credentials never logged, never persisted, redacted from errors. Least-privilege IAM policy shipped and tested. | 🟡 redaction, scanners never receive registry credentials, env allowlist · ⬜ IAM policy (M3) |
 | S3 | Own supply chain: scanners pinned by checksum, CI actions pinned by full SHA, reproducible signed releases. | 🟡 binary SHA-256 pins, pinned CI actions, checksum-verified installer · ⬜ signature verification, signed releases, SBOM of ShieldMon itself |
 

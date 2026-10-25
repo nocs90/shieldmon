@@ -237,7 +237,8 @@ limits:
   max_layer_bytes: 4294967296
   max_total_bytes: 17179869184
   # Bounds on scanner processes, which may unpack layers to far more than they download:
-  # scratch space of one process (under landlock, also the size of any file it writes),
+  # scratch space of one process (also the size of any file it writes while reading
+  # image content),
   # and free space left on the data dir's disk. A breach kills the scanner and fails the
   # scan with a health finding. 0 disables a bound.
   max_scratch_bytes: 34359738368

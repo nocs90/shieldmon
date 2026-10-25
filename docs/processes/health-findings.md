@@ -13,6 +13,7 @@ themselves vulnerabilities: treat them with the same urgency.
 | `db_update_failed` | `db update` could not refresh a matcher's DB (the cycle goes on with the DB on disk) | network to DB mirrors, disk space; `db_stale` follows if it keeps failing | next successful update |
 | `scanner_checksum_mismatch` | binary differs from the pinned SHA-256 | **treat as a possible compromise**: verify the binary's origin before re-pinning | next run with a matching binary |
 | `db_stale` | vulnerability DB older than `health.db_max_age` | fix DB updates (network, `db_auto_update`/`skip_db_update`, or the out-of-band process that manages the DB) | next match with a fresh DB |
+| `scanner_sandbox_degraded` | the sandbox runs without one of its guarantees on this host; today: `bwrap` on a kernel without Landlock ABI ≥ 2, where a scanner can execute files it writes | a kernel with Landlock (Linux ≥ 5.19, `landlock` in the LSM list), or `backend: landlock` | next cycle with full guarantees |
 | `scanner_unsandboxed` | `scanners.sandbox.backend: none`: scanners parse hostile layers with the invoking user's files and network ([ADR 0011](../adr/0011-scanner-sandbox.md)) | choose a backend that runs here (`shieldmon plugins`) | next cycle with a confining backend |
 | `monitor_missed` | gap between cycles > 1.5 × `monitor_interval` | fix the scheduler | next on-time cycle |
 

@@ -1,13 +1,13 @@
 package scanner
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -28,8 +28,8 @@ func mergedUsr() *bwrap {
 	entries := map[string]fs.FileMode{"/usr": fs.ModeDir, "/bin": fs.ModeSymlink, "/lib": fs.ModeSymlink, "/lib64": fs.ModeDir}
 	links := map[string]string{"/bin": "usr/bin", "/lib": "usr/lib"}
 	return &bwrap{
-		path:   "/usr/bin/bwrap",
-		goarch: "amd64",
+		path: "/usr/bin/bwrap",
+		self: "/opt/shieldmon/shieldmon",
 		lstat: func(p string) (fs.FileInfo, error) {
 			m, ok := entries[p]
 			if !ok {
@@ -57,18 +57,25 @@ func TestBwrapCommandConfinesToPolicy(t *testing.T) {
 		Writable: []string{"/data/tmp/scan-1/syft"},
 		Scratch:  "/data/tmp/proc-1",
 	}
-	l, err := mergedUsr().Command(p, "/opt/scanners/grype", []string{"sbom:/data/sboms/x.json", "-o", "json"})
+	argv, err := mergedUsr().Command(p, "/opt/scanners/grype", []string{"sbom:/data/sboms/x.json", "-o", "json"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	argv := l.Argv
-	offline, _ := seccompProgram("amd64", seccompOptions{offline: true})
-	if !hasArgs(argv, "--seccomp", "3") || len(l.Files) != 1 || !bytes.Equal(l.Files[0], offline) {
-		t.Errorf("the offline seccomp filter must be passed as fd 3: %q", argv)
-	}
 	sep := slices.Index(argv, "--")
-	if sep < 0 || !slices.Equal(argv[sep+1:], []string{"/opt/scanners/grype", "sbom:/data/sboms/x.json", "-o", "json"}) {
-		t.Fatalf("scanner argv must follow --: %q", argv)
+	if sep < 0 || !slices.Equal(argv[sep+1:sep+3], []string{"/opt/shieldmon/shieldmon", launcherArg}) {
+		t.Fatalf("bwrap must run the launcher: %q", argv)
+	}
+	// Inside, the launcher sees bwrap's layout: scratch at /tmp, its own /proc.
+	spec, err := parseLaunch(argv[sep+3:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := launchSpec{
+		ro: p.ReadOnly, rw: p.Writable, scratch: "/tmp", landlockOptional: true, proc: true,
+		argv: []string{"/opt/scanners/grype", "sbom:/data/sboms/x.json", "-o", "json"},
+	}
+	if !reflect.DeepEqual(spec, want) {
+		t.Errorf("launcher got %+v, want %+v", spec, want)
 	}
 	opts := argv[:sep]
 	for _, flag := range []string{"--unshare-all", "--die-with-parent", "--new-session"} {
@@ -92,6 +99,7 @@ func TestBwrapCommandConfinesToPolicy(t *testing.T) {
 		{"--symlink", []string{"usr/lib", "/lib"}},
 		{"--ro-bind", []string{"/lib64", "/lib64"}},
 		{"--ro-bind", []string{"/opt/scanners/grype", "/opt/scanners/grype"}},
+		{"--ro-bind", []string{"/opt/shieldmon/shieldmon", "/opt/shieldmon/shieldmon"}},
 		{"--ro-bind", []string{"/data/sboms/x.json", "/data/sboms/x.json"}},
 		{"--ro-bind", []string{"/data/cache", "/data/cache"}},
 		{"--bind", []string{"/data/tmp/scan-1/syft", "/data/tmp/scan-1/syft"}},
@@ -119,14 +127,12 @@ func TestBwrapCommandNetworkAndOrdering(t *testing.T) {
 		ReadOnly: []string{"/data/cache/grype/db", "/data/cache"},
 		Writable: []string{"/data/cache"},
 	}
-	l, err := mergedUsr().Command(p, "/usr/bin/grype", []string{"db", "update"})
+	argv, err := mergedUsr().Command(p, "/usr/bin/grype", []string{"db", "update"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	argv := l.Argv
-	online, _ := seccompProgram("amd64", seccompOptions{})
-	if len(l.Files) != 1 || !bytes.Equal(l.Files[0], online) {
-		t.Error("a process with network must get the filter that allows sockets")
+	if !slices.Contains(argv, "--net") {
+		t.Error("the launcher must know the process has network, so that seccomp allows sockets")
 	}
 	if !slices.Contains(argv, "--share-net") || !hasArgs(argv, "--ro-bind-try", "/etc/resolv.conf", "/etc/resolv.conf") {
 		t.Errorf("a network policy needs the network namespace and resolver config: %q", argv)
@@ -152,19 +158,31 @@ func TestBwrapCommandRejectsUnsafePolicy(t *testing.T) {
 			t.Errorf("policy %+v must be refused", p)
 		}
 	}
-	noFilter := mergedUsr()
-	noFilter.goarch = "riscv64"
-	if _, err := noFilter.Command(Policy{}, "/usr/bin/grype", nil); err == nil {
-		t.Error("bwrap must refuse to run a scanner without the seccomp filter")
+}
+
+func TestBwrapBindsTheLauncherOnce(t *testing.T) {
+	b := mergedUsr()
+	argv, err := b.Command(Policy{}, b.self, []string{launcherArg, "--check"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for i := 0; i+2 < len(argv); i++ {
+		if argv[i] == "--ro-bind" && argv[i+1] == b.self && argv[i+2] == b.self {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("launcher bound %d times when it is also the program: %q", n, argv)
 	}
 }
 
 // passSandbox records the policy and runs the command unconfined.
 type passSandbox struct{ got Policy }
 
-func (s *passSandbox) Command(p Policy, bin string, args []string) (Launch, error) {
+func (s *passSandbox) Command(p Policy, bin string, args []string) ([]string, error) {
 	s.got = p
-	return Launch{Argv: append([]string{bin}, args...)}, nil
+	return append([]string{bin}, args...), nil
 }
 
 func TestRunnerGivesEachProcessScratchAndCache(t *testing.T) {
