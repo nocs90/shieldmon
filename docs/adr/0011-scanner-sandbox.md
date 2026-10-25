@@ -240,3 +240,13 @@
   - Still open: the total scratch quota is enforced by the Runner's watch, not by the
     kernel. Only a size-limited filesystem can do that, and creating one needs
     privileges neither backend has; only the deployment can provide one.
+- 2026-10-25, dedicated scratch filesystem (#55): recommended, not required.
+  `deploy/scratch` has a host example (loop image or LV with a systemd mount unit) and a
+  Kubernetes one (generic ephemeral volume; mount options from the storage class), sized
+  for one OCI layout, one scanner's scratch space and the free-space floor. Mounted
+  `noexec,nosuid,nodev`, it is also W^X at mount level for everything scanners write,
+  which covers `bwrap` without Landlock. `doctor` reports whether `<data_dir>/tmp` is its
+  own filesystem, its size, and missing mount options, as information and warnings.
+  Rejected: requiring it, which would make every installation, development and CI
+  included, need root before the first scan, while the watch and the floor already keep
+  the disk from filling.

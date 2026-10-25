@@ -58,7 +58,7 @@ not be falsifiable.
   lets every local user who can run bwrap create user namespaces (ADR 0011).
 - A scanner can overshoot its scratch quota by what it writes in 100 ms; the free-disk
   floor absorbs it. A kernel-enforced total needs a size-limited filesystem for the
-  scratch space, which the deployment must provide.
+  scratch space, which the deployment provides (`deploy/scratch`, reported by `doctor`).
 - `bwrap` on a kernel without Landlock cannot stop a scanner from executing files it
   writes; a `scanner_sandbox_degraded` health finding stays open while it runs so.
 - Vulnerability DB integrity relies on the scanners' own verification.

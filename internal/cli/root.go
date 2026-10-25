@@ -293,6 +293,7 @@ func (a *app) doctorCmd() *cobra.Command {
 					}
 				}
 			}
+			a.doctorScratch(w)
 			names := make([]string, 0, len(needed))
 			for n := range needed {
 				names = append(names, n)
@@ -354,6 +355,35 @@ func (a *app) doctorCmd() *cobra.Command {
 			fmt.Fprintln(w, "all checks passed")
 			return nil
 		},
+	}
+}
+
+// doctorScratch reports the filesystem of the scanners' scratch space. A dedicated one is
+// recommended, not required, so this only prints information and warnings.
+func (a *app) doctorScratch(w io.Writer) {
+	dir := filepath.Join(a.cfg.DataDir, "tmp")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		fmt.Fprintf(w, "! scratch %s: %v\n", dir, err)
+		return
+	}
+	m, err := scanner.InspectMount(dir)
+	switch {
+	case err != nil:
+		fmt.Fprintf(w, "! scratch %s: %v\n", dir, err)
+	case !m.Dedicated:
+		fmt.Fprintf(w, "• scratch %s: on the data dir's filesystem; the scratch quota is enforced by watching (a dedicated filesystem bounds it in the kernel: deploy/scratch)\n", dir)
+	default:
+		fmt.Fprintf(w, "• scratch %s: dedicated filesystem, %.1f GiB\n", dir, float64(m.Size)/(1<<30))
+		var missing []string
+		for opt, set := range map[string]bool{"noexec": m.NoExec, "nosuid": m.NoSuid, "nodev": m.NoDev} {
+			if !set {
+				missing = append(missing, opt)
+			}
+		}
+		sort.Strings(missing)
+		if len(missing) > 0 {
+			fmt.Fprintf(w, "! scratch filesystem is not mounted %s\n", strings.Join(missing, ","))
+		}
 	}
 }
 
