@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"runtime"
 )
 
 // The seccomp filter every sandbox backend applies to scanners (docs/adr/0011-scanner-sandbox.md,
@@ -68,6 +67,7 @@ var seccompArches = map[string]seccompArch{
 		"open_by_handle_at": 304, "reboot": 169, "swapon": 167, "swapoff": 168,
 		"acct": 163, "syslog": 103, "lookup_dcookie": 212,
 		"iopl": 172, "ioperm": 173, "uselib": 134,
+		"socket": 41, "truncate": 76,
 	}},
 	"arm64": {audit: 0xc00000b7, nr: map[string]uint32{
 		"unshare": 97, "setns": 268, "clone": 220, "clone3": 435,
@@ -81,6 +81,7 @@ var seccompArches = map[string]seccompArch{
 		"kexec_load": 104, "kexec_file_load": 294, "personality": 92,
 		"open_by_handle_at": 265, "reboot": 142, "swapon": 224, "swapoff": 225,
 		"acct": 89, "syslog": 116, "lookup_dcookie": 18,
+		"socket": 198, "truncate": 45,
 	}},
 }
 
@@ -106,8 +107,18 @@ var seccompDenied = []string{
 // Anything else (ADDR_NO_RANDOMIZE, READ_IMPLIES_EXEC, ...) weakens exploit mitigations.
 var seccompPersonalities = []uint32{0x0, 0x8, 0x20000, 0x20008, 0xffffffff}
 
+// seccompOptions vary the filter per process.
+type seccompOptions struct {
+	// offline denies socket(2) of every family: no TCP, UDP, or Unix socket (a host
+	// socket such as the Docker daemon's), whatever else confines the network.
+	offline bool
+	// denyTruncate denies truncate(2) by path, for backends that cannot restrict it
+	// (Landlock before ABI 3). ftruncate needs a file opened for writing.
+	denyTruncate bool
+}
+
 // seccompFilter builds the filter for one architecture.
-func seccompFilter(goarch string) ([]sockFilter, error) {
+func seccompFilter(goarch string, o seccompOptions) ([]sockFilter, error) {
 	a, ok := seccompArches[goarch]
 	if !ok {
 		return nil, fmt.Errorf("seccomp: no filter for %s (supported: amd64, arm64)", goarch)
@@ -123,7 +134,14 @@ func seccompFilter(goarch string) ([]sockFilter, error) {
 	if a.x32 {
 		prog = append(prog, sockFilter{Code: bpfJsetK, Jt: 0, Jf: 1, K: x32Bit}, ret(retKill))
 	}
-	for _, name := range seccompDenied {
+	denied := seccompDenied
+	if o.offline {
+		denied = append(denied[:len(denied):len(denied)], "socket")
+	}
+	if o.denyTruncate {
+		denied = append(denied[:len(denied):len(denied)], "truncate")
+	}
+	for _, name := range denied {
 		if n, ok := a.nr[name]; ok {
 			prog = append(prog, jeq(n, 0, 1), ret(retErrno|errnoEPERM))
 		}
@@ -158,10 +176,11 @@ func seccompFilter(goarch string) ([]sockFilter, error) {
 	return prog, nil
 }
 
-// seccompProgram returns the filter for the architecture ShieldMon runs on, as the bytes of
-// a struct sock_filter array (what bwrap --seccomp reads).
-func seccompProgram() ([]byte, error) {
-	prog, err := seccompFilter(runtime.GOARCH)
+// seccompProgram returns the filter for goarch (runtime.GOARCH: the scanner runs on the
+// same kernel ABI as ShieldMon) as the bytes of a struct sock_filter array, which is what
+// bwrap --seccomp reads.
+func seccompProgram(goarch string, o seccompOptions) ([]byte, error) {
+	prog, err := seccompFilter(goarch, o)
 	if err != nil {
 		return nil, err
 	}

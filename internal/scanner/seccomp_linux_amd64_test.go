@@ -16,5 +16,6 @@ var kernelSyscalls = map[string]uintptr{
 	"kexec_load": unix.SYS_KEXEC_LOAD, "kexec_file_load": unix.SYS_KEXEC_FILE_LOAD, "personality": unix.SYS_PERSONALITY,
 	"open_by_handle_at": unix.SYS_OPEN_BY_HANDLE_AT, "reboot": unix.SYS_REBOOT, "swapon": unix.SYS_SWAPON, "swapoff": unix.SYS_SWAPOFF,
 	"acct": unix.SYS_ACCT, "syslog": unix.SYS_SYSLOG, "lookup_dcookie": unix.SYS_LOOKUP_DCOOKIE,
+	"socket": unix.SYS_SOCKET, "truncate": unix.SYS_TRUNCATE,
 	"iopl": unix.SYS_IOPL, "ioperm": unix.SYS_IOPERM, "uselib": unix.SYS_USELIB,
 }

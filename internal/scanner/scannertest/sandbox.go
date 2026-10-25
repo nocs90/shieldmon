@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -86,11 +88,18 @@ func probe(op string, args []string) error {
 	return fmt.Errorf("unknown probe %s %q", op, args)
 }
 
+// RequiredSandbox reports whether SHIELDMON_TEST_SANDBOX, a comma-separated list of backend
+// names, requires the named backend to run here: tests fail instead of skipping.
+func RequiredSandbox(name string) bool {
+	return slices.Contains(strings.Split(os.Getenv("SHIELDMON_TEST_SANDBOX"), ","), name)
+}
+
 // CheckSandbox runs probes inside the named sandbox backend: a scanner can use its
 // declared paths and scratch space, and cannot read or write anything else, write the
 // shared DB cache, reach the network while offline, create a user namespace or weaken
 // exploit mitigations (the seccomp filter), or outlive its timeout. A backend
-// that cannot run on this host is skipped, unless SHIELDMON_TEST_SANDBOX names it, in
+// that cannot run on this host is skipped, unless SHIELDMON_TEST_SANDBOX (a comma-separated
+// list) names it, in
 // which case the test fails (CI sets it where the backend must work).
 func CheckSandbox(t *testing.T, name string) {
 	t.Helper()
@@ -107,7 +116,7 @@ func CheckSandbox(t *testing.T, name string) {
 		t.Errorf("sandbox backend %q has no description", name)
 	}
 	if err := backend.Available(); err != nil {
-		if os.Getenv("SHIELDMON_TEST_SANDBOX") == name {
+		if RequiredSandbox(name) {
 			t.Fatalf("%s: %v", name, err)
 		}
 		t.Skipf("%s: %v", name, err)

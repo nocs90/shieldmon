@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io/fs"
@@ -27,8 +28,8 @@ func mergedUsr() *bwrap {
 	entries := map[string]fs.FileMode{"/usr": fs.ModeDir, "/bin": fs.ModeSymlink, "/lib": fs.ModeSymlink, "/lib64": fs.ModeDir}
 	links := map[string]string{"/bin": "usr/bin", "/lib": "usr/lib"}
 	return &bwrap{
-		path:    "/usr/bin/bwrap",
-		seccomp: []byte("filter"),
+		path:   "/usr/bin/bwrap",
+		goarch: "amd64",
 		lstat: func(p string) (fs.FileInfo, error) {
 			m, ok := entries[p]
 			if !ok {
@@ -61,8 +62,9 @@ func TestBwrapCommandConfinesToPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	argv := l.Argv
-	if !hasArgs(argv, "--seccomp", "3") || len(l.Files) != 1 || string(l.Files[0]) != "filter" {
-		t.Errorf("the seccomp filter must be passed as fd 3: %q %q", argv, l.Files)
+	offline, _ := seccompProgram("amd64", seccompOptions{offline: true})
+	if !hasArgs(argv, "--seccomp", "3") || len(l.Files) != 1 || !bytes.Equal(l.Files[0], offline) {
+		t.Errorf("the offline seccomp filter must be passed as fd 3: %q", argv)
 	}
 	sep := slices.Index(argv, "--")
 	if sep < 0 || !slices.Equal(argv[sep+1:], []string{"/opt/scanners/grype", "sbom:/data/sboms/x.json", "-o", "json"}) {
@@ -122,6 +124,10 @@ func TestBwrapCommandNetworkAndOrdering(t *testing.T) {
 		t.Fatal(err)
 	}
 	argv := l.Argv
+	online, _ := seccompProgram("amd64", seccompOptions{})
+	if len(l.Files) != 1 || !bytes.Equal(l.Files[0], online) {
+		t.Error("a process with network must get the filter that allows sockets")
+	}
 	if !slices.Contains(argv, "--share-net") || !hasArgs(argv, "--ro-bind-try", "/etc/resolv.conf", "/etc/resolv.conf") {
 		t.Errorf("a network policy needs the network namespace and resolver config: %q", argv)
 	}
@@ -147,7 +153,7 @@ func TestBwrapCommandRejectsUnsafePolicy(t *testing.T) {
 		}
 	}
 	noFilter := mergedUsr()
-	noFilter.seccomp = nil
+	noFilter.goarch = "riscv64"
 	if _, err := noFilter.Command(Policy{}, "/usr/bin/grype", nil); err == nil {
 		t.Error("bwrap must refuse to run a scanner without the seccomp filter")
 	}
@@ -198,7 +204,7 @@ func TestRunnerGivesEachProcessScratchAndCache(t *testing.T) {
 // instead of skipping.
 func TestBwrapSandbox(t *testing.T) {
 	if err := bwrapAvailable(); err != nil {
-		if os.Getenv("SHIELDMON_TEST_SANDBOX") == "bwrap" {
+		if slices.Contains(strings.Split(os.Getenv("SHIELDMON_TEST_SANDBOX"), ","), "bwrap") {
 			t.Fatal("bwrap:", err)
 		}
 		t.Skip("bwrap:", err)

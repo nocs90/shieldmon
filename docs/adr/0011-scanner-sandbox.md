@@ -50,7 +50,8 @@
    - `landlock` (containers, and Linux hosts without user namespaces): ShieldMon re-executes
      itself as a launcher (`shieldmon sandbox-exec`, hidden) that applies Landlock filesystem
      rules from the policy, Landlock network rules (deny all TCP when offline; requires
-     ABI ≥ 4 or the launcher refuses), `RLIMIT_FSIZE`/`RLIMIT_NOFILE`, `no_new_privs` and the
+     ABI ≥ 4 or the launcher refuses — changed to ABI ≥ 2 with sockets denied by seccomp,
+     see the implementation notes of 2026-10-25), `RLIMIT_FSIZE`/`RLIMIT_NOFILE`, `no_new_privs` and the
      seccomp filter, then `execve`s the scanner. The disk quota is the container's
      ephemeral-storage limit (documented in the deployment examples, #11).
    - `none`: today's behaviour, chosen explicitly. While it is active, every cycle keeps a
@@ -165,3 +166,31 @@
   - `scannertest.CheckSandbox` proves the filter is in place: a probe can neither start a
     child in a new user namespace (`clone`; `unshare(CLONE_NEWUSER)` fails with EINVAL in
     any multithreaded process, so it proves nothing) nor turn off ASLR with `personality`.
+- 2026-10-25, `landlock` backend (#46):
+  - The launcher is ShieldMon re-executing itself (`shieldmon sandbox-exec`), caught in
+    `init` before `main`, so it works in any binary that links `internal/scanner`, test
+    binaries included. On one locked thread it applies the Landlock ruleset,
+    `RLIMIT_NOFILE` (hard limit 65536: Go programs raise the soft limit to it),
+    `no_new_privs` and the seccomp filter, then execs the scanner in place, which keeps
+    the Runner's process group and timeout kill.
+  - The Landlock rules mirror the `bwrap` view: system directories read and execute; the
+    same `/etc` files (resolver files only with network); `/dev/null`, `/dev/zero`,
+    `/dev/urandom`, `/dev/random`; the scanner binary read and execute; the policy's
+    read-only paths read; writable paths and scratch space everything. No `/proc` or
+    `/sys`: `/proc/<pid>/cmdline` of other processes would be readable. `HOME` points at
+    the scratch directory.
+  - **Changed from decision 4:** the minimum is Landlock ABI 2 (Linux 5.19), not 4. ABI 4
+    (Linux 6.7) would exclude most Kubernetes nodes in use (6.1 kernels), and Landlock's
+    network rules cover TCP only, not UDP or Unix sockets (a host's Docker socket, for
+    example). Instead the seccomp filter denies `socket(2)` to every offline process,
+    under both backends: no network of any kind on any kernel. Where ABI ≥ 4, Landlock's
+    TCP rules are added as a second wall. ABI 1 is refused because it denies every rename
+    across directories, which DB updates need.
+  - Below ABI 3 Landlock cannot restrict `truncate(2)` by path, so the seccomp filter
+    denies it there (`ftruncate` needs a file already opened for writing).
+  - Below ABI 6 a confined scanner can still signal processes of the same user outside
+    its domain (bwrap prevents it with a PID namespace); ABI 6 scopes signals and
+    abstract Unix sockets. Accepted residual risk for older kernels.
+  - `RLIMIT_FSIZE` moves to the scratch quota (#47), which needs the same limit.
+  - `SHIELDMON_TEST_SANDBOX` is now a comma-separated list; ci/test requires
+    `bwrap,landlock`.

@@ -42,33 +42,34 @@ const apparmorUsernsSysctl = "/proc/sys/kernel/apparmor_restrict_unprivileged_us
 // directories, the scanner binary and the policy's paths are visible
 // (docs/adr/0011-scanner-sandbox.md).
 type bwrap struct {
-	path    string
-	seccomp []byte // compiled filter, passed as fd 3
-	lstat   func(string) (fs.FileInfo, error)
-	link    func(string) (string, error)
+	path   string
+	goarch string // selects the seccomp filter
+	lstat  func(string) (fs.FileInfo, error)
+	link   func(string) (string, error)
 }
 
 func newBwrap(path string) (*bwrap, error) {
-	prog, err := seccompProgram()
-	if err != nil {
+	if _, err := seccompFilter(runtime.GOARCH, seccompOptions{}); err != nil {
 		return nil, err
 	}
-	return &bwrap{path: path, seccomp: prog, lstat: os.Lstat, link: os.Readlink}, nil
+	return &bwrap{path: path, goarch: runtime.GOARCH, lstat: os.Lstat, link: os.Readlink}, nil
 }
 
+// Command passes the seccomp filter as fd 3; bwrap applies it right before it execs the
+// scanner, after its own setup.
 func (b *bwrap) Command(p Policy, bin string, args []string) (Launch, error) {
+	filter, err := seccompProgram(b.goarch, seccompOptions{offline: !p.Network})
+	if err != nil {
+		return Launch{}, err
+	}
 	argv, err := b.argv(p, bin, args)
 	if err != nil {
 		return Launch{}, err
 	}
-	return Launch{Argv: argv, Files: [][]byte{b.seccomp}}, nil
+	return Launch{Argv: argv, Files: [][]byte{filter}}, nil
 }
 
 func (b *bwrap) argv(p Policy, bin string, args []string) ([]string, error) {
-	if len(b.seccomp) == 0 {
-		return nil, errors.New("bwrap: no seccomp filter")
-	}
-	// bwrap applies the filter right before it execs the scanner, after its own setup.
 	argv := []string{b.path, "--die-with-parent", "--new-session", "--unshare-all", "--cap-drop", "ALL", "--seccomp", "3"}
 	if p.Network {
 		argv = append(argv, "--share-net")

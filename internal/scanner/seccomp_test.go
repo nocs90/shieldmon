@@ -53,7 +53,7 @@ func runSeccomp(t *testing.T, prog []sockFilter, d seccompData) uint32 {
 
 func TestSeccompFilter(t *testing.T) {
 	for goarch, a := range seccompArches {
-		prog, err := seccompFilter(goarch)
+		prog, err := seccompFilter(goarch, seccompOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -114,8 +114,38 @@ func TestSeccompFilter(t *testing.T) {
 			}
 		}
 	}
-	if _, err := seccompFilter("riscv64"); err == nil {
+	if _, err := seccompFilter("riscv64", seccompOptions{}); err == nil {
 		t.Error("an architecture without a table must be refused")
+	}
+}
+
+func TestSeccompOptions(t *testing.T) {
+	for goarch, a := range seccompArches {
+		for _, c := range []struct {
+			o                  seccompOptions
+			socket, truncation bool // denied
+		}{
+			{seccompOptions{}, false, false},
+			{seccompOptions{offline: true}, true, false},
+			{seccompOptions{denyTruncate: true}, false, true},
+		} {
+			prog, err := seccompFilter(goarch, c.o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for name, deny := range map[string]bool{"socket": c.socket, "truncate": c.truncation} {
+				want := uint32(retAllow)
+				if deny {
+					want = retErrno | errnoEPERM
+				}
+				if got := runSeccomp(t, prog, seccompData{nr: a.nr[name], arch: a.audit}); got != want {
+					t.Errorf("%s %+v %s: %#x, want %#x", goarch, c.o, name, got, want)
+				}
+			}
+			if got := runSeccomp(t, prog, seccompData{nr: a.nr["bpf"], arch: a.audit}); got != retErrno|errnoEPERM {
+				t.Errorf("%s %+v: options must not drop the base deny-list", goarch, c.o)
+			}
+		}
 	}
 }
 
@@ -123,11 +153,11 @@ func TestSeccompProgramEncoding(t *testing.T) {
 	if _, ok := seccompArches[runtime.GOARCH]; !ok {
 		t.Skip("no filter for", runtime.GOARCH)
 	}
-	b, err := seccompProgram()
+	b, err := seccompProgram(runtime.GOARCH, seccompOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	prog, _ := seccompFilter(runtime.GOARCH)
+	prog, _ := seccompFilter(runtime.GOARCH, seccompOptions{})
 	if len(b) != 8*len(prog) {
 		t.Fatalf("%d bytes for %d instructions: struct sock_filter is 8 bytes", len(b), len(prog))
 	}

@@ -211,9 +211,14 @@ scanners:
     grype: { path: "", sha256: "", options: { db_auto_update: true } }
     trivy: { path: "", sha256: "", options: { skip_db_update: false, offline_scan: false } }
   # Confinement for scanner processes, which parse hostile image content:
-  # none, or bwrap on Linux hosts with bubblewrap installed (Ubuntu >= 23.10 also
-  # needs the AppArmor profile in deploy/apparmor/shieldmon-bwrap) ('shieldmon plugins'
-  # lists the backends and whether they run here; docs/adr/0011-scanner-sandbox.md).
+  #   bwrap     Linux hosts with bubblewrap installed (Ubuntu >= 23.10 also needs the
+  #             AppArmor profile in deploy/apparmor/shieldmon-bwrap)
+  #   landlock  containers and hosts without user namespaces (Linux >= 5.19 with the
+  #             Landlock LSM enabled)
+  #   auto      bwrap, else landlock, else refuse to scan
+  #   none      no confinement (keeps a scanner_unsandboxed health finding open)
+  # 'shieldmon plugins' lists the backends and whether they run here
+  # (docs/adr/0011-scanner-sandbox.md).
   # Scanner DBs and caches live in <data_dir>/cache.
   sandbox:
     backend: none
