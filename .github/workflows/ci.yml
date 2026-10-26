@@ -61,6 +61,32 @@ jobs:
           path: coverage.out
           retention-days: 14
 
+  # bwrap under AppArmor's own bwrap-userns-restrict profile, the one recommended for shared
+  # hosts (deploy/apparmor): it confines what bwrap starts to a profile without capabilities,
+  # where deploy/apparmor/shieldmon-bwrap leaves it unconfined. Both attach to /usr/bin/bwrap,
+  # so they cannot be loaded in the same job.
+  sandbox-apparmor-restrict:
+    runs-on: ubuntu-24.04
+    needs: test
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Install bubblewrap and AppArmor's bwrap-userns-restrict profile
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends bubblewrap apparmor-profiles
+          profile=$(dpkg -L apparmor-profiles | grep -m1 '/bwrap-userns-restrict$')
+          echo "profile: $profile"
+          sudo install -m 0644 "$profile" /etc/apparmor.d/bwrap-userns-restrict
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict
+      - run: go test -race -run '^(TestSandboxBackendsConform|TestBwrapSandbox)$/^bwrap$' ./internal/scanner
+        env:
+          SHIELDMON_TEST_SANDBOX: bwrap
+
   fuzz:
     runs-on: ubuntu-24.04
     needs: test
