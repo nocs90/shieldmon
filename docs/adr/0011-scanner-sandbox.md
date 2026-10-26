@@ -281,3 +281,14 @@
   with it loaded. `deploy/apparmor/README.md` recommends it for shared hosts and keeps
   `shieldmon-bwrap` for dedicated hosts and CI; the two attach to the same binary and
   must not be loaded together. The availability error now points to that page.
+- 2026-10-26, naming the file size limit: the hostile suite's first run under bwrap showed
+  syft stopped by `RLIMIT_FSIZE` with nothing but `exit status 1`. Reproduced on macOS with
+  `ulimit -f`: Go programs ignore `SIGXFSZ` and see `EFBIG`; syft reported it
+  (`write …: file too large`) only without `--quiet`, which ShieldMon passed to syft and
+  grype and which silences their errors too. Both now run without it: in a non-interactive
+  run they write only errors to stderr, which the Runner bounds, redacts and reports. When
+  a process with a file size limit fails, the Runner returns `ErrFileSize` if a file is
+  left at the limit in its scratch or output directories, or if the process reported
+  EFBIG; scanners may delete the truncated file before exiting, so the file alone is not
+  enough. The kit requires that error, so the health finding says why for any scanner
+  and backend.

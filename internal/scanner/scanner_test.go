@@ -372,3 +372,47 @@ func TestRunnerBoundsFilesOfOfflineProcesses(t *testing.T) {
 		t.Errorf("a DB update writes DBs bigger than the quota: %+v", sb.got)
 	}
 }
+
+func TestRunnerNamesTheFileSizeLimit(t *testing.T) {
+	r := Runner{Timeout: time.Minute, TempDir: t.TempDir(), ScratchQuota: 1 << 20}
+	// What RLIMIT_FSIZE leaves behind: a file stopped exactly at the limit, and a scanner
+	// that exits with a bare status because Go ignores SIGXFSZ.
+	_, err := r.Run(context.Background(), "/bin/sh", "-c", `head -c 1048576 /dev/zero > "$TMPDIR/var-bomb"; exit 1`)
+	if !errors.Is(err, ErrFileSize) || !strings.Contains(err.Error(), `"var-bomb"`) {
+		t.Fatalf("want ErrFileSize naming the file, got %v", err)
+	}
+	if _, err := r.Run(context.Background(), "/bin/sh", "-c", `head -c 1024 /dev/zero > "$TMPDIR/small"; exit 1`); err == nil || errors.Is(err, ErrFileSize) {
+		t.Fatalf("a failure with every file under the limit is the scanner's own: %v", err)
+	}
+	if _, err := r.Run(context.Background(), "/bin/sh", "-c", `head -c 1048576 /dev/zero > "$TMPDIR/exact"`); err != nil {
+		t.Fatalf("a scanner that succeeds is not reported: %v", err)
+	}
+	// syft deletes its truncated file before exiting; what is left is its error message.
+	efbig := `printf 'ERROR unable to populate layer cache: write /tmp/stereoscope/partial: file too large\n' >&2; exit 1`
+	if _, err := r.Run(context.Background(), "/bin/sh", "-c", efbig); !errors.Is(err, ErrFileSize) {
+		t.Fatalf("a scanner reporting EFBIG under a file size limit: want ErrFileSize, got %v", err)
+	}
+	if _, err := (Runner{Timeout: time.Minute}).Run(context.Background(), "/bin/sh", "-c", efbig); errors.Is(err, ErrFileSize) {
+		t.Fatalf("without a file size limit, EFBIG is the scanner's own failure: %v", err)
+	}
+}
+
+func TestScannersReportTheirErrors(t *testing.T) {
+	bin, runs := fakeScanner(t)
+	ctx := context.Background()
+	if _, err := (&Syft{Bin: bin}).Generate(ctx, Source{OCIDir: "/data/oci"}, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (&Grype{Bin: bin, DBAutoUpdate: true}).Match(ctx, "/data/x.json"); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&Grype{Bin: bin, DBAutoUpdate: true}).UpdateDB(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, run := range runs() {
+		// --quiet silences syft's and grype's errors too: a failure would say only "exit status 1".
+		if strings.Contains(run, "--quiet") {
+			t.Errorf("scanner run with --quiet: %q", run)
+		}
+	}
+}

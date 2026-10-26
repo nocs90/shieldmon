@@ -48,8 +48,9 @@ func (s *Syft) Generate(ctx context.Context, src Source, outDir string) ([]SBOMF
 	cdx := filepath.Join(outDir, "syft.cdx.json")
 	spdx := filepath.Join(outDir, "syft.spdx.json")
 	args := []string{
+		// Not --quiet: it also silences syft's errors, which the Runner reports (bounded,
+		// redacted) and classifies (a refused write, for instance).
 		"scan", "oci-dir:" + src.OCIDir,
-		"--quiet",
 		"--source-name", src.Name,
 		"--source-version", src.Version,
 		"-o", FormatCycloneDXJSON + "=" + cdx,
