@@ -125,7 +125,9 @@ func (a *app) setup(cmd *cobra.Command) error {
 	}
 	a.log = slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: lvl}))
 
-	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
+	// tmp holds scanner scratch space and, in the container image (TMPDIR=<data_dir>/tmp), the
+	// only temporary files a read-only root filesystem allows.
+	if err := os.MkdirAll(filepath.Join(cfg.DataDir, "tmp"), 0o700); err != nil {
 		return err
 	}
 	st, err := store.Open(cmd.Context(), filepath.Join(cfg.DataDir, "shieldmon.db"))

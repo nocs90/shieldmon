@@ -74,6 +74,19 @@ shieldmon findings not-affected 40 --author "jane@corp" \
 
 There is no command to mark a finding fixed: a later scan has to prove it.
 
+### Container image
+
+`make image` builds it; the release pipeline will publish it pinned by digest. It is
+distroless and non-root (65532), and writes only under `/data`, so the root filesystem can be
+read-only. Scanners run in the `landlock` sandbox, which needs Linux ≥ 5.19 on the host or
+node ([ADR 0012](docs/adr/0012-container-image.md)).
+
+```sh
+docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
+  -v shieldmon-data:/data -v "$PWD/config.yaml:/config/shieldmon/config.yaml:ro" \
+  shieldmon:dev scan alpine:3.18.0
+```
+
 ## How it works
 
 ```

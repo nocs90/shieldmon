@@ -160,3 +160,63 @@ jobs:
             dist/e2e-ubi9-node/report.md
             dist/e2e-ubi9-node/remediation-plan.csv
           retention-days: 30
+
+  # Container image (docs/adr/0012-container-image.md): multi-arch build, configuration checks
+  # and a smoke test on every change; a scan run by the image, and a scan of the image, on
+  # main, nightly and PRs labelled run/integration. The only image this job runs is
+  # ShieldMon's own, built here; scanned images are never run.
+  image:
+    runs-on: ubuntu-24.04
+    needs: test
+    services:
+      registry:
+        image: docker.io/library/registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+        ports: ["5000:5000"]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Build linux/amd64 and linux/arm64
+        run: |
+          docker buildx create --use --name shieldmon --driver docker-container \
+            --driver-opt network=host \
+            --driver-opt image=moby/buildkit:v0.34.1@sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            --build-arg VERSION="${GITHUB_SHA::12}" \
+            --tag localhost:5000/shieldmon:ci --push .
+      - name: Check the image (non-root, entrypoint, binaries of the right architecture)
+        run: |
+          go build -o bin/crane github.com/google/go-containerregistry/cmd/crane
+          python3 scripts/check-image.py bin/crane localhost:5000/shieldmon:ci
+      # As a deployment runs it: read-only root, no capabilities, no_new_privs, Docker's
+      # default seccomp profile. Landlock must be available inside it.
+      - name: Smoke-test the image (starts; landlock available in a container)
+        run: |
+          docker pull -q localhost:5000/shieldmon:ci
+          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --network none localhost:5000/shieldmon:ci version
+          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --network none localhost:5000/shieldmon:ci plugins | tee "$RUNNER_TEMP/plugins.txt"
+          grep -E '^ +landlock .*\(available\)$' "$RUNNER_TEMP/plugins.txt"
+      - name: Scan a pinned image from inside the container (real scanners under landlock)
+        if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run/integration')
+        run: |
+          docker volume create shieldmon-data
+          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
+            -v shieldmon-data:/data localhost:5000/shieldmon:ci \
+            scan docker.io/library/alpine@sha256:c0669ef34cdc14332c0f1ab0c2c01acb91d96014b172f1a76f3a39e63d1f0bda
+          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
+            -v shieldmon-data:/data localhost:5000/shieldmon:ci health
+      - name: Scan the image with ShieldMon
+        if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run/integration')
+        run: |
+          scripts/install-scanners.sh "$RUNNER_TEMP/scanners"
+          export PATH="$RUNNER_TEMP/scanners:$PATH"
+          make build
+          sc() { ./bin/shieldmon --data-dir "$RUNNER_TEMP/sc" --config "$RUNNER_TEMP/sc/config.yaml" "$@"; }
+          sc init
+          sc scan localhost:5000/shieldmon:ci
+          sc findings list

@@ -3,7 +3,7 @@ BIN      := bin/shieldmon
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS  := -s -w -X github.com/nocs90/shieldmon/internal/cli.Version=$(VERSION)
 
-.PHONY: all build test test-unit test-race test-integration fuzz cover lint golangci fmt fmt-check vet tidy-check vuln clean
+.PHONY: all build image test test-unit test-race test-integration fuzz cover lint golangci fmt fmt-check vet tidy-check vuln clean
 
 all: lint test-unit build
 
@@ -11,6 +11,12 @@ build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN) ./cmd/shieldmon
 
 test: test-unit
+
+# Container image for this host's platform (docs/adr/0012-container-image.md); CI builds
+# linux/amd64 and linux/arm64 and checks them with scripts/check-image.py.
+IMAGE ?= shieldmon:dev
+image:
+	docker buildx build --build-arg VERSION=$(VERSION) --tag $(IMAGE) --load .
 
 test-unit:
 	$(GO) test ./...
