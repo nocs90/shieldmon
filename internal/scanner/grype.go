@@ -40,7 +40,8 @@ func (g *Grype) Match(ctx context.Context, sbomPath string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	out, err := g.runner().Run(ctx, bin, "sbom:"+abs, "-o", "json", "--quiet")
+	// Not --quiet: it also silences grype's errors.
+	out, err := g.runner().Run(ctx, bin, "sbom:"+abs, "-o", "json")
 	if err != nil {
 		return Result{}, fmt.Errorf("grype: %w", err)
 	}
@@ -56,7 +57,7 @@ func (g *Grype) UpdateDB(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if _, err := g.runner().Run(ctx, bin, "db", "update", "--quiet"); err != nil {
+	if _, err := g.runner().Run(ctx, bin, "db", "update"); err != nil {
 		return fmt.Errorf("grype db update: %w", err)
 	}
 	return nil

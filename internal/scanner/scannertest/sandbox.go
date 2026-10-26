@@ -268,8 +268,8 @@ func CheckSandbox(t *testing.T, name string) {
 		t.Errorf("filling the scratch space past the quota must stop the scanner with ErrScratchQuota, got %v", err)
 	}
 	big := filepath.Join(out, "big")
-	if err := run(offline, r, "write-big", big, "16"); err == nil {
-		t.Error("a scanner could write a file larger than its quota")
+	if err := run(offline, r, "write-big", big, "16"); !errors.Is(err, scanner.ErrFileSize) {
+		t.Errorf("writing a file larger than the quota must stop the scanner with ErrFileSize, got %v", err)
 	}
 	if st, err := os.Stat(big); err == nil && st.Size() > quota {
 		t.Errorf("a %d-byte file outgrew the %d-byte limit", st.Size(), quota)

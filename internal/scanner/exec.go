@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +33,11 @@ var ErrScratchQuota = errors.New("scanner exceeded its scratch space quota")
 // ErrDiskSpace is returned when free space under Runner.TempDir drops below
 // Runner.MinFreeBytes while a scanner runs, wherever it writes.
 var ErrDiskSpace = errors.New("free disk space below the configured floor")
+
+// ErrFileSize is returned when a scanner fails after the kernel refused to let one of its
+// files grow past Policy.MaxFileBytes (RLIMIT_FSIZE). Go scanners ignore SIGXFSZ and see
+// only EFBIG, so without this the failure is a bare exit status.
+var ErrFileSize = errors.New("scanner hit its file size limit")
 
 // ErrChecksumMismatch is returned when a pinned scanner binary does not
 // match its expected SHA-256.
@@ -252,6 +258,56 @@ func (r Runner) watch(scratch string, cancel context.CancelFunc) (stop func() er
 	}
 }
 
+// fileSizeBreach tells a process stopped by RLIMIT_FSIZE from other failures: either a file
+// is left at the limit, or the process reported EFBIG ("file too large"). Scanners may
+// delete the truncated file before exiting, so the first alone is not enough.
+func fileSizeBreach(p Policy, stderr []byte) error {
+	if name, ok := fileAtLimit(p.MaxFileBytes, append([]string{p.Scratch}, p.Writable...)...); ok {
+		return fmt.Errorf("%w: %s reached %d bytes", ErrFileSize, name, p.MaxFileBytes)
+	}
+	if bytes.Contains(bytes.ToLower(stderr), []byte("file too large")) {
+		return fmt.Errorf("%w: a write past %d bytes was refused (EFBIG)", ErrFileSize, p.MaxFileBytes)
+	}
+	return nil
+}
+
+// fileAtLimit looks under dirs for a regular file of at least limit bytes: one the kernel
+// stopped at RLIMIT_FSIZE. The name comes from image content, so it is quoted and shortened.
+func fileAtLimit(limit int64, dirs ...string) (string, bool) {
+	for _, dir := range dirs {
+		if dir == "" {
+			continue
+		}
+		found, entries := "", 0
+		_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if entries++; entries > scratchMaxEntries {
+				return fs.SkipAll
+			}
+			if d.Type().IsRegular() {
+				if fi, err := d.Info(); err == nil && fi.Size() >= limit {
+					found = path
+					return fs.SkipAll
+				}
+			}
+			return nil
+		})
+		if found != "" {
+			rel, err := filepath.Rel(dir, found)
+			if err != nil {
+				rel = filepath.Base(found)
+			}
+			if len(rel) > 200 {
+				rel = rel[:200] + "…"
+			}
+			return strconv.Quote(rel), true
+		}
+	}
+	return "", false
+}
+
 // scratchUsage measures dir, stopping as soon as it exceeds quota bytes or scratchMaxEntries.
 // Symlinks are not followed; entries that vanish while walking are skipped.
 func scratchUsage(dir string, quota int64) (used int64, entries int, over bool) {
@@ -313,6 +369,9 @@ func (r Runner) Run(ctx context.Context, bin string, args ...string) ([]byte, er
 	breach := stop()
 	if stdout.overflow {
 		return nil, fmt.Errorf("%s: %w (%d bytes)", bin, ErrOutputTooLarge, maxOut)
+	}
+	if err != nil && breach == nil && p.MaxFileBytes > 0 {
+		breach = fileSizeBreach(p, stderr.buf.Bytes())
 	}
 	if breach != nil {
 		return nil, fmt.Errorf("%s: %w", bin, breach)
