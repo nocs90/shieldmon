@@ -226,7 +226,7 @@ scanners:
     trivy: { path: "", sha256: "", options: { skip_db_update: false, offline_scan: false } }
   # Confinement for scanner processes, which parse hostile image content:
   #   bwrap     Linux hosts with bubblewrap installed (Ubuntu >= 23.10 also needs the
-  #             AppArmor profile in deploy/apparmor/shieldmon-bwrap)
+  #             AppArmor profile from deploy/apparmor/README.md)
   #   landlock  containers and hosts without user namespaces (Linux >= 5.19 with the
   #             Landlock LSM enabled)
   #   auto      bwrap, else landlock, else refuse to scan (the default)

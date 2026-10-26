@@ -56,8 +56,10 @@ not be falsifiable.
   container with no other secrets.
 - Under `landlock` on kernels before Landlock ABI 6, a scanner can still signal the
   user's other processes.
-- On Ubuntu ≥ 23.10 the `bwrap` backend needs `deploy/apparmor/shieldmon-bwrap`, which
-  lets every local user who can run bwrap create user namespaces (ADR 0011).
+- On Ubuntu ≥ 23.10 the `bwrap` backend needs an AppArmor profile for bwrap. AppArmor's
+  `bwrap-userns-restrict`, recommended for shared hosts, keeps what bwrap starts without
+  capabilities; `deploy/apparmor/shieldmon-bwrap`, for dedicated hosts and CI, lets every
+  local user who can run bwrap create user namespaces with them (ADR 0011).
 - A scanner can overshoot its scratch quota by what it writes in 100 ms; the free-disk
   floor absorbs it. A kernel-enforced total needs a size-limited filesystem for the
   scratch space, which the deployment provides (`deploy/scratch`, reported by `doctor`).

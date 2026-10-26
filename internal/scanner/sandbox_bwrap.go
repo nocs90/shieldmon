@@ -223,7 +223,7 @@ func bwrapStartError(err error, sysctl string) error {
 	msg := "cannot create a sandbox: " + redact.String(err.Error())
 	if b, rerr := os.ReadFile(sysctl); rerr == nil && strings.TrimSpace(string(b)) == "1" {
 		msg += "; AppArmor restricts user namespaces on this host (kernel.apparmor_restrict_unprivileged_userns=1):" +
-			" install the bwrap profile in deploy/apparmor/shieldmon-bwrap"
+			" load an AppArmor profile for bwrap (deploy/apparmor/README.md)"
 	}
 	return errors.New(msg)
 }
