@@ -1,0 +1,7 @@
+# The image is built from cmd/, internal/, go.mod, go.sum and the scanner installer only.
+*
+!cmd/
+!internal/
+!go.mod
+!go.sum
+!scripts/install-scanners.sh
