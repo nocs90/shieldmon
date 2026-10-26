@@ -82,6 +82,11 @@ type Config struct {
 	} `yaml:"decisions"`
 }
 
+// TemplateWithSandbox is Template with scanners.sandbox.backend set to backend.
+func TemplateWithSandbox(backend string) string {
+	return strings.Replace(Template, "    backend: auto\n", "    backend: "+backend+"\n", 1)
+}
+
 // Default returns the built-in configuration.
 func Default() Config {
 	var c Config
@@ -91,7 +96,7 @@ func Default() Config {
 	c.Scanners.Timeout = Duration{30 * time.Minute}
 	c.Scanners.MaxOutputBytes = 512 << 20
 	c.Scanners.Tools = map[string]Tool{}
-	c.Scanners.Sandbox.Backend = "none"
+	c.Scanners.Sandbox.Backend = "auto"
 	c.Limits.MaxLayers = 256
 	c.Limits.MaxLayerBytes = 4 << 30
 	c.Limits.MaxTotalBytes = 16 << 30
@@ -224,13 +229,14 @@ scanners:
   #             AppArmor profile in deploy/apparmor/shieldmon-bwrap)
   #   landlock  containers and hosts without user namespaces (Linux >= 5.19 with the
   #             Landlock LSM enabled)
-  #   auto      bwrap, else landlock, else refuse to scan
-  #   none      no confinement (keeps a scanner_unsandboxed health finding open)
+  #   auto      bwrap, else landlock, else refuse to scan (the default)
+  #   none      no confinement (keeps a scanner_unsandboxed health finding open);
+  #             for development hosts without a backend, such as macOS
   # 'shieldmon plugins' lists the backends and whether they run here
   # (docs/adr/0011-scanner-sandbox.md).
   # Scanner DBs and caches live in <data_dir>/cache.
   sandbox:
-    backend: none
+    backend: auto
 
 limits:
   max_layers: 256

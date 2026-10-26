@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -143,5 +144,31 @@ func TestDoctorReportsScratchFilesystem(t *testing.T) {
 	out, _, _ := run(t, append([]string{"doctor"}, common...)...)
 	if !strings.Contains(out, "• scratch "+filepath.Join(dir, "data", "tmp")+": on the data dir's filesystem") {
 		t.Errorf("doctor must say the scratch space shares the data dir's filesystem:\n%s", out)
+	}
+}
+
+func TestInitSandboxBackend(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config.yaml")
+	common := []string{"--config", cfg, "--data-dir", filepath.Join(dir, "data")}
+
+	out, errOut, code := run(t, append([]string{"init"}, common...)...)
+	if code != 0 || !strings.Contains(out, "sandbox: ") {
+		t.Fatalf("init must report the sandbox: code=%d out=%s err=%s", code, out, errOut)
+	}
+	if b, _ := os.ReadFile(cfg); !strings.Contains(string(b), "    backend: auto\n") {
+		t.Error("scanners are sandboxed by default (backend: auto)")
+	}
+
+	out, errOut, code = run(t, append([]string{"init", "--force", "--sandbox", "none"}, common...)...)
+	if code != 0 || !strings.Contains(out, "sandbox: none, scanners run unconfined") {
+		t.Fatalf("init --sandbox none: code=%d out=%s err=%s", code, out, errOut)
+	}
+	if b, _ := os.ReadFile(cfg); !strings.Contains(string(b), "    backend: none\n") {
+		t.Error("--sandbox must be written to the config")
+	}
+
+	if _, errOut, code := run(t, append([]string{"init", "--force", "--sandbox", "chroot"}, common...)...); code == 0 || !strings.Contains(errOut, "unknown backend") {
+		t.Errorf("an unknown backend must be refused: code=%d err=%s", code, errOut)
 	}
 }
