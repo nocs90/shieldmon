@@ -91,7 +91,16 @@ jobs:
         run: |
           scripts/install-scanners.sh "$RUNNER_TEMP/scanners"
           echo "$RUNNER_TEMP/scanners" >> "$GITHUB_PATH"
+      # Real scanners and the hostile fixture suite run in the default sandbox, which picks
+      # bwrap here; e2e-ubi9-node installs no bwrap, so it covers landlock.
+      - name: Install bubblewrap and allow it to create user namespaces
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends bubblewrap
+          sudo install -m 0644 deploy/apparmor/shieldmon-bwrap /etc/apparmor.d/shieldmon-bwrap
+          sudo apparmor_parser -r /etc/apparmor.d/shieldmon-bwrap
       - run: make test-integration
+        env:
+          SHIELDMON_TEST_SANDBOX: bwrap # running unconfined is a failure here
 
   # End-to-end ConMon scenario on a real multi-stage UBI 9 + Node.js build:
   # scan, triage, remediation decision policy, rebuild, evidence-based closure, reports.

@@ -4,6 +4,7 @@ package engine_test
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -27,8 +28,9 @@ func (c *countingFetcher) Fetch(ctx context.Context, r oci.Resolved, dir string)
 	return c.RegistryFetcher.Fetch(ctx, r, dir)
 }
 
-// TestRealScanners runs syft, grype and trivy end to end. It needs network
-// access and the three binaries in PATH: make test-integration.
+// TestRealScanners runs syft, grype and trivy end to end, DB updates included, in the default
+// sandbox with the data dir layout the CLI uses. It needs network access and the three
+// binaries in PATH: make test-integration.
 func TestRealScanners(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
@@ -37,13 +39,19 @@ func TestRealScanners(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	run := scanner.Runner{Timeout: 15 * time.Minute}
+	data := t.TempDir()
+	sb := defaultSandbox(t)
+	run := scanner.Runner{
+		Timeout: 15 * time.Minute, Sandbox: sb,
+		CacheDir: filepath.Join(data, "cache"), TempDir: filepath.Join(data, "tmp"),
+		ScratchQuota: 32 << 30,
+	}
 	trivy := &scanner.Trivy{Bin: scanner.Binary{Name: "trivy"}, Runner: run}
 	fetcher := &countingFetcher{}
 	eng := &engine.Engine{
 		Store:   st,
 		Fetcher: fetcher,
-		DataDir: t.TempDir(),
+		DataDir: data,
 		Scanners: scanner.Set{
 			Generators: map[string]scanner.Generator{"syft": &scanner.Syft{Bin: scanner.Binary{Name: "syft"}, Runner: run}, "trivy": trivy},
 			Matchers:   []scanner.Matcher{&scanner.Grype{Bin: scanner.Binary{Name: "grype"}, Runner: run, DBAutoUpdate: true}, trivy},
