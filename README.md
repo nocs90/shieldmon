@@ -19,8 +19,8 @@ Designed with a strict **SBOM-first** and **evidence-based resolution** philosop
 - 📊 **Automated Reporting:** Generates clear weekly and monthly security posture reports to track mean-time-to-remediate (MTTR) and posture trends over time.
 
 > **Status: M1 (early, pre-1.0).** The core monitoring loop works end to end; VEX
-> import/export, native ECR/GitLab providers, Helm, notifications, sandboxed scanners and
-> compliance export profiles are on the [roadmap](ROADMAP.md). See [SPEC.md](SPEC.md) for exactly
+> import/export, native ECR/GitLab providers, Helm, notifications and compliance export
+> profiles are on the [roadmap](ROADMAP.md). See [SPEC.md](SPEC.md) for exactly
 > what is implemented.
 
 ## Quick start
@@ -32,7 +32,7 @@ No Docker daemon.
 
 ```sh
 make build
-./bin/shieldmon init                     # config template + database
+./bin/shieldmon init                     # config template + database (macOS: --sandbox none)
 ./bin/shieldmon doctor                   # scanners, hashes for pinning, DB freshness
 ./bin/shieldmon scan alpine:3.18.0       # resolve → SBOM (once) → match → track
 ./bin/shieldmon findings list --severity high

@@ -250,3 +250,11 @@
   Rejected: requiring it, which would make every installation, development and CI
   included, need root before the first scan, while the watch and the floor already keep
   the disk from filling.
+- 2026-10-26, sandbox by default (#48): the built-in default and the `init` template are
+  `backend: auto`. Breaking for configs that do not set `scanners.sandbox.backend`: on a
+  host where neither backend runs, scans now refuse to start (the error names
+  `backend: none`) instead of running unconfined. Configs that set it keep their value.
+  `shieldmon init --sandbox <backend>` writes another value (`none` on macOS development
+  hosts), and `init` says right away whether the chosen backend runs here. The
+  `e2e-ubi9-node` CI job runs `init` with the default, so it is the first job that runs
+  syft, grype and trivy inside a sandbox (`landlock`: the job installs no bwrap).

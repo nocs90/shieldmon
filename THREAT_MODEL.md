@@ -43,17 +43,19 @@ not be falsifiable.
 | D | Silent stop: cron broken, DB stale, auth expired. | Self-health findings: `monitor_missed`, `db_stale`, `registry_auth`, `*_failed` ✅ (alerting ⬜ M4) |
 | **E**levation of privilege | Image content executed. | Never run images; no Docker daemon; scanners only parse files ✅ |
 | E | Argument/flag injection through image refs. | Strict reference parsing (rejects leading `-`, whitespace); no shell; digest refs passed to scanners as local paths ✅ |
-| E | Scanner exploited by a crafted layer → host compromise. | Sandbox (ADR 0011): one launcher for both backends, W^X on everything a scanner can write (Landlock), `bwrap` on Linux hosts with seccomp deny-list (no new namespaces, ptrace, mounts, bpf, io_uring, keyrings, userfaultfd, modules) and no sockets while handling image content ✅ (opt-in); `landlock` backend for containers ✅ (opt-in); scratch quota, sandbox by default ⬜ M2 |
+| E | Scanner exploited by a crafted layer → host compromise. | Sandbox (ADR 0011): one launcher for both backends, W^X on everything a scanner can write (Landlock), `bwrap` on Linux hosts with seccomp deny-list (no new namespaces, ptrace, mounts, bpf, io_uring, keyrings, userfaultfd, modules) and no sockets while handling image content ✅; `landlock` backend for containers ✅; sandbox by default (`auto`, refuses to scan without a backend) ✅ |
 | E | Over-scoped registry credentials. | Least-privilege IAM policy, short-lived creds only ⬜ M3 |
 | Report injection | Package names like `=HYPERLINK(...)` or Markdown/HTML in titles. | CSV formula neutralization, Markdown/HTML escaping ✅ |
 
 ## Residual risks (accepted for M1, tracked in ROADMAP)
 
-- Scanners run unsandboxed as the invoking user unless a sandbox backend is configured
-  (`bwrap` on Linux hosts, `landlock` in containers; ADR 0011). Under `landlock` on
-  kernels before Landlock ABI 6, a scanner can still signal the user's other processes. While they do,
-  a `scanner_unsandboxed` health finding stays open. Mitigation: run ShieldMon in a
-  dedicated, unprivileged container with no other secrets.
+- Scanners are sandboxed by default (`auto`: `bwrap` on Linux hosts, `landlock` in
+  containers; ADR 0011). `backend: none` runs them as the invoking user, with its files
+  and network; while it is set, a `scanner_unsandboxed` health finding stays open.
+  Mitigation for hosts without a backend: run ShieldMon in a dedicated, unprivileged
+  container with no other secrets.
+- Under `landlock` on kernels before Landlock ABI 6, a scanner can still signal the
+  user's other processes.
 - On Ubuntu ≥ 23.10 the `bwrap` backend needs `deploy/apparmor/shieldmon-bwrap`, which
   lets every local user who can run bwrap create user namespaces (ADR 0011).
 - A scanner can overshoot its scratch quota by what it writes in 100 ms; the free-disk

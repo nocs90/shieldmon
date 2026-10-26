@@ -25,7 +25,7 @@ docker run -d --name registry -p 127.0.0.1:5001:5000 registry:2    # port 5000 i
 
 export SC_DATA=/tmp/shieldmon-manual
 alias sc='./bin/shieldmon --data-dir $SC_DATA --config $SC_DATA/config.yaml'
-sc init
+sc init                # on macOS, which has no sandbox backend: sc init --sandbox none
 sc doctor
 ```
 

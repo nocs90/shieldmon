@@ -216,6 +216,7 @@ func (a *app) versionCmd() *cobra.Command {
 
 func (a *app) initCmd() *cobra.Command {
 	var force bool
+	var sandbox string
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Write a config template and initialize the database",
@@ -225,16 +226,20 @@ func (a *app) initCmd() *cobra.Command {
 			if path == "" {
 				path = config.DefaultPath()
 			}
+			if _, _, err := scanner.SelectSandbox(sandbox); err != nil {
+				return fmt.Errorf("--sandbox: %w", err)
+			}
+			w := cmd.OutOrStdout()
 			if _, err := os.Stat(path); err == nil && !force {
-				fmt.Fprintf(cmd.OutOrStdout(), "config exists: %s (use --force to overwrite)\n", path)
+				fmt.Fprintf(w, "config exists: %s (use --force to overwrite)\n", path)
 			} else {
 				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 					return err
 				}
-				if err := os.WriteFile(path, []byte(config.Template), 0o600); err != nil {
+				if err := os.WriteFile(path, []byte(config.TemplateWithSandbox(sandbox)), 0o600); err != nil {
 					return err
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "wrote config: %s\n", path)
+				fmt.Fprintf(w, "wrote config: %s\n", path)
 			}
 			if err := a.setup(cmd); err != nil {
 				return err
@@ -243,11 +248,23 @@ func (a *app) initCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "database ready: %s (schema v%d)\n", filepath.Join(a.cfg.DataDir, "shieldmon.db"), v)
+			fmt.Fprintf(w, "database ready: %s (schema v%d)\n", filepath.Join(a.cfg.DataDir, "shieldmon.db"), v)
+			// Say now, not at the first scan, whether scanners can run here.
+			name, sb, _ := scanner.SelectSandbox(a.cfg.Scanners.Sandbox.Backend)
+			switch _, err := sb.Command(scanner.Policy{}, "true", nil); {
+			case err != nil:
+				fmt.Fprintf(w, "sandbox: %v\n  scans refuse to start until a backend runs here (see 'shieldmon plugins')\n", err)
+			case !scanner.Confined(sb):
+				fmt.Fprintf(w, "sandbox: %s, scanners run unconfined (a scanner_unsandboxed health finding stays open)\n", name)
+			default:
+				fmt.Fprintf(w, "sandbox: %s\n", name)
+			}
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite an existing config file")
+	cmd.Flags().StringVar(&sandbox, "sandbox", scanner.AutoSandbox,
+		"scanners.sandbox.backend for a new config (none on development hosts without a backend, such as macOS)")
 	return cmd
 }
 
