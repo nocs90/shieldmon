@@ -285,7 +285,7 @@ func TestBwrapStartErrorNamesAppArmorFix(t *testing.T) {
 		if !strings.Contains(msg, "RTM_NEWADDR") {
 			t.Errorf("the probe's error is lost: %q", msg)
 		}
-		if got := strings.Contains(msg, "deploy/apparmor/shieldmon-bwrap"); got != c.hint {
+		if got := strings.Contains(msg, "deploy/apparmor/README.md"); got != c.hint {
 			t.Errorf("sysctl %q: AppArmor hint = %t, want %t: %q", c.value, got, c.hint, msg)
 		}
 	}

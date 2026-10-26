@@ -258,3 +258,12 @@
   hosts), and `init` says right away whether the chosen backend runs here. The
   `e2e-ubi9-node` CI job runs `init` with the default, so it is the first job that runs
   syft, grype and trivy inside a sandbox (`landlock`: the job installs no bwrap).
+- 2026-10-26, AppArmor profile choice (#49): AppArmor's `bwrap-userns-restrict` (package
+  `apparmor-profiles`, shipped but not loaded on Ubuntu 24.04) lets bwrap create its
+  namespaces and runs everything it starts in `unpriv_bwrap`, without capabilities. That
+  keeps the restriction in force for other local users who run bwrap, which
+  `shieldmon-bwrap` lifts. ShieldMon's launcher needs no capabilities inside the sandbox,
+  so the backend works under it; ci/sandbox-apparmor-restrict runs the conformance kit
+  with it loaded. `deploy/apparmor/README.md` recommends it for shared hosts and keeps
+  `shieldmon-bwrap` for dedicated hosts and CI; the two attach to the same binary and
+  must not be loaded together. The availability error now points to that page.

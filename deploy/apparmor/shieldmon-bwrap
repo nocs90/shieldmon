@@ -4,6 +4,9 @@
 # so bwrap fails with "loopback: Failed RTM_NEWADDR: Operation not permitted".
 # The distro bubblewrap package ships no such profile (docs/adr/0011-scanner-sandbox.md).
 #
+# For dedicated hosts and CI runners. On a host with other local users, prefer AppArmor's
+# bwrap-userns-restrict (deploy/apparmor/README.md). Load only one of the two.
+#
 # Install (skip if `aa-status` already lists a profile for /usr/bin/bwrap):
 #   sudo install -m 0644 deploy/apparmor/shieldmon-bwrap /etc/apparmor.d/shieldmon-bwrap
 #   sudo apparmor_parser -r /etc/apparmor.d/shieldmon-bwrap
@@ -14,8 +17,8 @@
 # It grants only "userns" to /usr/bin/bwrap and is otherwise unconfined, which is the
 # pattern Ubuntu documents for programs that need user namespaces. Every local user who
 # can run bwrap gets the same permission. Scanners inside the sandbox get no capabilities
-# from bwrap (--cap-drop ALL); the seccomp filter planned in ADR 0011 also denies them
-# unshare/setns.
+# from bwrap (--cap-drop ALL), and ShieldMon's seccomp filter denies them unshare, setns
+# and clone with namespace flags.
 
 abi <abi/4.0>,
 
