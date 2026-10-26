@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -44,10 +45,12 @@ func (f *fakeFetcher) Fetch(_ context.Context, r oci.Resolved, dir string) error
 	return os.MkdirAll(dir, 0o700)
 }
 
-// fakeGenerator writes a minimal SBOM that records the digest it describes.
+// fakeGenerator writes a minimal SBOM that records the digest it describes. With pad > 0
+// the file is extended to pad bytes (sparse: no disk is used).
 type fakeGenerator struct {
 	name  string
 	calls int
+	pad   int64
 }
 
 func (g *fakeGenerator) Name() string { return g.name }
@@ -60,7 +63,15 @@ func (g *fakeGenerator) Generate(_ context.Context, src scanner.Source, out stri
 	p := filepath.Join(out, "bom.json")
 	doc := map[string]any{"bomFormat": "CycloneDX", "specVersion": "1.6", "metadata": map[string]any{"component": map[string]string{"version": src.Version}}}
 	b, _ := json.Marshal(doc)
-	return []scanner.SBOMFile{{Format: scanner.FormatCycloneDXJSON, Path: p}}, os.WriteFile(p, b, 0o600)
+	if err := os.WriteFile(p, b, 0o600); err != nil {
+		return nil, err
+	}
+	if g.pad > 0 {
+		if err := os.Truncate(p, g.pad); err != nil {
+			return nil, err
+		}
+	}
+	return []scanner.SBOMFile{{Format: scanner.FormatCycloneDXJSON, Path: p}}, nil
 }
 
 // fakeMatcher returns the vulnerabilities configured for the SBOM's digest.
@@ -514,6 +525,24 @@ func TestMonitorReportsDegradedSandbox(t *testing.T) {
 	}
 	if hf := h.health(engine.CheckSandboxDegraded, "scanners"); hf.State != "resolved" {
 		t.Fatalf("full guarantees must resolve scanner_sandbox_degraded: %+v", hf)
+	}
+}
+
+// TestGiantSBOMIsRejected is the hostile fixture suite's giant-SBOM case (#10): an SBOM over
+// the size limit is never parsed or stored, and the generator gets a health finding.
+func TestGiantSBOMIsRejected(t *testing.T) {
+	h := newHarness(t)
+	h.syft.pad = 256<<20 + 1
+	h.image(ref, digestA)
+	r := h.scan(ref)
+	if slices.Contains(r.SBOMsCreated, "syft") {
+		t.Fatalf("an oversized SBOM must not be stored: %+v", r)
+	}
+	if sboms, _ := h.store.SBOMs(h.ctx, digestA); slices.ContainsFunc(sboms, func(s store.SBOM) bool { return s.Generator == "syft" }) {
+		t.Fatal("an oversized SBOM was recorded")
+	}
+	if hf := h.health(engine.CheckGenerator, "syft"); hf == nil || hf.State != "open" || !strings.Contains(hf.Detail, "exceeds") {
+		t.Fatalf("an oversized SBOM must open sbom_generator_failed naming the limit: %+v", hf)
 	}
 }
 

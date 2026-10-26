@@ -20,7 +20,7 @@ test-race:
 
 # Real syft/grype/trivy against a pinned image digest. Needs network.
 test-integration:
-	$(GO) test -tags integration -run TestRealScanners -count=1 -timeout 30m ./internal/engine
+	$(GO) test -tags integration -run 'TestRealScanners|TestHostile' -count=1 -timeout 30m ./internal/engine
 
 FUZZTIME ?= 20s
 FUZZ_TARGETS := \

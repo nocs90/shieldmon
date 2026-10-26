@@ -258,6 +258,20 @@
   hosts), and `init` says right away whether the chosen backend runs here. The
   `e2e-ubi9-node` CI job runs `init` with the default, so it is the first job that runs
   syft, grype and trivy inside a sandbox (`landlock`: the job installs no bwrap).
+- 2026-10-26, hostile fixture suite (#10, decision 6): `internal/engine/hostile_test.go`
+  (integration tag) builds each image in the test, serves it from an in-memory registry
+  and scans it with the real fetcher and scanners in the default sandbox; running
+  unconfined is a failure where `SHIELDMON_TEST_SANDBOX` is set. Cases: a manifest listing
+  10,000 layers and a layer over `max_layer_bytes` (rejected before download,
+  `fetch_failed`); a decompression bomb, 1 GiB of zeros in about 1 MiB (syft, which
+  unpacks layers into TMPDIR, is stopped by the scratch quota with
+  `sbom_generator_failed`; trivy catalogs it without unpacking); path traversal, absolute
+  paths and symlinks pointing out of the image (nothing written outside it); a scanner
+  that never exits (`sbom_generator_failed`, timed out). Every case leaves the scratch
+  space empty. The giant SBOM case needs no scanner and is an engine unit test.
+  `TestRealScanners` now runs in the default sandbox too, DB updates included: ci/integration
+  installs bwrap, so `auto` picks it there, while ci/e2e-ubi9-node, without bwrap, runs
+  the real scanners under `landlock`.
 - 2026-10-26, AppArmor profile choice (#49): AppArmor's `bwrap-userns-restrict` (package
   `apparmor-profiles`, shipped but not loaded on Ubuntu 24.04) lets bwrap create its
   namespaces and runs everything it starts in `unpriv_bwrap`, without capabilities. That

@@ -37,7 +37,7 @@ not be falsifiable.
 | **I**nformation disclosure | Credentials leak into logs, errors, health findings, reports. | Central redaction (headers, URL userinfo, AWS/GitLab/GitHub tokens, JWTs, signed URLs) ✅; scanners get an env allowlist without registry/cloud credentials ✅ |
 | I | Scanner telemetry/update checks leak inventory. | `--disable-telemetry`, `--skip-version-check`, `*_CHECK_FOR_APP_UPDATE=false` ✅; `trivy.offline_scan` option ✅; DBs refreshed by a separate step that never sees image content, so scanning needs no network ✅; no network at all while scanning under a sandbox ✅ (`bwrap`) |
 | I | SBOMs (full inventory) readable by other users. | data dir 0700, files 0600 ✅ |
-| **D**enial of service | Decompression bomb / giant layers / thousands of layers. | Manifest-declared layer count/size/total limits before download ✅; scanner timeouts ✅; per-process scratch quota (bytes and entries) and free-disk floor, enforced by killing the scanner ✅; per-file size limit (`RLIMIT_FSIZE`) under both backends ✅ |
+| **D**enial of service | Decompression bomb / giant layers / thousands of layers. | Manifest-declared layer count/size/total limits before download ✅; scanner timeouts ✅; per-process scratch quota (bytes and entries) and free-disk floor, enforced by killing the scanner ✅; per-file size limit (`RLIMIT_FSIZE`) under both backends ✅; proven by the hostile fixture suite with real scanners ✅ |
 | D | Scanner hangs or forks helpers. | Own process group, SIGKILL on timeout/overflow, `WaitDelay` ✅ |
 | D | Two cycles race and corrupt state. | Exclusive data-dir lock ✅; immediate transactions ✅ |
 | D | Silent stop: cron broken, DB stale, auth expired. | Self-health findings: `monitor_missed`, `db_stale`, `registry_auth`, `*_failed` ✅ (alerting ⬜ M4) |
