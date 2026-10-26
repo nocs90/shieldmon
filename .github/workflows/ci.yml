@@ -187,6 +187,9 @@ jobs:
           docker buildx build --platform linux/amd64,linux/arm64 \
             --build-arg VERSION="${GITHUB_SHA::12}" \
             --tag localhost:5000/shieldmon:ci --push .
+          # The builder's cache is several GB, and a public runner has about 14 GB of disk:
+          # the scans below need it for the vulnerability DBs.
+          docker buildx rm shieldmon
       - name: Check the image (non-root, entrypoint, binaries of the right architecture)
         run: |
           go build -o bin/crane github.com/google/go-containerregistry/cmd/crane
@@ -201,22 +204,18 @@ jobs:
           docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
             --network none localhost:5000/shieldmon:ci plugins | tee "$RUNNER_TEMP/plugins.txt"
           grep -E '^ +landlock .*\(available\)$' "$RUNNER_TEMP/plugins.txt"
-      - name: Scan a pinned image from inside the container (real scanners under landlock)
+      # Both scans run in the container with one data volume, so the vulnerability DBs are
+      # downloaded once. Host networking reaches the registry service on localhost:5000.
+      - name: Scan from inside the container (real scanners under landlock)
         if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run/integration')
         run: |
-          docker volume create shieldmon-data
-          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
-            -v shieldmon-data:/data localhost:5000/shieldmon:ci \
-            scan docker.io/library/alpine@sha256:c0669ef34cdc14332c0f1ab0c2c01acb91d96014b172f1a76f3a39e63d1f0bda
-          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
-            -v shieldmon-data:/data localhost:5000/shieldmon:ci health
-      - name: Scan the image with ShieldMon
-        if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run/integration')
-        run: |
-          scripts/install-scanners.sh "$RUNNER_TEMP/scanners"
-          export PATH="$RUNNER_TEMP/scanners:$PATH"
-          make build
-          sc() { ./bin/shieldmon --data-dir "$RUNNER_TEMP/sc" --config "$RUNNER_TEMP/sc/config.yaml" "$@"; }
-          sc init
+          df -h /
+          sc() {
+            docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
+              --network host -v shieldmon-data:/data localhost:5000/shieldmon:ci "$@"
+          }
+          sc scan docker.io/library/alpine@sha256:c0669ef34cdc14332c0f1ab0c2c01acb91d96014b172f1a76f3a39e63d1f0bda
           sc scan localhost:5000/shieldmon:ci
           sc findings list
+          sc health
+          df -h /

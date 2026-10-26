@@ -46,7 +46,10 @@
    would (read-only root, all capabilities dropped, `no-new-privileges`, Docker's default
    seccomp profile, no network): `version`, and `plugins` must list `landlock` as
    available. On main, nightly and PRs labelled `run/integration`, the container scans a
-   pinned image with the real scanners under `landlock`, and ShieldMon scans the image.
+   pinned image and the image itself with the real scanners under `landlock`, sharing one
+   data volume so that the DBs are downloaded once. A public runner has about 14 GB of
+   disk: on the first run, with the BuildKit cache still there, trivy's DB update hit the
+   2 GiB free-disk floor, so the builder is removed after the push.
    This is the only image CI runs; the rule in CLAUDE.md says so.
 
 ## Consequences
