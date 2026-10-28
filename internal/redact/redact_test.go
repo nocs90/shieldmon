@@ -13,10 +13,12 @@ func TestString(t *testing.T) {
 		"key AKIAIOSFODNN7EXAMPLE used":                                  "AKIAIOSFODNN7EXAMPLE",
 		"token glpat-ABCDEFGHIJKLMNOPQRST rejected":                      "glpat-ABCDEFGHIJKLMNOPQRST",
 		// The gitlab registry provider's credentials: job token, deploy token, API headers.
-		"login gitlab-ci-token:glcbt-64_abcdefghij0123456789 failed":                                       "glcbt-64_abcdefghij0123456789",
-		"deploy token gldt-abcdefghijklmnopqrst refused":                                                   "gldt-abcdefghijklmnopqrst",
-		"JOB-TOKEN: 64_opaquejobtokenvalue12345":                                                           "64_opaquejobtokenvalue12345",
-		"PRIVATE-TOKEN: opaque-api-token-without-prefix":                                                   "opaque-api-token-without-prefix",
+		"login gitlab-ci-token:glcbt-64_abcdefghij0123456789 failed": "glcbt-64_abcdefghij0123456789",
+		"deploy token gldt-abcdefghijklmnopqrst refused":             "gldt-abcdefghijklmnopqrst",
+		"JOB-TOKEN: 64_opaquejobtokenvalue12345":                     "64_opaquejobtokenvalue12345",
+		"PRIVATE-TOKEN: opaque-api-token-without-prefix":             "opaque-api-token-without-prefix",
+		// The webhook notifier's signing secret.
+		"secret whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw is too short":                                       "MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
 		"ghp_abcdefghijklmnopqrstuvwxyz0123456789":                                                         "ghp_abcdefghijklmnopqrstuvwxyz",
 		"https://s3.amazonaws.com/x?X-Amz-Signature=deadbeef&a=1":                                          "deadbeef",
 		`{"password": "hunter2"}`:                                                                          "hunter2",

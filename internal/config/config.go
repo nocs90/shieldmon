@@ -316,6 +316,15 @@ registries: []
 notifications:
   due_soon_days: 7
   channels: []
+  # - name: secops
+  #   notifier: webhook
+  #   events: [finding_new_kev, finding_new_critical, sla_breached, health_opened]
+  #   options: { url: https://hooks.example.com/shieldmon, secret_env: SHIELDMON_WEBHOOK_SECRET }
+  # - name: secops-mail
+  #   notifier: smtp
+  #   digest: true
+  #   options: { host: smtp.example.com, from: shieldmon@example.com, to: [secops@example.com],
+  #              username: shieldmon, password_env: SHIELDMON_SMTP_PASSWORD }
 `
 
 // Policy builds the decision policy from configuration.

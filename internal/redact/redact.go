@@ -22,6 +22,8 @@ var patterns = []struct {
 	// GitLab tokens (glpat-, gldt-, glcbt-, ...) and GitHub tokens.
 	{regexp.MustCompile(`\bgl[a-z]{2,4}-[A-Za-z0-9_-]{16,}\b`), "[REDACTED-GITLAB-TOKEN]"},
 	{regexp.MustCompile(`\b(ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{20,}\b`), "[REDACTED-GITHUB-TOKEN]"},
+	// Webhook signing secrets (Standard Webhooks).
+	{regexp.MustCompile(`\bwhsec_[A-Za-z0-9+/=]{16,}`), "[REDACTED-WEBHOOK-SECRET]"},
 	// JWTs.
 	{regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b`), "[REDACTED-JWT]"},
 }

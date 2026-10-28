@@ -59,16 +59,15 @@ func channel(t *testing.T, r *notifytest.Receiver, name string, digest bool, eve
 	chs, err := notify.NewChannels([]notify.ChannelConfig{{
 		Name: name, Notifier: "test-json", Digest: digest, Events: events,
 		Options: map[string]any{"url": r.URL + "/hook", "token_env": "KIT_TOKEN"},
-	}}, func(k string) string {
+	}}, notify.Spec{Transport: r.Client.Transport, Env: func(k string) string {
 		if k == "KIT_TOKEN" {
 			return secret
 		}
 		return ""
-	})
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	chs[0].Sender.(*jsonNotifier).client.Transport = r.Client.Transport
 	return chs[0]
 }
 
@@ -103,7 +102,7 @@ func TestNewChannelsValidates(t *testing.T) {
 		"plain http":        {Name: "a", Notifier: "test-json", Options: map[string]any{"url": "http://hooks.example.com/x"}},
 		"user info":         {Name: "a", Notifier: "test-json", Options: map[string]any{"url": "https://u:p@hooks.example.com/x"}},
 	} {
-		if _, err := notify.NewChannels([]notify.ChannelConfig{c}, env); err == nil {
+		if _, err := notify.NewChannels([]notify.ChannelConfig{c}, notify.Spec{Env: env}); err == nil {
 			t.Errorf("%s: must be refused", what)
 		} else if strings.Contains(err.Error(), "glpat-") || strings.Contains(err.Error(), "u:p@") {
 			t.Errorf("%s: the error repeats the credential: %v", what, err)
@@ -113,14 +112,14 @@ func TestNewChannelsValidates(t *testing.T) {
 		{Name: "a", Notifier: "test-json", Options: map[string]any{"url": "https://x.example"}},
 		{Name: "a", Notifier: "test-json", Options: map[string]any{"url": "https://y.example"}},
 	}
-	if _, err := notify.NewChannels(dup, env); err == nil {
+	if _, err := notify.NewChannels(dup, notify.Spec{Env: env}); err == nil {
 		t.Error("duplicate channel names must be refused")
 	}
 	unset := []notify.ChannelConfig{{Name: "a", Notifier: "test-json", Options: map[string]any{"url": "https://x.example", "token_env": "NOPE"}}}
-	if _, err := notify.NewChannels(unset, func(string) string { return "" }); err == nil || !strings.Contains(err.Error(), "NOPE is not set") {
+	if _, err := notify.NewChannels(unset, notify.Spec{Env: func(string) string { return "" }}); err == nil || !strings.Contains(err.Error(), "NOPE is not set") {
 		t.Errorf("an unset credential variable must be named: %v", err)
 	}
-	chs, err := notify.NewChannels([]notify.ChannelConfig{{Name: "local", Notifier: "test-json", Options: map[string]any{"url": "http://127.0.0.1:8080/x"}}}, env)
+	chs, err := notify.NewChannels([]notify.ChannelConfig{{Name: "local", Notifier: "test-json", Options: map[string]any{"url": "http://127.0.0.1:8080/x"}}}, notify.Spec{Env: env})
 	if err != nil || !reflect.DeepEqual(chs[0].Kinds, notify.Kinds) {
 		t.Errorf("http to loopback is allowed and a channel without events gets every kind: %v %+v", err, chs)
 	}

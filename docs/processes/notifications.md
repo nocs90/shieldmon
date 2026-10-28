@@ -39,12 +39,65 @@ notifications:
 - Before sending, pending events are checked against the current state: a problem fixed or
   a health finding resolved meanwhile is not announced.
 
+## Built-in notifiers
+
+### `webhook`
+
+JSON over HTTPS (http only to localhost), signed per [Standard
+Webhooks](https://www.standardwebhooks.com):
+
+```yaml
+- name: siem
+  notifier: webhook
+  options: { url: https://hooks.example.com/shieldmon, secret_env: SHIELDMON_WEBHOOK_SECRET }
+```
+
+- `secret_env` is required: a `whsec_` + base64 secret (as Standard Webhooks libraries
+  generate) or any other value of at least 24 bytes.
+- Headers: `webhook-id` (the same for a retry of the same events: drop duplicates by it),
+  `webhook-timestamp` (Unix seconds: refuse old ones), `webhook-signature`
+  (`v1,` + base64 HMAC-SHA256 of `id.timestamp.body`). Verify with any Standard Webhooks
+  library, or:
+
+  ```python
+  expected = base64.b64encode(hmac.new(key, f"{id}.{timestamp}.".encode() + body, sha256).digest())
+  ```
+
+- Body: `{"version": 1, "subject": …, "channel": …, "digest": …, "events": [{"key", "kind",
+  "finding": {…}} | {"key", "kind", "health": {…}}], "sent_at": …}`. Text fields come from
+  scanner output: escape them where you render them.
+- Redirects are not followed; any non-2xx answer is a failure.
+
+### `smtp`
+
+Plain-text e-mail through a relay, always over TLS:
+
+```yaml
+- name: secops-mail
+  notifier: smtp
+  digest: true
+  options:
+    host: smtp.example.com
+    port: 587                # default 587 (starttls), 465 (implicit)
+    tls: starttls            # starttls | implicit; there is no plaintext mode
+    from: "ShieldMon <shieldmon@example.com>"
+    to: [secops@example.com]
+    username: shieldmon
+    password_env: SHIELDMON_SMTP_PASSWORD
+```
+
+A server that does not offer STARTTLS is refused (no fallback), the certificate is verified
+against the system roots, and credentials are sent only after TLS. The subject is
+RFC 2047-encoded and every line is stripped of control characters, so scanner output cannot
+add headers. Mails carry `Auto-Submitted: auto-generated` (no auto-replies) and
+`X-ShieldMon-Delivery` (stable across retries).
+
 ## Failures
 
 A channel that fails opens a `notify_failed` health finding (subject: the channel), the cycle
 ends `degraded`, and its unsent events wait for the next cycle. The next successful send
-resolves the health finding. Errors name the endpoint's host and HTTP status, never URLs,
-tokens or the endpoint's answer.
+resolves the health finding. Errors name the endpoint's host and HTTP status (or SMTP step and
+reply code), never URLs, tokens or the endpoint's answer.
 
 ## Checking a channel
 

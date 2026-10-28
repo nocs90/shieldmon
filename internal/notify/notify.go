@@ -5,6 +5,7 @@ package notify
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net/http"
@@ -219,6 +220,9 @@ type Spec struct {
 	Env func(string) string
 	// Transport carries HTTP requests; http.DefaultTransport unless a test replaces it.
 	Transport http.RoundTripper
+	// TLS is the base TLS client configuration of non-HTTP notifiers; nil uses the system
+	// roots (tests set RootCAs).
+	TLS *tls.Config
 }
 
 // Options are notifier settings from configuration. Values are plain settings, never
@@ -377,8 +381,9 @@ func (c Channel) Wants(k Kind) bool { return slices.Contains(c.Kinds, k) }
 
 var channelNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
-// NewChannels validates the configured channels and builds their notifiers.
-func NewChannels(cfgs []ChannelConfig, env func(string) string) ([]Channel, error) {
+// NewChannels validates the configured channels and builds their notifiers, each with base
+// (environment, transports: zero in production) completed by its name and options.
+func NewChannels(cfgs []ChannelConfig, base Spec) ([]Channel, error) {
 	var out []Channel
 	seen := map[string]bool{}
 	for i, c := range cfgs {
@@ -410,7 +415,9 @@ func NewChannels(cfgs []ChannelConfig, env func(string) string) ([]Channel, erro
 		if err := validOptions(p, c.Options); err != nil {
 			return nil, fmt.Errorf("%s.options: %w", where, err)
 		}
-		n, err := p.New(Spec{Channel: c.Name, Options: c.Options, Env: env})
+		spec := base
+		spec.Channel, spec.Options = c.Name, c.Options
+		n, err := p.New(spec)
 		if err != nil {
 			return nil, fmt.Errorf("%s: notifier %s: %s", where, c.Notifier, redact.Error(err))
 		}

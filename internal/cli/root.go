@@ -159,7 +159,7 @@ func (a *app) setup(cmd *cobra.Command) error {
 	for _, c := range cfg.Notifications.Channels {
 		chans = append(chans, notify.ChannelConfig{Name: c.Name, Notifier: c.Notifier, Events: c.Events, Digest: c.Digest, Options: c.Options})
 	}
-	channels, err := notify.NewChannels(chans, nil)
+	channels, err := notify.NewChannels(chans, notify.Spec{})
 	if err != nil {
 		return err
 	}
