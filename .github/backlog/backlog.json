@@ -959,6 +959,19 @@
       "milestone": "M5 — Compliance profiles",
       "epic": "epic-inventory",
       "body": "## Context\n\nCustomers and regulators increasingly ask for an SBOM of the whole product, not one per image.\n\n## Acceptance criteria\n\n- [ ] `shieldmon report inventory -o cyclonedx`: one CycloneDX 1.6 BOM with each monitored image as\n  a container component (digest as hash, repository and tag as PURL) and its components nested\n- [ ] Valid against the CycloneDX 1.6 JSON schema (pinned in testdata); bounded size"
+    },
+    {
+      "key": "native-signing",
+      "title": "Native minisign/cosign-compatible signing of reports and audit digests",
+      "labels": [
+        "kind/feature",
+        "area/report",
+        "priority/low",
+        "security"
+      ],
+      "milestone": "M5 — Compliance profiles",
+      "epic": null,
+      "body": "## Context\n\n#31 signs reports and audit digests with the organization's own minisign or cosign (docs/processes/audit.md); ShieldMon holds no key and adds no cryptographic dependency. Signing in-process (`--sign-key-env`) would save a step in scheduled jobs.\n\n## Acceptance criteria\n\n- [ ] Decide in an ADR whether the convenience is worth a cryptographic dependency (candidates: aead.dev/minisign, sigstore-go); no hand-written signature format\n- [ ] Signatures verify with the real `minisign -V` / `cosign verify-blob`: interoperability tests in CI install the pinned tools\n- [ ] Keys only from environment variables or files with owner-only permissions; never logged; redaction tests"
     }
   ]
 }
