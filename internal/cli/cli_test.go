@@ -40,11 +40,18 @@ func TestInitAndEmptyQueries(t *testing.T) {
 		{"health"},
 		{"report", "monthly", "--month", "2026-10"},
 		{"notify", "preview"},
+		{"report", "inventory", "-o", "csv"},
+		{"components", "list"},
 	} {
 		out, errOut, code = run(t, append(args, common...)...)
 		if code != 0 {
 			t.Errorf("%v: code=%d out=%s err=%s", args, code, out, errOut)
 		}
+	}
+	// Scripts rely on the exit status: no image contains it.
+	_, errOut, code = run(t, append([]string{"components", "where", "xz-libs@5.6.0"}, common...)...)
+	if code != 1 || !strings.Contains(errOut, "no monitored image contains xz-libs@5.6.0") {
+		t.Errorf("components where without a match: code=%d err=%s", code, errOut)
 	}
 }
 

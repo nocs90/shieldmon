@@ -43,3 +43,24 @@ counts each digest's findings once.
 
 An image without gaps has a complete scan within the expected cadence, with every required
 SBOM: its findings are current evidence.
+
+## Components: what the images contain
+
+During an incident the question is "where do we run this package?". The SBOMs stored at scan
+time already answer it, without pulling or scanning anything:
+
+```sh
+shieldmon components where xz-libs@5.6.0             # NAME@VERSION
+shieldmon components where pkg:apk/alpine/openssl    # a package URL: every version
+shieldmon components where log4j-core -o json        # NAME (GROUP/NAME for Maven)
+shieldmon components list --target registry.example.com/app:prod -o csv
+```
+
+- `where` exits 1 when no monitored image contains the package, for scripts.
+- Components come from the CycloneDX SBOMs of each image's **current** digest (all
+  generators merged, deduplicated by package URL), with their licenses when the SBOM has them.
+- Each SBOM is checked against the size and SHA-256 recorded when it was generated, inside
+  the data directory and not through a symlink; one that fails is reported as a warning and
+  not used: it is no longer the evidence the scan produced.
+- Reading is bounded (64 MiB, 100,000 components, nesting depth 16 per SBOM); SBOMs describe
+  image content and are treated as hostile input.

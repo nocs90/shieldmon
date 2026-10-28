@@ -923,3 +923,47 @@ func TestInventoryReflectsEvidence(t *testing.T) {
 		t.Errorf("summary %+v", inv.Summary)
 	}
 }
+
+// TestReadSBOMChecksIntegrity: a stored SBOM is read back only if it is the file the scan
+// recorded.
+func TestReadSBOMChecksIntegrity(t *testing.T) {
+	h := newHarness(t)
+	h.image(ref, digestA)
+	h.scan(ref)
+	list, err := h.store.SBOMs(h.ctx, digestA)
+	if err != nil || len(list) == 0 {
+		t.Fatal(list, err)
+	}
+	b := list[0]
+	if data, err := h.eng.ReadSBOM(b, 1<<20); err != nil || !strings.Contains(string(data), "CycloneDX") {
+		t.Fatalf("intact SBOM: %v", err)
+	}
+	if _, err := h.eng.ReadSBOM(b, 10); err == nil {
+		t.Error("the size limit applies")
+	}
+	path := filepath.Join(h.eng.DataDir, b.Path)
+	orig, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := bytes.Replace(orig, []byte("CycloneDX"), []byte("CycloneDY"), 1)
+	if err := os.WriteFile(path, tampered, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.eng.ReadSBOM(b, 1<<20); err == nil || !strings.Contains(err.Error(), "changed after the scan") {
+		t.Errorf("same size, other content: %v", err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc/hosts", path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.eng.ReadSBOM(b, 1<<20); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Errorf("symlink: %v", err)
+	}
+	b.Path = "../outside.json"
+	if _, err := h.eng.ReadSBOM(b, 1<<20); err == nil || !strings.Contains(err.Error(), "outside the data directory") {
+		t.Errorf("path outside: %v", err)
+	}
+}
