@@ -25,6 +25,7 @@ not described, describe it (that is part of the change).
 | Notifications (webhook, e-mail, chat, issue trackers) | [processes/notifications.md](processes/notifications.md) |
 | Registries and credentials (Docker Hub, ECR, GCR/Artifact Registry, …) | [processes/registries.md](processes/registries.md) |
 | Monthly reporting (HTML, Markdown, CSV, JSON, remediation plan, SARIF) | [processes/reporting.md](processes/reporting.md) |
+| Inventory: what is monitored and how fresh the evidence is | [processes/inventory.md](processes/inventory.md) |
 | Responding to health findings | [processes/health-findings.md](processes/health-findings.md) |
 | Running the container image | [README](../README.md#container-image), [adr/0012-container-image.md](adr/0012-container-image.md), [deploy/scratch](../deploy/scratch/README.md) |
 

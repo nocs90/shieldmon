@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -548,20 +549,15 @@ func (a *app) reportCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			w := cmd.OutOrStdout()
-			if out != "" {
-				if err := os.MkdirAll(filepath.Dir(out), 0o750); err != nil {
-					return err
-				}
-				// Reports are an inventory of weaknesses: owner-only.
-				f, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-				if err != nil {
-					return err
-				}
-				defer f.Close()
-				w = f
+			w, closeOut, err := reportOutput(cmd, out)
+			if err != nil {
+				return err
 			}
-			return report.Render(w, r, format)
+			if err := report.Render(w, r, format); err != nil {
+				_ = closeOut()
+				return err
+			}
+			return closeOut()
 		},
 	}
 	monthly.Flags().StringVar(&month, "month", "", "month YYYY-MM (default: current month)")
@@ -571,8 +567,73 @@ func (a *app) reportCmd() *cobra.Command {
 	}
 	monthly.Flags().StringVarP(&format, "output", "o", "md", "format: "+strings.Join(names, ", ")+" ('shieldmon plugins' describes them)")
 	monthly.Flags().StringVar(&out, "out", "", "write to file instead of stdout")
-	cmd.AddCommand(monthly)
+	cmd.AddCommand(monthly, a.inventoryCmd())
 	return cmd
+}
+
+func (a *app) inventoryCmd() *cobra.Command {
+	var format, out string
+	cmd := &cobra.Command{
+		Use:   "inventory",
+		Short: "What is monitored: images, digests, SBOMs, last scan evidence and its gaps",
+		Long: `One row per monitored image (target): the digest it resolves to, its repository, since
+when it is monitored, how often it was rebuilt, the last scan (status, scanners, DB build
+dates), the stored SBOMs with their SHA-256, open findings by severity, and evidence gaps:
+unresolved, never scanned, last scan partial or failed, no complete scan within 1.5 x
+health.monitor_interval, a required SBOM generator missing.`,
+		Example: "  shieldmon report inventory\n  shieldmon report inventory -o csv --out reports/inventory.csv",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := a.setup(cmd); err != nil {
+				return err
+			}
+			var gens []string
+			for _, m := range a.engine.Scanners.Matchers {
+				if !slices.Contains(gens, m.Generator()) {
+					gens = append(gens, m.Generator())
+				}
+			}
+			slices.Sort(gens)
+			inv, err := report.BuildInventory(cmd.Context(), a.store, report.InventoryOptions{
+				Now: time.Now().UTC(), StaleAfter: a.cfg.Health.MonitorInterval.Duration * 3 / 2, Generators: gens,
+			})
+			if err != nil {
+				return err
+			}
+			w, closeOut, err := reportOutput(cmd, out)
+			if err != nil {
+				return err
+			}
+			if err := report.RenderInventory(w, inv, format); err != nil {
+				_ = closeOut()
+				return err
+			}
+			return closeOut()
+		},
+	}
+	var names []string
+	for _, f := range report.InventoryFormats() {
+		names = append(names, f.Name)
+	}
+	cmd.Flags().StringVarP(&format, "output", "o", "md", "format: "+strings.Join(names, ", "))
+	cmd.Flags().StringVar(&out, "out", "", "write to file instead of stdout")
+	return cmd
+}
+
+// reportOutput is stdout, or the file out: reports are an inventory of weaknesses, so the
+// file is owner-only. closeOut reports a failed write that only shows on close.
+func reportOutput(cmd *cobra.Command, out string) (w io.Writer, closeOut func() error, err error) {
+	if out == "" {
+		return cmd.OutOrStdout(), func() error { return nil }, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(out), 0o750); err != nil {
+		return nil, nil, err
+	}
+	f, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return nil, nil, err
+	}
+	return f, f.Close, nil
 }
 
 func (a *app) sbomCmd() *cobra.Command {

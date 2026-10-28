@@ -879,3 +879,47 @@ func TestNotificationsAfterMonitor(t *testing.T) {
 		}
 	}
 }
+
+// TestInventoryReflectsEvidence builds the inventory from real scans: a fully evidenced
+// image, one whose last scan was partial, one whose evidence went stale, a rebuild counted.
+func TestInventoryReflectsEvidence(t *testing.T) {
+	h := newHarness(t)
+	const app, api, old = "registry.test/app:prod", "registry.test/api:1", "registry.test/old:1"
+	h.image(app, digestA, vuln("zlib", "1.2.13-r0", "CVE-2023-45853", model.SeverityCritical))
+	h.image(old, digestC)
+	h.scan(app)
+	h.scan(old)
+
+	h.advance(3 * 24 * time.Hour)
+	h.image(app, digestB, vuln("zlib", "1.2.13-r0", "CVE-2023-45853", model.SeverityCritical))
+	h.scan(app)
+	h.image(api, digestC) // the same digest as old: one digest, two images
+	h.trivy.fail = true
+	h.scan(api)
+	h.trivy.fail = false
+
+	inv, err := report.BuildInventory(h.ctx, h.store, report.InventoryOptions{
+		Now: h.clock, StaleAfter: 36 * time.Hour, Generators: []string{"syft", "trivy"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byRef := map[string]report.Image{}
+	for _, img := range inv.Images {
+		byRef[img.Ref] = img
+	}
+	if a := byRef[app]; a.Digest != digestB || a.DigestChanges != 1 || len(a.Gaps) != 0 || a.Open["critical"] != 1 ||
+		len(a.SBOMs) != 2 || a.LastScan == nil || a.LastScan.Status != "complete" || len(a.LastScan.Tools) != 2 {
+		t.Errorf("app: %+v", a)
+	}
+	// api and old share digest C: its last scan (api's) was partial, and its last complete
+	// scan (old's, three days ago) is stale for both.
+	for _, ref := range []string{api, old} {
+		if got := strings.Join(byRef[ref].Gaps, ","); got != "last_scan_partial,stale_evidence" {
+			t.Errorf("%s gaps = %q", ref, got)
+		}
+	}
+	if inv.Summary.Targets != 3 || inv.Summary.Digests != 2 || inv.Summary.WithGaps != 2 || inv.Summary.Open["critical"] != 1 {
+		t.Errorf("summary %+v", inv.Summary)
+	}
+}

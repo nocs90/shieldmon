@@ -380,13 +380,23 @@ func (s *Store) FinishScan(ctx context.Context, id int64, status string, tools [
 
 // LatestScan returns the most recent finished scan of a digest.
 func (s *Store) LatestScan(ctx context.Context, digest string) (Scan, error) {
+	return s.latestScan(ctx, `digest = ? AND status != 'running'`, digest)
+}
+
+// LatestCompleteScan returns the most recent complete scan of a digest: the last full
+// evidence for it.
+func (s *Store) LatestCompleteScan(ctx context.Context, digest string) (Scan, error) {
+	return s.latestScan(ctx, `digest = ? AND status = ?`, digest, ScanComplete)
+}
+
+func (s *Store) latestScan(ctx context.Context, where string, args ...any) (Scan, error) {
 	var sc Scan
 	var tid sql.NullInt64
 	var started string
 	var finished, errMsg sql.NullString
 	var tools string
 	err := s.db.QueryRowContext(ctx, `SELECT id, digest, target_id, kind, status, started_at, finished_at, tools, error
-		FROM scans WHERE digest = ? AND status != 'running' ORDER BY id DESC LIMIT 1`, digest).
+		FROM scans WHERE `+where+` ORDER BY id DESC LIMIT 1`, args...).
 		Scan(&sc.ID, &sc.Digest, &tid, &sc.Kind, &sc.Status, &started, &finished, &tools, &errMsg)
 	if errors.Is(err, sql.ErrNoRows) {
 		return sc, ErrNotFound
@@ -397,6 +407,36 @@ func (s *Store) LatestScan(ctx context.Context, digest string) (Scan, error) {
 	sc.TargetID, sc.StartedAt, sc.FinishedAt, sc.Error = tid.Int64, parseTS(started), parseNullTS(finished), errMsg.String
 	_ = json.Unmarshal([]byte(tools), &sc.Tools)
 	return sc, nil
+}
+
+// DigestChange is one entry of the append-only digest history of a target: the first
+// resolution (Previous empty) or a change.
+type DigestChange struct {
+	TargetID   int64
+	Digest     string
+	Previous   string
+	ObservedAt time.Time
+}
+
+// DigestHistory returns the digest history of every target, oldest first.
+func (s *Store) DigestHistory(ctx context.Context) ([]DigestChange, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT target_id, digest, previous_digest, observed_at FROM target_digests ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DigestChange
+	for rows.Next() {
+		var c DigestChange
+		var prev sql.NullString
+		var at string
+		if err := rows.Scan(&c.TargetID, &c.Digest, &prev, &at); err != nil {
+			return nil, err
+		}
+		c.Previous, c.ObservedAt = prev.String, parseTS(at)
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }
 
 // ---- findings ----
