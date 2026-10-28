@@ -17,6 +17,7 @@ import (
 	"github.com/nocs90/shieldmon/internal/engine"
 	"github.com/nocs90/shieldmon/internal/lifecycle"
 	"github.com/nocs90/shieldmon/internal/model"
+	"github.com/nocs90/shieldmon/internal/notify"
 	"github.com/nocs90/shieldmon/internal/oci"
 	"github.com/nocs90/shieldmon/internal/report"
 	"github.com/nocs90/shieldmon/internal/scanner"
@@ -689,5 +690,168 @@ func TestCarryOverIsNotCountedAsNew(t *testing.T) {
 	}
 	if rep.Summary.Opened != 1 || rep.Summary.OpenAtEnd != 1 || rep.Summary.Fixed != 0 {
 		t.Fatalf("one problem across two digests must count once: %+v", rep.Summary)
+	}
+}
+
+// recordingNotifier records what a channel was sent; it fails while err is set.
+type recordingNotifier struct {
+	msgs []notify.Message
+	err  error
+}
+
+func (n *recordingNotifier) Send(_ context.Context, m notify.Message) error {
+	if n.err != nil {
+		return n.err
+	}
+	n.msgs = append(n.msgs, m)
+	return nil
+}
+
+// sent returns "kind subject" for every event sent so far, in order.
+func (n *recordingNotifier) sent() []string {
+	var out []string
+	for _, m := range n.msgs {
+		for _, e := range m.Events {
+			what := ""
+			switch {
+			case e.Finding != nil:
+				what = e.Finding.VulnID
+			case e.Health != nil:
+				what = e.Health.Check + "/" + e.Health.Subject
+			}
+			out = append(out, string(e.Kind)+" "+what)
+		}
+	}
+	return out
+}
+
+func (h *harness) monitor() engine.MonitorSummary {
+	h.t.Helper()
+	sum, err := h.eng.Monitor(h.ctx)
+	if err != nil && sum.Status == "" {
+		h.t.Fatalf("monitor: %v", err)
+	}
+	return sum
+}
+
+// TestNotificationsAfterMonitor follows notifications across cycles (docs/adr/0015-
+// notifications.md): new KEV and critical findings, deadlines, health findings; each event
+// once per channel, digests, a failing channel catching up, a channel added later.
+func TestNotificationsAfterMonitor(t *testing.T) {
+	h := newHarness(t)
+	sla, err := config.SLAProfile("standard", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.eng.Decisions = lifecycle.Policy{Profile: "standard", SLADays: sla}
+	h.eng.DueSoon = 7 * 24 * time.Hour
+	// No scanner_unsandboxed or monitor_missed health finding in this scenario.
+	h.eng.Sandboxed, h.eng.MonitorInterval = true, 0
+	all, dig := &recordingNotifier{}, &recordingNotifier{}
+	h.eng.Channels = []notify.Channel{
+		{Name: "all", Kinds: notify.Kinds, Sender: all},
+		{Name: "dig", Kinds: []notify.Kind{notify.FindingNewKEV, notify.HealthOpened}, Digest: true, Sender: dig},
+	}
+	xz := vuln("xz-libs", "5.6.0", "CVE-2024-3094", model.SeverityCritical, "5.6.1")
+	xz.KEV = true
+	zlib := vuln("zlib", "1.2.13-r0", "CVE-2023-45853", model.SeverityHigh, "1.2.13-r1")
+	h.image(ref, digestA, xz, zlib)
+	h.scan(ref)
+
+	// Day 0: the KEV finding (not also "new critical": KEV wins); the high one is not news.
+	if sum := h.monitor(); sum.Status != "ok" || sum.Notified["all"] != 1 {
+		t.Fatalf("first cycle: %+v", sum)
+	}
+	if got := all.sent(); !slices.Equal(got, []string{"finding_new_kev CVE-2024-3094"}) {
+		t.Fatalf("all got %q", got)
+	}
+	if len(dig.msgs) != 1 || !dig.msgs[0].Digest {
+		t.Fatalf("dig gets one digest: %+v", dig.msgs)
+	}
+
+	// Day 1: nothing new, nothing sent again.
+	h.advance(24 * time.Hour)
+	if sum := h.monitor(); len(sum.Notified) != 0 || len(all.msgs) != 1 || len(dig.msgs) != 1 {
+		t.Fatalf("an event is sent once per channel: %+v", sum.Notified)
+	}
+
+	// Day 2: a new digest brings a critical finding while "all" is down: its event waits, the
+	// cycle is degraded, and notify_failed opens without the credential in its detail.
+	h.advance(24 * time.Hour)
+	curl := vuln("curl", "8.5.0-r0", "CVE-2024-2398", model.SeverityCritical, "8.7.1-r0")
+	h.image(ref, digestB, xz, zlib, curl)
+	all.err = errors.New("POST hooks.example.com: answered 503; Authorization: Bearer abcdefghijklmnopqrstuvwxyz")
+	sum := h.monitor()
+	if sum.Status != "degraded" || sum.NotifyFailures["all"] == "" {
+		t.Fatalf("a failing channel degrades the cycle: %+v", sum)
+	}
+	hf := h.health(engine.CheckNotify, "all")
+	if hf == nil || hf.State != "open" || strings.Contains(hf.Detail, "abcdefghijklmnop") || !strings.Contains(hf.Detail, "1 event(s) wait") {
+		t.Fatalf("notify_failed = %+v", hf)
+	}
+	if len(dig.msgs) != 1 {
+		t.Fatal("a carried-over KEV finding is not new; a new critical one is not for dig")
+	}
+
+	// Day 3: "all" is back and catches up; both channels hear of the notify_failed finding
+	// open at the start of the cycle; it resolves.
+	h.advance(24 * time.Hour)
+	all.err = nil
+	if sum := h.monitor(); sum.Status != "ok" {
+		t.Fatalf("recovered cycle: %+v", sum)
+	}
+	if got := all.sent()[1:]; !slices.Equal(got, []string{"finding_new_critical CVE-2024-2398", "health_opened notify_failed/all"}) {
+		t.Fatalf("all caught up with %q", got)
+	}
+	if got := dig.sent()[1:]; !slices.Equal(got, []string{"health_opened notify_failed/all"}) {
+		t.Fatalf("dig got %q", got)
+	}
+	if hf := h.health(engine.CheckNotify, "all"); hf.State != "resolved" {
+		t.Fatal("a successful send resolves notify_failed")
+	}
+
+	// Day 24: within 7 days of the 30-day deadline of the problems first seen on day 0, not
+	// yet of curl's (day 32); each once, by lineage (the findings moved to digest B on day 2).
+	n := len(all.msgs)
+	h.advance(21 * 24 * time.Hour)
+	h.monitor()
+	h.monitor()
+	if got := all.sent()[n:]; !slices.Equal(got, []string{"sla_due_soon CVE-2024-3094", "sla_due_soon CVE-2023-45853"}) {
+		t.Fatalf("due soon: %q", got)
+	}
+	for _, m := range all.msgs[n:] {
+		if f := m.Events[0].Finding; f.Digest != digestB {
+			t.Errorf("events show the lineage's current finding, got digest %s", f.Digest)
+		}
+	}
+
+	// Day 31: the day-0 deadlines passed, curl's is due soon. A channel added now hears only
+	// from now on: no backlog of the due-soon events sent before.
+	late := &recordingNotifier{}
+	h.eng.Channels = append(h.eng.Channels, notify.Channel{Name: "late", Kinds: notify.Kinds, Sender: late})
+	h.advance(7 * 24 * time.Hour)
+	if pending, err := h.eng.PendingNotifications(h.ctx); err != nil || len(pending["all"]) != 3 || len(pending["late"]) != 3 {
+		t.Fatalf("preview shows what the cycle will send: %v %+v", err, pending)
+	}
+	h.monitor()
+	want := []string{"sla_breached CVE-2024-3094", "sla_breached CVE-2023-45853", "sla_due_soon CVE-2024-2398"}
+	if got := late.sent(); !slices.Equal(got, want) {
+		t.Fatalf("late got %q", got)
+	}
+	if got := all.sent()[len(all.sent())-3:]; !slices.Equal(got, want) {
+		t.Fatalf("all got %q", got)
+	}
+	if pending, err := h.eng.PendingNotifications(h.ctx); err != nil || len(pending["all"])+len(pending["late"]) != 0 {
+		t.Fatalf("nothing pending after sending: %v %+v", err, pending)
+	}
+
+	// Day 32: curl's deadline passes, but the image is fixed in the same cycle: nothing about
+	// fixed problems is sent.
+	h.advance(24 * time.Hour)
+	h.image(ref, digestC)
+	sent := len(all.sent())
+	h.monitor()
+	if got := all.sent()[sent:]; len(got) != 0 {
+		t.Fatalf("nothing about fixed problems: %q", got)
 	}
 }

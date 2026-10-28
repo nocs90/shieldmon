@@ -45,6 +45,16 @@ type Registry struct {
 	Options  map[string]any `yaml:"options,omitempty"`
 }
 
+// Channel is one notification channel (docs/adr/0015-notifications.md). Options are validated
+// by the notifier and never hold a credential: they name environment variables.
+type Channel struct {
+	Name     string         `yaml:"name"`
+	Notifier string         `yaml:"notifier"`
+	Events   []string       `yaml:"events,omitempty"`
+	Digest   bool           `yaml:"digest,omitempty"`
+	Options  map[string]any `yaml:"options,omitempty"`
+}
+
 // Config is the top-level configuration.
 type Config struct {
 	DataDir  string `yaml:"data_dir"`
@@ -91,6 +101,12 @@ type Config struct {
 		VendorDependencyMaxDays       int `yaml:"vendor_dependency_max_days"`
 		OperationalRequirementMaxDays int `yaml:"operational_requirement_max_days"`
 	} `yaml:"decisions"`
+
+	// Notifications are sent after each monitoring cycle (docs/adr/0015-notifications.md).
+	Notifications struct {
+		DueSoonDays int       `yaml:"due_soon_days"`
+		Channels    []Channel `yaml:"channels,omitempty"`
+	} `yaml:"notifications"`
 }
 
 // TemplateWithSandbox is Template with scanners.sandbox.backend set to backend.
@@ -118,6 +134,7 @@ func Default() Config {
 	c.SLA.Profile = "standard"
 	c.Decisions.VendorDependencyMaxDays = 30
 	c.Decisions.OperationalRequirementMaxDays = 365
+	c.Notifications.DueSoonDays = 7
 	return c
 }
 
@@ -168,6 +185,9 @@ func (c Config) Validate() error {
 	}
 	if c.Decisions.VendorDependencyMaxDays <= 0 || c.Decisions.OperationalRequirementMaxDays <= 0 {
 		return fmt.Errorf("decisions: max days must be positive")
+	}
+	if c.Notifications.DueSoonDays < 0 {
+		return fmt.Errorf("notifications.due_soon_days must not be negative (0 disables sla_due_soon)")
 	}
 	if c.Limits.MaxScratchBytes < 0 || c.Limits.MinFreeDiskBytes < 0 {
 		return fmt.Errorf("limits: max_scratch_bytes and min_free_disk_bytes must not be negative (0 disables)")
@@ -287,6 +307,15 @@ registries: []
 # - hosts: [registry.gitlab.example.com]
 #   provider: gitlab
 #   options: { api_url: https://gitlab.example.com, token_env: CI_JOB_TOKEN }
+
+# Notifications after each 'shieldmon monitor' cycle (docs/processes/notifications.md).
+# Events: finding_new_kev, finding_new_critical, sla_breached, sla_due_soon, health_opened
+# (all when events is omitted). Each event reaches a channel once; digest: true sends one
+# summary per cycle. 'shieldmon plugins' lists the notifiers and their options; options
+# never hold a credential: they name environment variables (*_env).
+notifications:
+  due_soon_days: 7
+  channels: []
 `
 
 // Policy builds the decision policy from configuration.

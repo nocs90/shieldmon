@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"github.com/nocs90/shieldmon/internal/config"
 	"github.com/nocs90/shieldmon/internal/engine"
 	"github.com/nocs90/shieldmon/internal/model"
+	"github.com/nocs90/shieldmon/internal/notify"
 	"github.com/nocs90/shieldmon/internal/oci"
 	"github.com/nocs90/shieldmon/internal/report"
 	"github.com/nocs90/shieldmon/internal/scanner"
@@ -81,7 +84,7 @@ when a later scan provides evidence.`,
 	)
 	for group, cmds := range map[string][]*cobra.Command{
 		"monitor": {a.scanCmd(), a.monitorCmd(), a.rematchCmd(), a.targetsCmd()},
-		"triage":  {a.findingsCmd(), a.vexCmd(), a.healthCmd(), a.reportCmd(), a.sbomCmd()},
+		"triage":  {a.findingsCmd(), a.vexCmd(), a.healthCmd(), a.reportCmd(), a.sbomCmd(), a.notifyCmd()},
 		"setup":   {a.initCmd(), a.doctorCmd(), a.dbCmd(), a.pluginsCmd(), a.versionCmd()},
 	} {
 		for _, c := range cmds {
@@ -152,6 +155,14 @@ func (a *app) setup(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
+	chans := make([]notify.ChannelConfig, 0, len(cfg.Notifications.Channels))
+	for _, c := range cfg.Notifications.Channels {
+		chans = append(chans, notify.ChannelConfig{Name: c.Name, Notifier: c.Notifier, Events: c.Events, Digest: c.Digest, Options: c.Options})
+	}
+	channels, err := notify.NewChannels(chans, nil)
+	if err != nil {
+		return err
+	}
 	a.engine = &engine.Engine{
 		Store:           st,
 		Scanners:        set,
@@ -162,6 +173,8 @@ func (a *app) setup(cmd *cobra.Command) error {
 		DBMaxAge:        cfg.Health.DBMaxAge.Duration,
 		MonitorInterval: cfg.Health.MonitorInterval.Duration,
 		Decisions:       policy,
+		Channels:        channels,
+		DueSoon:         time.Duration(cfg.Notifications.DueSoonDays) * 24 * time.Hour,
 		Log:             a.log,
 	}
 	return nil
@@ -511,7 +524,9 @@ func (a *app) monitorCmd() *cobra.Command {
 					Results  []resultJSON      `json:"results"`
 					Failures map[string]string `json:"failures,omitempty"`
 					Expired  []int64           `json:"expired_decisions,omitempty"`
-				}{sum.RunID, sum.Status, toResultJSON(sum.Results), sum.Failures, sum.ExpiredDecision})
+					Notified map[string]int    `json:"notified,omitempty"`
+					NotifyKO map[string]string `json:"notify_failures,omitempty"`
+				}{sum.RunID, sum.Status, toResultJSON(sum.Results), sum.Failures, sum.ExpiredDecision, sum.Notified, sum.NotifyFailures})
 				if err != nil {
 					return err
 				}
@@ -524,6 +539,12 @@ func (a *app) monitorCmd() *cobra.Command {
 				}
 				if len(sum.ExpiredDecision) > 0 {
 					fmt.Fprintf(cmd.OutOrStdout(), "reopened %d finding(s) with expired decisions\n", len(sum.ExpiredDecision))
+				}
+				for _, ch := range slices.Sorted(maps.Keys(sum.Notified)) {
+					fmt.Fprintf(cmd.OutOrStdout(), "notified %s: %d event(s)\n", ch, sum.Notified[ch])
+				}
+				for _, ch := range slices.Sorted(maps.Keys(sum.NotifyFailures)) {
+					fmt.Fprintf(cmd.ErrOrStderr(), "notification channel %s: %s\n", ch, sum.NotifyFailures[ch])
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "monitor run #%d: %s\n", sum.RunID, sum.Status)
 			}
@@ -620,7 +641,7 @@ func (a *app) dbCmd() *cobra.Command {
 func (a *app) pluginsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "plugins",
-		Short: "List registered extension plugins (scanners, sandboxes, registry providers, report formats)",
+		Short: "List registered extension plugins (scanners, sandboxes, registry providers, notifiers, report formats)",
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, _ []string) {
 			w := cmd.OutOrStdout()
@@ -643,6 +664,14 @@ func (a *app) pluginsCmd() *cobra.Command {
 					opts = "; options: " + strings.Join(p.Options, ", ")
 				}
 				fmt.Fprintf(w, "  %-8s %s (%s%s)\n", p.Name, p.Description, scope, opts)
+			}
+			fmt.Fprintln(w, "Notifiers:")
+			for _, n := range notify.Notifiers() {
+				opts := ""
+				if len(n.Options) > 0 {
+					opts = " (options: " + strings.Join(n.Options, ", ") + ")"
+				}
+				fmt.Fprintf(w, "  %-10s %s%s\n", n.Name, n.Description, opts)
 			}
 			fmt.Fprintln(w, "Sandbox backends:")
 			for _, b := range scanner.SandboxBackends() {

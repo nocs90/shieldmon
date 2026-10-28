@@ -24,6 +24,7 @@ registry's provider (registries.md). Both take `--dry-run`.
 | 7 | DB freshness check per matcher | `engine.checkDBAge` | — | `db_stale` |
 | 8 | Normalize and deduplicate | `normalize.Merge` | — | — |
 | 9 | Reconcile lifecycle (pure plan, applied in one transaction) | `lifecycle.Reconcile`, `store.ReconcileScan` | `findings`, `scan_matches`, `finding_events`, `decisions` (carried) | transaction rolled back; scan marked failed |
+| 9a | Notify: compute events from the store, record them, send each channel what it has not been sent (notifications.md) | `Engine.Notify` | `notification_events`, `notifications` | `notify_failed` per channel; the run becomes **degraded**; events wait for the next cycle |
 | 10 | Close the run with status ok / degraded / failed | `store.FinishMonitorRun` | `monitor_runs` | — |
 
 `scan` and `rematch` run the preflight too; `shieldmon db update` runs only the DB refresh

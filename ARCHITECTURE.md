@@ -87,14 +87,15 @@ matcher runs: SBOM-first is a property of the pipeline, not a separate mode.
 | `internal/normalize` | canonical PURL / vuln IDs, alias mapping, merge | packageurl-go |
 | `internal/lifecycle` | **pure** state machine + reconciliation planner | model |
 | `internal/vex` | **pure** OpenVEX / CycloneDX VEX parsing (bounded, fuzzed), OpenVEX export, statement matching | normalize, go-containerregistry |
+| `internal/notify` | notifier registry, **pure** event computation from monitoring state, dispatch (digest, bounds), hardened HTTP helpers; `notifytest` conformance kit | redact |
 | `internal/store` | SQLite schema, migrations, transactional apply | lifecycle, model |
 | `internal/report` | monthly report from the audit trail; format registry (md/json/csv) | store, config |
 | `internal/redact` | credential redaction | — |
 | `internal/config` | YAML config, SLA profiles | model |
 | `internal/model` | shared domain types | — |
 
-Extension points (scanners, report formats; later registry providers, enrichers,
-notifiers, chart sources, remediation advisors) are interfaces with registries — see
+Extension points (scanners, report formats, registry providers, notifiers; later
+enrichers, chart sources, remediation advisors) are interfaces with registries — see
 [docs/extending](docs/extending/README.md) and ADR 0008.
 
 `lifecycle` has no I/O so that every closure rule is unit-testable; `store` loads its

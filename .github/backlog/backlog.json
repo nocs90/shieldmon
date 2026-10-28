@@ -859,6 +859,18 @@
       "milestone": "M4 — Prioritization, VEX, notifications",
       "epic": "epic-f5",
       "body": "## Context\n\nDownstream consumers and auditors need ShieldMon's not_affected decisions as standard VEX.\n\n## Acceptance criteria\n\n- [ ] `shieldmon vex export` emits OpenVEX 0.2.0 for the statements in force and the not_affected decisions taken by hand\n- [ ] Validated against the OpenVEX JSON schema in tests\n- [ ] Round trip import → export → import is lossless"
+    },
+    {
+      "key": "f9-core",
+      "title": "Notifier extension point: events, deduplication, digest mode, conformance kit",
+      "labels": [
+        "kind/feature",
+        "area/notify",
+        "priority/high"
+      ],
+      "milestone": "M4 — Prioritization, VEX, notifications",
+      "epic": "epic-f9",
+      "body": "## Context\n\nEpic #4 needs the `Notifier` interface, the events, deduplication and digest mode before the adapters (#23, #24, #25).\n\n## Acceptance criteria\n\n- [ ] `notify.Notifier` + `notify.RegisterNotifier`; `shieldmon plugins` lists notifiers; `notifytest.CheckNotifier`\n- [ ] Events after each monitor cycle: new critical finding, new KEV finding, SLA due soon, SLA breached, health finding opened\n- [ ] An event is sent at most once per channel (append-only record); digest mode sends one message per cycle\n- [ ] A failing channel opens a `notify_failed` health finding; secrets only from environment variables, never in errors or logs\n- [ ] `shieldmon notify preview` and `shieldmon notify test CHANNEL`; ADR"
     }
   ]
 }

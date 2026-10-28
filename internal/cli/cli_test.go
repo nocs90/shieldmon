@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/nocs90/shieldmon/internal/notify"
 	"github.com/nocs90/shieldmon/internal/oci/ocitest"
 )
 
@@ -28,7 +30,7 @@ func TestInitAndEmptyQueries(t *testing.T) {
 	common := []string{"--config", cfg, "--data-dir", filepath.Join(dir, "data")}
 
 	out, errOut, code := run(t, append([]string{"init"}, common...)...)
-	if code != 0 || !strings.Contains(out, "schema v3") {
+	if code != 0 || !strings.Contains(out, "schema v4") {
 		t.Fatalf("init: code=%d out=%s err=%s", code, out, errOut)
 	}
 	// The written template must load cleanly.
@@ -37,6 +39,7 @@ func TestInitAndEmptyQueries(t *testing.T) {
 		{"targets", "list"},
 		{"health"},
 		{"report", "monthly", "--month", "2026-10"},
+		{"notify", "preview"},
 	} {
 		out, errOut, code = run(t, append(args, common...)...)
 		if code != 0 {
@@ -304,5 +307,59 @@ func TestVEXImportExportRoundTrip(t *testing.T) {
 	}
 	if out, _, _ := run(t, append([]string{"vex", "import", file, "--by", "tester"}, second...)...); !strings.Contains(out, "0 new") {
 		t.Errorf("importing the same document twice must record nothing new:\n%s", out)
+	}
+}
+
+// cliTestNotifier records test messages; registered for TestNotifyCommands.
+type cliTestNotifier struct{ sent *int }
+
+func (n cliTestNotifier) Send(_ context.Context, m notify.Message) error {
+	if !m.Test {
+		return errors.New("only test messages expected")
+	}
+	*n.sent++
+	return nil
+}
+
+var cliTestSent int
+
+func init() {
+	notify.RegisterNotifier(notify.Plugin{
+		Name: "cli-test", Description: "records test messages (tests)", Options: []string{"token_env"},
+		New: func(notify.Spec) (notify.Notifier, error) { return cliTestNotifier{&cliTestSent}, nil },
+	})
+}
+
+func TestNotifyCommands(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config.yaml")
+	write := func(channels string) {
+		t.Helper()
+		if err := os.WriteFile(cfg, []byte("notifications:\n  channels:\n"+channels), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	common := []string{"--config", cfg, "--data-dir", filepath.Join(dir, "data")}
+	write("  - { name: secops, notifier: cli-test, digest: true, events: [finding_new_kev, health_opened] }\n")
+
+	out, errOut, code := run(t, append([]string{"notify", "preview"}, common...)...)
+	if code != 0 || !strings.Contains(out, "secops (cli-test, digest): 0 event(s)") {
+		t.Fatalf("preview: code=%d out=%s err=%s", code, out, errOut)
+	}
+	out, errOut, code = run(t, append([]string{"notify", "test", "secops"}, common...)...)
+	if code != 0 || cliTestSent != 1 || !strings.Contains(out, "test message sent to secops") {
+		t.Fatalf("test: code=%d out=%s err=%s", code, out, errOut)
+	}
+	if _, errOut, code = run(t, append([]string{"notify", "test", "other"}, common...)...); code == 0 || !strings.Contains(errOut, `no channel "other"`) {
+		t.Errorf("unknown channel: code=%d err=%s", code, errOut)
+	}
+	if out, _, _ = run(t, "plugins"); !strings.Contains(out, "Notifiers:\n  cli-test") {
+		t.Errorf("plugins lists notifiers: %s", out)
+	}
+
+	write("  - { name: secops, notifier: cli-test, options: { token_env: ghp_0123456789abcdefghijklmnopqrstuvwxyz } }\n")
+	_, errOut, code = run(t, append([]string{"notify", "preview"}, common...)...)
+	if code == 0 || !strings.Contains(errOut, "looks like a credential") || strings.Contains(errOut, "ghp_") {
+		t.Errorf("an inline credential is refused without being repeated: code=%d err=%s", code, errOut)
 	}
 }
