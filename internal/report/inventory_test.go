@@ -78,7 +78,7 @@ func (f fakeInventory) Scans(_ context.Context, d string) ([]store.Scan, error) 
 var invNow = time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
 
 func inventoryFixture() fakeInventory {
-	const a, b, c = "sha256:aaaa", "sha256:bbbb", "sha256:cccc"
+	a, b, c := "sha256:"+strings.Repeat("a", 64), "sha256:"+strings.Repeat("b", 64), "sha256:"+strings.Repeat("c", 64)
 	tools := []model.Tool{{Name: "grype", Version: "0.86.1", DBBuilt: invNow.Add(-12 * time.Hour)}, {Name: "trivy", Version: "0.67.2", DBBuilt: invNow.Add(-20 * time.Hour)}}
 	scan := func(d, status string, at time.Time) store.Scan {
 		return store.Scan{Digest: d, Kind: "rematch", Status: status, StartedAt: at, Tools: tools}
@@ -182,7 +182,7 @@ func TestInventory(t *testing.T) {
 			}
 		}
 	}
-	if err := RenderInventory(&buf, inv, "xlsx"); err == nil || !strings.Contains(err.Error(), "csv, json, md") {
+	if err := RenderInventory(&buf, inv, "xlsx"); err == nil || !strings.Contains(err.Error(), "csv, cyclonedx, json, md") {
 		t.Errorf("unknown formats name the supported ones: %v", err)
 	}
 }

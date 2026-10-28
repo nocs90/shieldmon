@@ -41,6 +41,7 @@ func TestInitAndEmptyQueries(t *testing.T) {
 		{"report", "monthly", "--month", "2026-10"},
 		{"notify", "preview"},
 		{"report", "inventory", "-o", "csv"},
+		{"report", "inventory", "-o", "cyclonedx"},
 		{"components", "list"},
 	} {
 		out, errOut, code = run(t, append(args, common...)...)

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nocs90/shieldmon/internal/model"
+	"github.com/nocs90/shieldmon/internal/sbom"
 	"github.com/nocs90/shieldmon/internal/store"
 )
 
@@ -44,6 +45,11 @@ type InventoryOptions struct {
 	Generators []string
 	// Changes, when set, adds the inventory changes of that period.
 	Changes *Period
+	// ReadSBOM, when set, fills each monitored image's components from its stored CycloneDX
+	// SBOMs (for formats that need them, InventoryFormat.Components).
+	ReadSBOM SBOMReader
+	// Tool names the producer ("shieldmon 1.2.3") in formats that record it.
+	Tool string
 }
 
 // Inventory is what ShieldMon monitors and how fresh its evidence is.
@@ -52,6 +58,9 @@ type Inventory struct {
 	Summary     InventorySummary `json:"summary"`
 	Images      []Image          `json:"images"`
 	Changes     *Changes         `json:"changes,omitempty"`
+	// Problems are SBOMs that could not be read when components were asked for.
+	Problems []string `json:"problems,omitempty"`
+	Tool     string   `json:"-"`
 }
 
 // InventorySummary counts images and their evidence gaps.
@@ -82,6 +91,8 @@ type Image struct {
 	// RetiredAt is when the image was retired: it is listed, not monitored, and neither its
 	// gaps nor its findings count.
 	RetiredAt time.Time `json:"retired_at,omitzero"`
+	// Components are filled only when InventoryOptions.ReadSBOM is set.
+	Components []sbom.Component `json:"-"`
 }
 
 // ScanInfo is a scan as the inventory shows it.
@@ -103,7 +114,8 @@ type SBOMInfo struct {
 
 // BuildInventory computes the inventory as of opts.Now.
 func BuildInventory(ctx context.Context, src InventorySource, opts InventoryOptions) (Inventory, error) {
-	inv := Inventory{GeneratedAt: opts.Now.UTC(), Summary: InventorySummary{Gaps: map[string]int{}, Open: map[string]int{}}}
+	inv := Inventory{GeneratedAt: opts.Now.UTC(), Tool: opts.Tool, Summary: InventorySummary{Gaps: map[string]int{}, Open: map[string]int{}}}
+	components := map[string][]sbom.Component{} // per digest, read once
 	targets, err := src.ListTargets(ctx)
 	if err != nil {
 		return inv, err
@@ -149,6 +161,16 @@ func BuildInventory(ctx context.Context, src InventorySource, opts InventoryOpti
 		}
 		for sev, n := range openByDigest[t.CurrentDigest] {
 			img.Open[sev] = n
+		}
+		if opts.ReadSBOM != nil && t.CurrentDigest != "" {
+			comps, ok := components[t.CurrentDigest]
+			if !ok {
+				if comps, err = digestComponents(ctx, src, opts.ReadSBOM, t.CurrentDigest, &inv.Problems); err != nil {
+					return inv, err
+				}
+				components[t.CurrentDigest] = comps
+			}
+			img.Components = comps
 		}
 		if t.CurrentDigest != "" && !digests[t.CurrentDigest] {
 			digests[t.CurrentDigest] = true
@@ -246,7 +268,16 @@ func fillEvidence(ctx context.Context, src InventorySource, img *Image, opts Inv
 type InventoryFormat struct {
 	Name        string
 	Description string
-	Render      func(io.Writer, Inventory) error
+	// Components marks formats that render the images' components: the caller then sets
+	// InventoryOptions.ReadSBOM.
+	Components bool
+	Render     func(io.Writer, Inventory) error
+}
+
+// LookupInventoryFormat returns a registered inventory format.
+func LookupInventoryFormat(name string) (InventoryFormat, bool) {
+	f, ok := inventoryFormats[name]
+	return f, ok
 }
 
 var inventoryFormats = map[string]InventoryFormat{}

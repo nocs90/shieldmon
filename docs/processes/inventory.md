@@ -44,6 +44,20 @@ counts each digest's findings once.
 An image without gaps has a complete scan within the expected cadence, with every required
 SBOM: its findings are current evidence.
 
+## One BOM for everything monitored
+
+```sh
+shieldmon report inventory -o cyclonedx --out reports/inventory.cdx.json
+```
+
+A single CycloneDX 1.6 BOM (valid against the official schema): each monitored digest is a
+`container` component (SHA-256 hash, `pkg:oci` package URL with repository and
+architecture, and the tag when only one target uses the digest; every target as a
+`shieldmon:target` property) with its components nested, read from the stored SBOMs under
+the same integrity checks as `components`. Retired and unresolved images are left out; an
+SBOM that cannot be read is a warning. Beyond 500,000 components the export refuses: use
+`shieldmon sbom export` per image.
+
 ## Changes over a period
 
 ```sh

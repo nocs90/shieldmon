@@ -22,6 +22,7 @@ import (
 	"github.com/nocs90/shieldmon/internal/lifecycle"
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/report"
+	"github.com/nocs90/shieldmon/internal/sbom"
 	"github.com/nocs90/shieldmon/internal/store"
 )
 
@@ -599,7 +600,13 @@ health.monitor_interval, a required SBOM generator missing.`,
 				}
 			}
 			slices.Sort(gens)
-			opts := report.InventoryOptions{Now: time.Now().UTC(), StaleAfter: a.cfg.Health.MonitorInterval.Duration * 3 / 2, Generators: gens}
+			opts := report.InventoryOptions{
+				Now: time.Now().UTC(), StaleAfter: a.cfg.Health.MonitorInterval.Duration * 3 / 2, Generators: gens,
+				Tool: "shieldmon " + Version,
+			}
+			if f, ok := report.LookupInventoryFormat(format); ok && f.Components {
+				opts.ReadSBOM = func(b store.SBOM) ([]byte, error) { return a.engine.ReadSBOM(b, sbom.MaxBytes) }
+			}
 			if month != "" {
 				if format == "csv" {
 					return errors.New("--month: the changes of a month are in -o md and -o json (csv has one row per image)")
@@ -614,6 +621,9 @@ health.monitor_interval, a required SBOM generator missing.`,
 			inv, err := report.BuildInventory(cmd.Context(), a.store, opts)
 			if err != nil {
 				return err
+			}
+			for _, p := range inv.Problems {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s (its components are left out)\n", printable(p))
 			}
 			w, closeOut, err := reportOutput(cmd, out)
 			if err != nil {
