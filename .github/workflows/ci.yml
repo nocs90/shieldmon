@@ -187,6 +187,29 @@ jobs:
         env:
           SHIELDMON_TEST_ECR_REPO: ${{ vars.SHIELDMON_ECR_REPO }}
 
+  # GitLab provider against a real project (#17). Skipped until a maintainer sets the
+  # repository variable SHIELDMON_GITLAB_REPO and the secrets SHIELDMON_GITLAB_API_TOKEN
+  # (read_api) and SHIELDMON_GITLAB_DEPLOY_TOKEN (read_registry, user in the variable
+  # SHIELDMON_GITLAB_DEPLOY_USER).
+  gitlab:
+    if: vars.SHIELDMON_GITLAB_REPO != '' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run/integration'))
+    runs-on: ubuntu-24.04
+    needs: test
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - run: go test -tags integration -run TestGitLabIntegration -count=1 ./internal/oci
+        env:
+          SHIELDMON_TEST_GITLAB_REPO: ${{ vars.SHIELDMON_GITLAB_REPO }}
+          SHIELDMON_TEST_GITLAB_API: ${{ vars.SHIELDMON_GITLAB_API }}
+          SHIELDMON_GITLAB_DEPLOY_USER: ${{ vars.SHIELDMON_GITLAB_DEPLOY_USER }}
+          SHIELDMON_GITLAB_DEPLOY_TOKEN: ${{ secrets.SHIELDMON_GITLAB_DEPLOY_TOKEN }}
+          SHIELDMON_GITLAB_API_TOKEN: ${{ secrets.SHIELDMON_GITLAB_API_TOKEN }}
+
   # Container image (docs/adr/0012-container-image.md): multi-arch build, configuration checks
   # and a smoke test on every change; a scan run by the image, and a scan of the image, on
   # main, nightly and PRs labelled run/integration. The only image this job runs is

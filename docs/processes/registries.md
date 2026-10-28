@@ -9,8 +9,9 @@ scanners. Public images on any registry need no configuration.
 | Amazon ECR `<acct>.dkr.ecr.<region>.amazonaws.com` (any AWS partition, FIPS endpoints) | — | ✅ native: AWS default credential chain (env, SSO/profile, web identity from CI OIDC, IRSA, EKS Pod Identity, instance role); `role_arn` assumes a role in another account. Repositories and tags listed with push times. |
 | Amazon ECR Public `public.ecr.aws` | ✅ anonymous | — |
 | Google GCR `gcr.io`, Artifact Registry `*-docker.pkg.dev` | ✅ anonymous | ✅ native: gcloud or Application Default Credentials |
+| GitLab `registry.gitlab.com`, self-managed | ✅ anonymous if public | ✅ native with a `gitlab` rule: CI job token or deploy token (`read_registry`); group and project listing through the REST API |
 | GitHub `ghcr.io`, Quay `quay.io`, Microsoft `mcr.microsoft.com`, Red Hat `registry.access.redhat.com` | ✅ anonymous | `docker login` |
-| Azure ACR, GitLab, Harbor, Zot, self-hosted | ✅ anonymous if public | `docker login` or a docker credential helper |
+| Azure ACR, Harbor, Zot, self-hosted | ✅ anonymous if public | `docker login` or a docker credential helper |
 
 Resolution order (first match wins): `registries:` rules, in file order → docker config and
 credential helpers → ECR → Google → anonymous. A registry that answers 401/403 opens a
@@ -44,6 +45,27 @@ registries:
 ```
 
 Pull tokens are cached in memory only, until five minutes before they expire.
+
+### GitLab (GitLab.com and self-managed)
+
+```yaml
+registries:
+  - hosts: [registry.gitlab.example.com]
+    provider: gitlab
+    options:
+      api_url: https://gitlab.example.com   # https only (http just for localhost)
+      group: platform/team                  # what `targets add-repo` lists by default
+      # In GitLab CI the job token is used by default (token_env: CI_JOB_TOKEN).
+      # Outside CI, a deploy token with read_registry:
+      # username: gitlab+deploy-token-12
+      # token_env: SHIELDMON_GITLAB_DEPLOY_TOKEN
+      # Listing goes through the REST API: a project or group access token with read_api,
+      # or the job token where the instance allows it for the registry API.
+      api_token_env: SHIELDMON_GITLAB_API_TOKEN
+```
+
+GitLab `id_tokens` (OIDC) do not authenticate to GitLab's own registry; use them to reach
+ECR with `deploy/iam/trust-gitlab-oidc.json`.
 
 ## Recommended practice
 
