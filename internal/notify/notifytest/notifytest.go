@@ -46,7 +46,7 @@ const Injected = "X-Injected: 1"
 // HostileEvents are events whose text fields carry what scanner output may hold: line breaks
 // that try to inject headers, markup, mentions, bidirectional overrides, oversized text.
 func HostileEvents() []notify.Event {
-	evil := "\r\n" + Injected + "\r\n\r\n<script>alert(1)</script> *bold* _it_ `code` [link](https://evil.example) <!channel> @room @everyone \u202egnp.exe"
+	evil := "\r\n" + Injected + "\r\n\r\n<script>alert(1)</script> *bold* _it_ `code` ```\n@here``` [link](https://evil.example) <!channel> @room @everyone \u202egnp.exe"
 	first := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
 	return []notify.Event{
 		{Key: "finding_new:1", Kind: notify.FindingNewKEV, Finding: &notify.Finding{
@@ -188,6 +188,7 @@ type Receiver struct {
 	mu     sync.Mutex
 	bodies []string
 	header []http.Header
+	reqs   []string
 	other  *httptest.Server
 	hits   int
 }
@@ -210,6 +211,7 @@ func NewReceiver(t *testing.T, mode Mode) *Receiver {
 		r.mu.Lock()
 		r.bodies = append(r.bodies, string(body))
 		r.header = append(r.header, req.Header.Clone())
+		r.reqs = append(r.reqs, req.Method+" "+req.URL.EscapedPath())
 		r.mu.Unlock()
 		switch mode {
 		case Accept:
@@ -251,6 +253,13 @@ func (r *Receiver) Headers() []http.Header {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]http.Header(nil), r.header...)
+}
+
+// Requests returns "METHOD escaped-path" of the requests received so far.
+func (r *Receiver) Requests() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.reqs...)
 }
 
 // Followed reports whether a Redirect receiver's target was reached.

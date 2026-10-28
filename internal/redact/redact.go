@@ -24,6 +24,11 @@ var patterns = []struct {
 	{regexp.MustCompile(`\b(ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{20,}\b`), "[REDACTED-GITHUB-TOKEN]"},
 	// Webhook signing secrets (Standard Webhooks).
 	{regexp.MustCompile(`\bwhsec_[A-Za-z0-9+/=]{16,}`), "[REDACTED-WEBHOOK-SECRET]"},
+	// Chat credentials: Slack and Mattermost incoming webhook URLs, Slack and Matrix tokens.
+	{regexp.MustCompile(`(hooks\.slack\.com/(?:services|workflows|triggers)/)[^\s"'<>]+`), "${1}[REDACTED]"},
+	{regexp.MustCompile(`(/hooks/)[a-z0-9]{26}\b`), "${1}[REDACTED]"},
+	{regexp.MustCompile(`\bxox[abposr]-[A-Za-z0-9-]{10,}`), "[REDACTED-SLACK-TOKEN]"},
+	{regexp.MustCompile(`\bsyt_[A-Za-z0-9_]{16,}`), "[REDACTED-MATRIX-TOKEN]"},
 	// JWTs.
 	{regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b`), "[REDACTED-JWT]"},
 }

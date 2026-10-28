@@ -92,6 +92,43 @@ RFC 2047-encoded and every line is stripped of control characters, so scanner ou
 add headers. Mails carry `Auto-Submitted: auto-generated` (no auto-replies) and
 `X-ShieldMon-Delivery` (stable across retries).
 
+### `slack`, `mattermost`
+
+Incoming webhooks. Their URL is the credential, so it comes from an environment variable:
+
+```yaml
+- name: secops-slack
+  notifier: slack                  # or mattermost
+  digest: true
+  events: [finding_new_kev, finding_new_critical, sla_breached, health_opened]
+  options: { webhook_url_env: SHIELDMON_SLACK_WEBHOOK_URL }
+```
+
+Create the webhook for one channel (Slack: an app with *Incoming Webhooks*; Mattermost:
+*Integrations → Incoming Webhooks*, locked to its channel). The heading is ShieldMon's own
+text; package names, titles and targets go in a code block, where no formatting, link or
+mention applies (Slack's `<`, `>`, `&` are escaped too), so scanner output cannot ping
+`@channel`. A digest lists one line per event and says how many it leaves out beyond about
+12,000 characters.
+
+### `matrix`
+
+`m.notice` events in one room, through the client-server API:
+
+```yaml
+- name: secops-matrix
+  notifier: matrix
+  options:
+    homeserver: https://matrix.example.org
+    room: "!AbCdEfGhIjKlMnOp:example.org"   # the room ID (room settings → Advanced), not an alias
+    token_env: SHIELDMON_MATRIX_TOKEN       # access token of a bot account in the room
+```
+
+Messages carry an empty `m.mentions` (they mention nobody, whatever the text), an HTML body
+with everything escaped, and the delivery ID as transaction ID: a retry of the same events
+is deduplicated by the homeserver. Encrypted rooms are not supported; use a room without
+end-to-end encryption, restricted to the people who should see findings.
+
 ## Failures
 
 A channel that fails opens a `notify_failed` health finding (subject: the channel), the cycle

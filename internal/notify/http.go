@@ -52,9 +52,14 @@ func ParseURL(key, raw string) (*url.URL, error) {
 // host and status only: the URL path may be a credential (chat webhooks) and an answer may
 // echo the request.
 func Post(ctx context.Context, c *http.Client, u *url.URL, contentType string, body []byte, header http.Header) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(body))
+	return Request(ctx, c, http.MethodPost, u, contentType, body, header)
+}
+
+// Request is Post with another method.
+func Request(ctx context.Context, c *http.Client, method string, u *url.URL, contentType string, body []byte, header http.Header) error {
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("POST %s: invalid request", u.Host)
+		return fmt.Errorf("%s %s: invalid request", method, u.Host)
 	}
 	for k, v := range header {
 		req.Header[k] = v

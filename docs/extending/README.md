@@ -16,7 +16,7 @@ The core never imports an adapter; adapters never touch the lifecycle or storage
 | Scanner sandbox | `scanner.Sandbox` | `scanner.RegisterSandbox` | `scannertest.CheckSandbox` | none, bwrap, landlock | 🟡 M2, [ADR 0011](../adr/0011-scanner-sandbox.md) |
 | Registry provider | `oci.Provider` (keychain + listing) | `oci.RegisterProvider` | `ocitest.CheckProvider` | docker, ecr, google, gitlab | ✅ M3, [ADR 0013](../adr/0013-registry-providers.md) |
 | Enricher (EPSS, KEV, CVSS) | `Enricher` | planned | planned | (EPSS/KEV from grype output) | ⬜ M4 |
-| Notifier | `notify.Notifier` | `notify.RegisterNotifier` | `notifytest.CheckNotifier` | webhook, smtp | 🟡 M4, [ADR 0015](../adr/0015-notifications.md) |
+| Notifier | `notify.Notifier` | `notify.RegisterNotifier` | `notifytest.CheckNotifier` | webhook, smtp, slack, mattermost, matrix | 🟡 M4, [ADR 0015](../adr/0015-notifications.md) |
 | Chart source | `ChartSource` | planned | planned | — | ⬜ M7 |
 | Remediation advisor | `RemediationAdvisor` | planned | planned | fixed-in versions | ⬜ M7 |
 
