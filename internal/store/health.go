@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
+	"strings"
 	"time"
 )
 
@@ -49,7 +51,7 @@ func (s *Store) ListHealth(ctx context.Context, includeResolved bool) ([]HealthF
 	if !includeResolved {
 		q += ` WHERE state = 'open'`
 	}
-	rows, err := s.db.QueryContext(ctx, q+` ORDER BY state, last_seen_at DESC`)
+	rows, err := s.db.QueryContext(ctx, q+` ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +67,17 @@ func (s *Store) ListHealth(ctx context.Context, includeResolved bool) ([]HealthF
 		h.FirstSeen, h.LastSeen, h.ResolvedAt = parseTS(first), parseTS(last), parseNullTS(resolved)
 		out = append(out, h)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Open first, then most recently seen: sorted as times, not as text (#67).
+	slices.SortStableFunc(out, func(a, b HealthFinding) int {
+		if a.State != b.State {
+			return strings.Compare(a.State, b.State)
+		}
+		return b.LastSeen.Compare(a.LastSeen)
+	})
+	return out, nil
 }
 
 // MonitorRun is one execution of the monitoring cycle.

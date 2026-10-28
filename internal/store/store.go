@@ -135,6 +135,10 @@ func (s *Store) tx(ctx context.Context, fn func(*sql.Tx) error) error {
 
 // ---- time and JSON helpers ----
 
+// ts formats a time for storage. RFC3339Nano drops trailing zeros, so these strings do not
+// sort as text within a second ("…:00Z" > "…:00.5Z"): never compare them or ORDER BY them in
+// SQL; compare parsed times in Go (#67). Text comparison is only safe as a coarse prefilter
+// with a margin of a second.
 func ts(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
 
 func nullTS(t time.Time) any {
