@@ -86,6 +86,7 @@ matcher runs: SBOM-first is a property of the pipeline, not a separate mode.
 | `internal/scanner/scannertest` | conformance kit for scanner adapters | scanner, normalize |
 | `internal/normalize` | canonical PURL / vuln IDs, alias mapping, merge | packageurl-go |
 | `internal/lifecycle` | **pure** state machine + reconciliation planner | model |
+| `internal/vex` | **pure** OpenVEX / CycloneDX VEX parsing (bounded, fuzzed), OpenVEX export, statement matching | normalize, go-containerregistry |
 | `internal/store` | SQLite schema, migrations, transactional apply | lifecycle, model |
 | `internal/report` | monthly report from the audit trail; format registry (md/json/csv) | store, config |
 | `internal/redact` | credential redaction | — |

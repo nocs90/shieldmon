@@ -834,6 +834,31 @@
       "milestone": "M3 — Registries & inputs",
       "epic": "epic-f12",
       "body": "## Context\n\nCredentials come from one hard-wired keychain (docker config, then ECR, then Google) and nothing can list repositories or tags. Epic #2 asks for a `RegistryProvider` extension point mirrored on scanner plugins, a conformance kit, and docs.\n\n## Acceptance criteria\n\n- [ ] `oci.Provider` (keychain + bounded repository and tag listing) with `oci.RegisterProvider`; `shieldmon plugins` lists providers\n- [ ] Today's sources become built-in providers (`docker`, `ecr`, `google`) applied in the same order, so nothing changes for existing setups\n- [ ] `registries:` config binds hosts to providers with validated options; credentials only through environment variables, never literal values\n- [ ] Listing is bounded (pages, bytes, entries) and validates every name a registry returns\n- [ ] `ocitest.CheckProvider`: owned vs foreign hosts, limits, cancellation, 401/403 classified as auth failures, secrets absent from errors\n- [ ] ADR and docs/extending/registry-provider.md"
+    },
+    {
+      "key": "f5-import",
+      "title": "VEX import: OpenVEX and CycloneDX VEX statements as scoped not_affected decisions",
+      "labels": [
+        "kind/feature",
+        "area/vex",
+        "area/lifecycle",
+        "priority/high"
+      ],
+      "milestone": "M4 — Prioritization, VEX, notifications",
+      "epic": "epic-f5",
+      "body": "## Context\n\nDecisions are recorded per finding by hand. A VEX statement (from a vendor, or another team) says a vulnerability does not affect a product, and must keep applying to findings detected later.\n\n## Acceptance criteria\n\n- [ ] `shieldmon vex import FILE` parses OpenVEX and CycloneDX VEX (bounded, hostile input, fuzzed)\n- [ ] Statements are stored append-only, scoped by product (image digest or repository), optional package PURL (with or without version) and vulnerability (with aliases)\n- [ ] Imported statements need an author and a justification; past expiry is refused, a future one is honoured\n- [ ] They apply now to matching findings and, through the engine, to findings found later; statements for products not seen yet are kept and reported, not dropped\n- [ ] ADR"
+    },
+    {
+      "key": "f5-export",
+      "title": "VEX export: OpenVEX from statements and not_affected decisions, schema-validated",
+      "labels": [
+        "kind/feature",
+        "area/vex",
+        "priority/high"
+      ],
+      "milestone": "M4 — Prioritization, VEX, notifications",
+      "epic": "epic-f5",
+      "body": "## Context\n\nDownstream consumers and auditors need ShieldMon's not_affected decisions as standard VEX.\n\n## Acceptance criteria\n\n- [ ] `shieldmon vex export` emits OpenVEX 0.2.0 for the statements in force and the not_affected decisions taken by hand\n- [ ] Validated against the OpenVEX JSON schema in tests\n- [ ] Round trip import → export → import is lossless"
     }
   ]
 }

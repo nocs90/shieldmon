@@ -15,11 +15,13 @@ import (
 
 	"github.com/nocs90/shieldmon/internal/config"
 	"github.com/nocs90/shieldmon/internal/engine"
+	"github.com/nocs90/shieldmon/internal/lifecycle"
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/oci"
 	"github.com/nocs90/shieldmon/internal/report"
 	"github.com/nocs90/shieldmon/internal/scanner"
 	"github.com/nocs90/shieldmon/internal/store"
+	"github.com/nocs90/shieldmon/internal/vex"
 )
 
 // fakeFetcher resolves refs from a mutable tag table, like a registry whose
@@ -380,6 +382,114 @@ func TestContinuousMonitoringLifecycle(t *testing.T) {
 		if err := report.Render(&buf, rep, f); err != nil || buf.Len() == 0 {
 			t.Errorf("render %s: %v", f, err)
 		}
+	}
+
+	// Day 9: a vendor VEX statement for the whole repository; the next scan makes the open
+	// libcrypto3 finding not_affected, by the vendor, through a decision.
+	h.advance(24 * time.Hour)
+	_, err = h.store.AddVEXStatements(h.ctx, []vex.Statement{{
+		VulnID: "CVE-2024-6119", Repository: "registry.test/app", PURL: "pkg:apk/alpine/libcrypto3", AnyVersion: true,
+		Justification: "vulnerable_code_not_in_execute_path", Author: "Vendor PSIRT", Timestamp: h.clock,
+	}}, "tester", h.clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := h.scan(ref); r.NotAffectedByVEX != 1 {
+		t.Fatalf("the scan must apply the statement: %+v", r)
+	}
+	if f := h.finding("CVE-2024-6119", digestC); f.State != model.StateNotAffected {
+		t.Fatalf("state after the VEX statement = %s", f.State)
+	}
+}
+
+// TestVEXStatements covers docs/adr/0014-vex.md: statements are stored once, apply now and to
+// findings later scans detect, once per finding, and statements for images not scanned yet
+// are kept.
+func TestVEXStatements(t *testing.T) {
+	h := newHarness(t)
+	h.image(ref, digestA,
+		vuln("busybox", "1.36.0-r9", "CVE-2022-48174", model.SeverityCritical),
+		vuln("zlib", "1.2.13-r1", "CVE-2023-45853", model.SeverityCritical))
+	h.scan(ref)
+
+	stmts := []vex.Statement{
+		// Every build of the repository, any busybox version.
+		{
+			VulnID: "CVE-2022-48174", Repository: "registry.test/app", PURL: "pkg:apk/alpine/busybox", AnyVersion: true,
+			Justification: "vulnerable_code_not_in_execute_path", Author: "Vendor PSIRT", Timestamp: h.clock,
+		},
+		// A digest not scanned yet.
+		{
+			VulnID: "CVE-2024-9999", Digest: digestB, Repository: "registry.test/app",
+			Justification: "component_not_present", Author: "Vendor PSIRT", Timestamp: h.clock,
+		},
+		// Expired: never applies.
+		{
+			VulnID: "CVE-2023-45853", Digest: digestA, Repository: "registry.test/app", Justification: "component_not_present",
+			Author: "Vendor PSIRT", Timestamp: h.clock.Add(-48 * time.Hour), ExpiresAt: h.clock.Add(-time.Hour),
+		},
+	}
+	for _, c := range []struct {
+		label string
+		want  int
+	}{{"first import", 3}, {"same statements again", 0}} {
+		if n, err := h.store.AddVEXStatements(h.ctx, stmts, "importer", h.clock); err != nil || n != c.want {
+			t.Fatalf("%s: %d new, want %d (%v)", c.label, n, c.want, err)
+		}
+	}
+	applied, err := h.store.ApplyVEX(h.ctx, "", h.eng.Decisions, h.clock)
+	if err != nil || len(applied) != 1 {
+		t.Fatalf("applied = %+v, %v", applied, err)
+	}
+	if f := h.finding("CVE-2022-48174", digestA); f.State != model.StateNotAffected {
+		t.Fatalf("busybox = %s, want not_affected", f.State)
+	}
+	if f := h.finding("CVE-2023-45853", digestA); f.State != model.StateOpen {
+		t.Fatalf("an expired statement must not apply: zlib = %s", f.State)
+	}
+	ds, err := h.store.Decisions(h.ctx, h.finding("CVE-2022-48174", digestA).ID)
+	if err != nil || len(ds) != 1 || ds[0].Author != "Vendor PSIRT" || !strings.Contains(ds[0].Justification, "VEX statement #1") {
+		t.Fatalf("the decision must name its author and statement: %+v %v", ds, err)
+	}
+	if again, _ := h.store.ApplyVEX(h.ctx, "", h.eng.Decisions, h.clock); len(again) != 0 {
+		t.Errorf("a statement applies once per finding: %+v", again)
+	}
+	if unknown, _ := h.store.VEXUnknownProducts(h.ctx, h.clock); len(unknown) != 1 || unknown[0].Digest != digestB {
+		t.Errorf("the statement for digest B must be kept and reported: %+v", unknown)
+	}
+
+	// The next build brings CVE-2024-9999: the kept statement now applies, during the scan.
+	h.advance(24 * time.Hour)
+	h.image(ref, digestB,
+		vuln("busybox", "1.36.0-r9", "CVE-2022-48174", model.SeverityCritical),
+		vuln("openssl", "3.1.0-r0", "CVE-2024-9999", model.SeverityHigh),
+		vuln("curl", "8.4.0-r0", "CVE-2024-1111", model.SeverityMedium))
+	r := h.scan(ref)
+	if f := h.finding("CVE-2024-9999", digestB); f.State != model.StateNotAffected || r.NotAffectedByVEX < 1 {
+		t.Fatalf("a statement for a digest scanned later must apply in that scan: %s, %+v", f.State, r)
+	}
+	if unknown, _ := h.store.VEXUnknownProducts(h.ctx, h.clock); len(unknown) != 0 {
+		t.Errorf("no statement is pending once its digest is scanned: %+v", unknown)
+	}
+
+	// Only decisions taken by hand are exported as such: the busybox decision carried to
+	// digest B still comes from the statement.
+	if manual, err := h.store.ManualNotAffected(h.ctx, h.clock); err != nil || len(manual) != 0 {
+		t.Fatalf("no manual decision yet: %+v %v", manual, err)
+	}
+	curl := h.finding("CVE-2024-1111", digestB)
+	if _, err := h.store.ApplyDecision(h.ctx, curl.ID, lifecycle.Decision{
+		State: model.StateNotAffected, Justification: "component_not_present: curl is not on any code path", Author: "alice",
+	}, h.eng.Decisions, h.clock); err != nil {
+		t.Fatal(err)
+	}
+	manual, err := h.store.ManualNotAffected(h.ctx, h.clock)
+	if err != nil || len(manual) != 1 {
+		t.Fatalf("manual decisions = %+v %v", manual, err)
+	}
+	if m := manual[0]; m.Digest != digestB || m.PURL != curl.PURL || m.Justification != "component_not_present" ||
+		m.Impact != "curl is not on any code path" || m.Author != "alice" {
+		t.Errorf("manual decision as a statement = %+v", m)
 	}
 }
 

@@ -28,7 +28,7 @@ func TestInitAndEmptyQueries(t *testing.T) {
 	common := []string{"--config", cfg, "--data-dir", filepath.Join(dir, "data")}
 
 	out, errOut, code := run(t, append([]string{"init"}, common...)...)
-	if code != 0 || !strings.Contains(out, "schema v2") {
+	if code != 0 || !strings.Contains(out, "schema v3") {
 		t.Fatalf("init: code=%d out=%s err=%s", code, out, errOut)
 	}
 	// The written template must load cleanly.
@@ -251,5 +251,58 @@ func TestTargetsAddRepo(t *testing.T) {
 	}
 	if _, errOut, code := run(t, append([]string{"targets", "add-repo", registry + "/team/app0", "--tag-regex", "^nothing$"}, common...)...); code == 0 || !strings.Contains(errOut, "no tags") {
 		t.Errorf("no matching tag must be an error: code=%d err=%s", code, errOut)
+	}
+}
+
+func TestVEXImportExportRoundTrip(t *testing.T) {
+	newDir := func() []string {
+		dir := t.TempDir()
+		common := []string{"--config", filepath.Join(dir, "config.yaml"), "--data-dir", filepath.Join(dir, "data")}
+		if _, errOut, code := run(t, append([]string{"init", "--sandbox", "none"}, common...)...); code != 0 {
+			t.Fatal(errOut)
+		}
+		return common
+	}
+	vendor := filepath.Join("..", "vex", "testdata", "openvex-vendor.json")
+
+	first := newDir()
+	out, errOut, code := run(t, append([]string{"vex", "import", vendor, "--by", "tester", "--dry-run"}, first...)...)
+	if code != 0 || !strings.Contains(out, "3 statement(s) would be recorded, 4 skipped") || !strings.Contains(out, "skipped CVE-2024-0002: status affected") {
+		t.Fatalf("dry run: code=%d out=%s err=%s", code, out, errOut)
+	}
+	out, errOut, code = run(t, append([]string{"vex", "import", vendor, "--by", "tester"}, first...)...)
+	if code != 0 || !strings.Contains(out, "3 new") || strings.Count(out, "kept, not scanned yet:") != 3 {
+		t.Fatalf("import: code=%d out=%s err=%s", code, out, errOut)
+	}
+	export := func(common []string) []byte {
+		t.Helper()
+		out, errOut, code := run(t, append([]string{"vex", "export", "--author", "Platform Security"}, common...)...)
+		if code != 0 {
+			t.Fatalf("export: %s", errOut)
+		}
+		var doc struct {
+			Statements json.RawMessage `json:"statements"`
+		}
+		if err := json.Unmarshal([]byte(out), &doc); err != nil {
+			t.Fatalf("export is not JSON: %v\n%s", err, out)
+		}
+		return doc.Statements
+	}
+	exported := export(first)
+	file := filepath.Join(t.TempDir(), "export.openvex.json")
+	full, _, _ := run(t, append([]string{"vex", "export", "--author", "Platform Security"}, first...)...)
+	if err := os.WriteFile(file, []byte(full), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	second := newDir()
+	if out, errOut, code := run(t, append([]string{"vex", "import", file, "--by", "tester"}, second...)...); code != 0 || !strings.Contains(out, "3 new, 0 skipped") {
+		t.Fatalf("re-import: code=%d out=%s err=%s", code, out, errOut)
+	}
+	if again := export(second); !bytes.Equal(again, exported) {
+		t.Errorf("import → export → import → export changed the statements:\n%s\n%s", exported, again)
+	}
+	if out, _, _ := run(t, append([]string{"vex", "import", file, "--by", "tester"}, second...)...); !strings.Contains(out, "0 new") {
+		t.Errorf("importing the same document twice must record nothing new:\n%s", out)
 	}
 }

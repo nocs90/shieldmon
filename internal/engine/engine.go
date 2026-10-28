@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nocs90/shieldmon/internal/lifecycle"
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/normalize"
 	"github.com/nocs90/shieldmon/internal/oci"
@@ -72,6 +73,8 @@ type Engine struct {
 	DBMaxAge time.Duration
 	// MonitorInterval is the expected cadence of Monitor (0 disables the check).
 	MonitorInterval time.Duration
+	// Decisions is the policy VEX statements are applied under, like manual decisions.
+	Decisions lifecycle.Policy
 	// Sandboxed is true when scanners run confined (scanner.Confined). While it is false,
 	// Preflight keeps a scanner_unsandboxed health finding open.
 	Sandboxed bool
@@ -111,7 +114,9 @@ type Result struct {
 	Created      int // new problems (no predecessor)
 	Carried      int // continued from a predecessor digest
 	Transitions  map[model.State]int
-	Errors       []string
+	// NotAffectedByVEX counts findings a VEX statement made not_affected after this scan.
+	NotAffectedByVEX int
+	Errors           []string
 }
 
 func (e *Engine) health(ctx context.Context, check, subject, severity string, err error) {
@@ -450,6 +455,14 @@ func (e *Engine) match(ctx context.Context, digest string, targetID int64, kind 
 		res.Transitions = map[model.State]int{}
 		for _, t := range plan.Transitions {
 			res.Transitions[t.To]++
+		}
+		// VEX statements in force cover findings this scan created (docs/adr/0014-vex.md).
+		// A failure here leaves the reconciled scan as it is and is reported.
+		applied, err := e.Store.ApplyVEX(ctx, digest, e.Decisions, e.now())
+		res.NotAffectedByVEX = len(applied)
+		if err != nil {
+			e.log().Warn("applying VEX statements", "digest", digest, "err", redact.Error(err))
+			res.Errors = append(res.Errors, "vex: "+redact.Error(err))
 		}
 	}
 	errMsg := strings.Join(res.Errors, "; ")
