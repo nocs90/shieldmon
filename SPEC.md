@@ -28,7 +28,7 @@ These are not features; violating one is a bug.
 
 | ID | Requirement | Status |
 |---|---|---|
-| F1 | Input: image ref (tag or digest). Always resolve to digest; multi-arch indexes resolve to the configured platform. | ✅ refs · ⬜ image lists, registry repositories, Helm charts |
+| F1 | Input: image ref (tag or digest). Always resolve to digest; multi-arch indexes resolve to the configured platform. | ✅ refs, image list files, registry repositories and paths with tag filters and latest-N (`targets add`, `targets add-repo`) · ⬜ Helm charts |
 | F2 | Pluggable scanner adapters (Grype, Trivy) behind one interface and a plugin registry with a conformance kit; normalize; dedupe across scanners and aliases (CVE/GHSA/distro); record scanner name, version, DB version and DB age on every scan. | ✅ |
 | F3 | SBOM-first: generate once per digest (CycloneDX + SPDX), store, re-match on schedule without re-pulling. | ✅ (syft: CycloneDX + SPDX; trivy: CycloneDX) |
 | F4 | Storage: SQLite (CLI/single node) and PostgreSQL (server), same schema, versioned migrations, append-only history. | ✅ SQLite · ⬜ PostgreSQL |

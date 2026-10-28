@@ -108,6 +108,7 @@ func printResults(w io.Writer, results []engine.Result, format string) error {
 
 func (a *app) targetsCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "targets", Short: "Manage monitoring targets"}
+	cmd.AddCommand(a.targetsAddCmd(), a.targetsAddRepoCmd())
 	cmd.AddCommand(&cobra.Command{
 		Use:   "list",
 		Short: "List monitoring targets",

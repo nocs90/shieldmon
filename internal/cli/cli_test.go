@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/nocs90/shieldmon/internal/oci/ocitest"
 )
 
 func run(t *testing.T, args ...string) (string, string, int) {
@@ -170,5 +173,83 @@ func TestInitSandboxBackend(t *testing.T) {
 
 	if _, errOut, code := run(t, append([]string{"init", "--force", "--sandbox", "chroot"}, common...)...); code == 0 || !strings.Contains(errOut, "unknown backend") {
 		t.Errorf("an unknown backend must be refused: code=%d err=%s", code, errOut)
+	}
+}
+
+func TestTargetsAdd(t *testing.T) {
+	dir := t.TempDir()
+	common := []string{"--config", filepath.Join(dir, "config.yaml"), "--data-dir", filepath.Join(dir, "data")}
+	if _, errOut, code := run(t, append([]string{"init", "--sandbox", "none"}, common...)...); code != 0 {
+		t.Fatal(errOut)
+	}
+	file := filepath.Join(dir, "images.txt")
+	if err := os.WriteFile(file, []byte("# production images\n\nalpine:3.20\nghcr.io/org/app:1.4\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, errOut, code := run(t, append([]string{"targets", "add", "-f", file, "alpine:3.20", "--dry-run"}, common...)...)
+	if code != 0 || !strings.Contains(out, "would add 2 target(s)") {
+		t.Fatalf("dry run: code=%d out=%s err=%s", code, out, errOut)
+	}
+	if out, _, _ := run(t, append([]string{"targets", "list"}, common...)...); strings.Contains(out, "alpine") {
+		t.Fatal("a dry run must add nothing")
+	}
+	if out, errOut, code := run(t, append([]string{"targets", "add", "-f", file}, common...)...); code != 0 || !strings.Contains(out, "added 2 target(s)") {
+		t.Fatalf("add: code=%d out=%s err=%s", code, out, errOut)
+	}
+	// The stored form is what monitor registers, so the same image is one target.
+	out, _, _ = run(t, append([]string{"targets", "list"}, common...)...)
+	if !strings.Contains(out, "index.docker.io/library/alpine:3.20") {
+		t.Errorf("targets are stored normalized:\n%s", out)
+	}
+	if out, _, _ := run(t, append([]string{"targets", "add", "docker.io/library/alpine:3.20"}, common...)...); !strings.Contains(out, "added 0 target(s), 1 already monitored") {
+		t.Errorf("the same image under another spelling is already a target:\n%s", out)
+	}
+
+	if err := os.WriteFile(file, []byte("alpine:3.20\n-bad ref\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, code := run(t, append([]string{"targets", "add", "-f", file}, common...)...); code == 0 || !strings.Contains(errOut, "images.txt:2:") {
+		t.Errorf("a malformed line must be refused with its line number: code=%d err=%s", code, errOut)
+	}
+}
+
+func TestTargetsAddRepo(t *testing.T) {
+	reg := ocitest.FakeRegistry(t, "robot", "registry-password", 3, 6)
+	registry := strings.TrimPrefix(reg.URL, "http://")
+	cfgDir := t.TempDir()
+	auth := base64.StdEncoding.EncodeToString([]byte("robot:registry-password"))
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(`{"auths":{"`+registry+`":{"auth":"`+auth+`"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DOCKER_CONFIG", cfgDir)
+
+	dir := t.TempDir()
+	common := []string{"--config", filepath.Join(dir, "config.yaml"), "--data-dir", filepath.Join(dir, "data")}
+	if _, errOut, code := run(t, append([]string{"init", "--sandbox", "none"}, common...)...); code != 0 {
+		t.Fatal(errOut)
+	}
+	for _, c := range []struct {
+		args []string
+		want []string
+	}{
+		{[]string{registry + "/team/app0", "--latest", "2"}, []string{"team/app0:1.5.0", "team/app0:1.4.0"}},
+		{[]string{registry + "/team/app0", "--tag-regex", `^1\.[0-1]\.`}, []string{"team/app0:1.1.0", "team/app0:1.0.0"}},
+		{[]string{registry + "/team", "--under", "--latest", "1"}, []string{"team/app0:1.5.0", "team/app1:1.5.0", "team/app2:1.5.0"}},
+	} {
+		out, errOut, code := run(t, append(append([]string{"targets", "add-repo", "--dry-run"}, c.args...), common...)...)
+		if code != 0 {
+			t.Fatalf("%v: code=%d err=%s", c.args, code, errOut)
+		}
+		if n := strings.Count(out, "would add "+registry); n != len(c.want) {
+			t.Errorf("%v: %d targets, want %d:\n%s", c.args, n, len(c.want), out)
+		}
+		for _, w := range c.want {
+			if !strings.Contains(out, registry+"/"+w) {
+				t.Errorf("%v: missing %s:\n%s", c.args, w, out)
+			}
+		}
+	}
+	if _, errOut, code := run(t, append([]string{"targets", "add-repo", registry + "/team/app0", "--tag-regex", "^nothing$"}, common...)...); code == 0 || !strings.Contains(errOut, "no tags") {
+		t.Errorf("no matching tag must be an error: code=%d err=%s", code, errOut)
 	}
 }

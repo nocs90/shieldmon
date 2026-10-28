@@ -4,6 +4,11 @@
 runs it every `health.monitor_interval` (default 24h). `shieldmon scan REF` runs the same
 per-target steps for one reference and registers it as a target.
 
+Targets can also be registered without scanning, for the next cycle to pick up:
+`shieldmon targets add REF… | -f FILE` and `shieldmon targets add-repo REPO [--under]
+[--tag-regex RE] [--latest N]`, which lists tags (newest first) and repositories through the
+registry's provider (registries.md). Both take `--dry-run`.
+
 ## Steps
 
 | # | Step | Code | Evidence recorded | On failure |
