@@ -3,6 +3,7 @@ package engine_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -152,8 +153,15 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
+	return newHarnessAt(t, ":memory:")
+}
+
+// newHarnessAt is newHarness with the database at path (a file, for tests that open it
+// again, as an attacker with the file would).
+func newHarnessAt(t *testing.T, path string) *harness {
+	t.Helper()
 	ctx := context.Background()
-	st, err := store.Open(ctx, ":memory:")
+	st, err := store.Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1094,5 +1102,67 @@ func TestInventoryChanges(t *testing.T) {
 	if err := report.Render(&md, rep, "md"); err != nil || !strings.Contains(md.String(), "## Inventory changes (2026-10-01 to 2026-10-31)") ||
 		!strings.Contains(md.String(), "decommissioned in CHG-9") {
 		t.Errorf("markdown section: %v\n%s", err, md.String())
+	}
+}
+
+// TestAuditChainIsVerifiedByMonitor covers docs/adr/0018-audit-chain.md: monitor verifies
+// the chain on schedule; a decision edited behind ShieldMon's back opens audit_chain_broken;
+// an exported digest survives normal operation.
+func TestAuditChainIsVerifiedByMonitor(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "shieldmon.db")
+	h := newHarnessAt(t, path)
+	h.eng.AuditVerifyInterval = 24 * time.Hour
+	h.image(ref, digestA, vuln("zlib", "1.2.13-r0", "CVE-2023-45853", model.SeverityCritical))
+	h.scan(ref)
+	f := h.finding("CVE-2023-45853", digestA)
+	if _, err := h.store.ApplyDecision(h.ctx, f.ID, lifecycleDecision(h.clock.AddDate(0, 0, 10)), lifecycle.Policy{}, h.clock); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.store.SealAudit(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	exported, err := h.store.AuditHead(h.ctx)
+	if err != nil || exported.Seq == 0 {
+		t.Fatal(exported, err)
+	}
+	if _, err := h.eng.Monitor(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if hf := h.health(engine.CheckAuditChain, "database"); hf != nil && hf.State == "open" {
+		t.Fatalf("an untouched trail verifies: %+v", hf)
+	}
+
+	// Someone with the database file rewrites the justification.
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(10000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, q := range []string{
+		`DROP TRIGGER decisions_no_update`,
+		`UPDATE decisions SET justification = 'accepted long ago, nothing to see here'`,
+	} {
+		if _, err := db.ExecContext(h.ctx, q); err != nil {
+			t.Fatal(q, err)
+		}
+	}
+	h.advance(time.Hour) // within the interval: not verified again yet
+	if _, err := h.eng.Monitor(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if hf := h.health(engine.CheckAuditChain, "database"); hf != nil && hf.State == "open" {
+		t.Fatal("verification follows audit_verify_interval")
+	}
+	h.advance(24 * time.Hour)
+	if _, err := h.eng.Monitor(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	hf := h.health(engine.CheckAuditChain, "database")
+	if hf == nil || hf.State != "open" || hf.Severity != "critical" || !strings.Contains(hf.Detail, "row_changed") {
+		t.Fatalf("tampering opens audit_chain_broken: %+v", hf)
+	}
+	r, err := h.eng.VerifyAudit(h.ctx, []store.AuditDigest{exported})
+	if err != nil || r.OK() || r.Digests != 1 {
+		t.Fatalf("verify: %+v %v", r, err)
 	}
 }

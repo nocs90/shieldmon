@@ -23,6 +23,8 @@ type Source interface {
 	LatestDecisions(ctx context.Context) (map[int64]store.Decision, error)
 	// LoadScope says when findings were out of scope because their images were retired.
 	LoadScope(ctx context.Context) (store.Scope, error)
+	// AuditHead is the audit chain head the report is anchored to (ADR 0018).
+	AuditHead(ctx context.Context) (store.AuditDigest, error)
 	ChangesSource
 }
 
@@ -131,6 +133,9 @@ type Monthly struct {
 	TargetSummaries  []TargetSummary       `json:"target_summaries"`
 	// InventoryChanges are the images added, rebuilt, retired and restored in the period.
 	InventoryChanges Changes `json:"inventory_changes"`
+	// AuditDigest is the head of the audit chain when the report was generated: every
+	// distributed report anchors the audit trail ('shieldmon audit verify --digest').
+	AuditDigest store.AuditDigest `json:"audit_digest"`
 }
 
 // AgingBuckets are the age buckets for open findings, in days.
@@ -299,7 +304,10 @@ func BuildMonthly(ctx context.Context, src Source, p Period, profile string, sla
 		return r, err
 	}
 	r.HealthOpen = health
-	r.InventoryChanges, err = BuildChanges(ctx, src, p)
+	if r.InventoryChanges, err = BuildChanges(ctx, src, p); err != nil {
+		return r, err
+	}
+	r.AuditDigest, err = src.AuditHead(ctx)
 	return r, err
 }
 

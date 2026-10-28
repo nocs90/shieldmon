@@ -198,7 +198,7 @@ footer{margin-top:28px;color:var(--muted);font-size:12px}
   </table></div>{{end}}{{end}}
 </section>
 
-<footer>Generated {{stamp .GeneratedAt}} by ShieldMon from the append-only audit trail. Findings are closed only by scan evidence; figures can be regenerated for any past period.</footer>
+<footer>Generated {{stamp .GeneratedAt}} by ShieldMon from the append-only audit trail. Findings are closed only by scan evidence; figures can be regenerated for any past period.{{with .AuditDigest}}{{if .Seq}} Audit trail anchor: entry {{.Seq}}, <span class="mono">{{.Hash}}</span>.{{end}}{{end}}</footer>
 </main>
 </body>
 </html>

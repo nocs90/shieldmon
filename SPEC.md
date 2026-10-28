@@ -20,7 +20,7 @@ These are not features; violating one is a bug.
 | I2 | A finding's key is **(digest, canonical PURL, canonical vulnerability ID)**. | `findings` UNIQUE constraint |
 | I3 | SBOMs are generated **once per (digest, generator)** and re-matched afterwards without pulling the image. | `engine.ensureSBOMs` |
 | I4 | A finding is closed **only by scan evidence** (absence in a *complete* scan) or by a **decision** with justification, author and (for risk acceptance) expiry. No click-to-close. | `lifecycle`, `store.Transition` |
-| I5 | Scan history and state changes are **append-only**. | SQLite triggers |
+| I5 | Scan history and state changes are **append-only**, and **tamper-evident**: hash-chained, verified on schedule, anchored by exported digests. | SQLite triggers, `audit_chain` (ADR 0018) |
 | I6 | Failures of the monitoring process itself are **findings** (self-health). | `health_findings` |
 | I7 | Image content, SBOMs, scanner output and registry responses are **hostile input**. | see [THREAT_MODEL.md](THREAT_MODEL.md) |
 

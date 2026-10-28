@@ -43,6 +43,7 @@ const (
 	CheckSandboxDegraded = "scanner_sandbox_degraded"
 	CheckDBUpdate        = "db_update_failed"
 	CheckNotify          = "notify_failed"
+	CheckAuditChain      = "audit_chain_broken"
 	maxSBOMBytes         = 256 << 20
 	monitorMissedFactor  = 1.5
 )
@@ -88,8 +89,11 @@ type Engine struct {
 	Channels []notify.Channel
 	// DueSoon is how long before its remediation deadline a finding is due soon.
 	DueSoon time.Duration
-	Now     func() time.Time
-	Log     *slog.Logger
+	// AuditVerifyInterval is how often monitor verifies the audit chain (0 disables;
+	// docs/adr/0018-audit-chain.md).
+	AuditVerifyInterval time.Duration
+	Now                 func() time.Time
+	Log                 *slog.Logger
 }
 
 func (e *Engine) now() time.Time {
@@ -618,6 +622,11 @@ func (e *Engine) Monitor(ctx context.Context) (MonitorSummary, error) {
 	case errCount > 0:
 		sum.Status = "degraded"
 	}
+	if e.AuditVerifyInterval > 0 && ctx.Err() == nil {
+		if err := e.verifyAuditIfDue(ctx); err != nil {
+			return sum, err
+		}
+	}
 	if len(e.Channels) > 0 && ctx.Err() == nil {
 		// Findings created since the previous cycle began are new (none before the first).
 		sum.Notified, sum.NotifyFailures, err = e.Notify(ctx, last.StartedAt)
@@ -720,6 +729,41 @@ func (e *Engine) notifyInput(ctx context.Context, since, now time.Time) (notify.
 	in, err := e.Store.NotifyInput(ctx, e.Decisions, since, now)
 	in.Now, in.Since, in.DueSoon = now, since, e.DueSoon
 	return in, err
+}
+
+// verifyAuditIfDue verifies the audit chain when the last verification is older than
+// AuditVerifyInterval: a chain nobody verifies proves nothing (ADR 0018).
+func (e *Engine) verifyAuditIfDue(ctx context.Context) error {
+	last, err := e.Store.LastAuditVerification(ctx)
+	if err != nil {
+		return err
+	}
+	if !last.IsZero() && e.now().Sub(last) < e.AuditVerifyInterval {
+		return nil
+	}
+	_, err = e.VerifyAudit(ctx, nil)
+	return err
+}
+
+// VerifyAudit verifies the audit chain against itself and the given digests, records the
+// verification, and keeps the audit_chain_broken health finding in step with the result.
+func (e *Engine) VerifyAudit(ctx context.Context, digests []store.AuditDigest) (store.AuditReport, error) {
+	r, err := e.Store.VerifyAudit(ctx, digests)
+	if err != nil {
+		return r, err
+	}
+	if err := e.Store.RecordAuditVerification(ctx, r, e.now()); err != nil {
+		return r, err
+	}
+	if r.OK() {
+		e.healthy(ctx, CheckAuditChain, "database")
+		return r, nil
+	}
+	first := r.Problems[0]
+	e.health(ctx, CheckAuditChain, "database", "critical", fmt.Errorf(
+		"%d problem(s) in the audit trail, first: %s at entry %d (%s %s); run 'shieldmon audit verify'",
+		r.Count, first.Kind, first.Seq, first.Table, first.Key))
+	return r, nil
 }
 
 // ErrRetiredTarget is returned when scanning a retired target: restore it first.

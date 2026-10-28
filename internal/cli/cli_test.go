@@ -30,7 +30,7 @@ func TestInitAndEmptyQueries(t *testing.T) {
 	common := []string{"--config", cfg, "--data-dir", filepath.Join(dir, "data")}
 
 	out, errOut, code := run(t, append([]string{"init"}, common...)...)
-	if code != 0 || !strings.Contains(out, "schema v5") {
+	if code != 0 || !strings.Contains(out, "schema v6") {
 		t.Fatalf("init: code=%d out=%s err=%s", code, out, errOut)
 	}
 	// The written template must load cleanly.
@@ -409,5 +409,33 @@ func TestTargetsRetireAndRestore(t *testing.T) {
 	}
 	if out, _, _ := run(t, append([]string{"targets", "list"}, common...)...); !strings.Contains(out, "monitored") {
 		t.Errorf("restored:\n%s", out)
+	}
+}
+
+func TestAuditDigestAndVerify(t *testing.T) {
+	dir := t.TempDir()
+	common := []string{"--config", filepath.Join(dir, "config.yaml"), "--data-dir", filepath.Join(dir, "data")}
+	if _, errOut, code := run(t, append([]string{"init", "--sandbox", "none"}, common...)...); code != 0 {
+		t.Fatal(errOut)
+	}
+	if _, errOut, code := run(t, append([]string{"targets", "add", "alpine:3.20"}, common...)...); code != 0 {
+		t.Fatal(errOut)
+	}
+	if _, errOut, code := run(t, append([]string{"targets", "retire", "1", "--by", "ops", "--reason", "decommissioned in CHG-1"}, common...)...); code != 0 {
+		t.Fatal(errOut)
+	}
+	digest := filepath.Join(dir, "digest.json")
+	if _, errOut, code := run(t, append([]string{"audit", "digest", "-o", digest}, common...)...); code != 0 {
+		t.Fatal(errOut)
+	}
+	out, errOut, code := run(t, append([]string{"audit", "verify", "--digest", digest}, common...)...)
+	if code != 0 || !strings.Contains(out, "digests checked: 1") || !strings.HasSuffix(out, "OK\n") {
+		t.Fatalf("verify: code=%d out=%s err=%s", code, out, errOut)
+	}
+	if err := os.WriteFile(digest, []byte(`{"format":"other","seq":1,"hash":"00"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, code := run(t, append([]string{"audit", "verify", "--digest", digest}, common...)...); code == 0 || !strings.Contains(errOut, "not a shieldmon-audit-digest/v1 document") {
+		t.Errorf("a malformed digest is refused: %s", errOut)
 	}
 }

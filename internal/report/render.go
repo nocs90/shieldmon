@@ -231,6 +231,9 @@ func renderMarkdown(w io.Writer, r Monthly) error {
 	}
 	b.WriteString("\n")
 	writeChangesMarkdown(b, r.InventoryChanges)
+	if d := r.AuditDigest; d.Seq > 0 {
+		fmt.Fprintf(b, "---\n\nAudit trail anchor: entry %d, `%s` (save it: `shieldmon audit verify --digest` proves the trail was not rewritten since).\n", d.Seq, d.Hash)
+	}
 	_, err := io.WriteString(w, b.String())
 	return err
 }

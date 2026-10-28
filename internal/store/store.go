@@ -31,6 +31,9 @@ var ErrNotFound = errors.New("not found")
 // Store is a handle to the ShieldMon database.
 type Store struct {
 	db *sql.DB
+	// sealing is on once migrations are applied: every write transaction then chains the
+	// audit rows it adds (docs/adr/0018-audit-chain.md).
+	sealing bool
 }
 
 // Open opens (creating if needed) the SQLite database at path and applies
@@ -57,6 +60,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	s.sealing = true
 	return s, nil
 }
 
@@ -118,6 +122,13 @@ func (s *Store) tx(ctx context.Context, fn func(*sql.Tx) error) error {
 	if err := fn(tx); err != nil {
 		tx.Rollback()
 		return err
+	}
+	// The audit rows this transaction wrote are chained before it commits.
+	if s.sealing {
+		if err := sealTx(ctx, tx, time.Now()); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("audit chain: %w", err)
+		}
 	}
 	return tx.Commit()
 }
@@ -378,9 +389,14 @@ func (s *Store) FinishScan(ctx context.Context, id int64, status string, tools [
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE scans SET status = ?, tools = ?, error = ?, finished_at = ? WHERE id = ?`,
-		status, string(tj), nullString(errMsg), ts(now), id)
-	return err
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `UPDATE scans SET status = ?, tools = ?, error = ?, finished_at = ? WHERE id = ?`,
+			status, string(tj), nullString(errMsg), ts(now), id); err != nil {
+			return err
+		}
+		// Sealed as it finishes: a newer scan may already have moved the high-water mark.
+		return sealRowTx(ctx, tx, "scans", id, now)
+	})
 }
 
 // LatestScan returns the most recent finished scan of a digest.

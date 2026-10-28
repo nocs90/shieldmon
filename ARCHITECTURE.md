@@ -89,7 +89,7 @@ matcher runs: SBOM-first is a property of the pipeline, not a separate mode.
 | `internal/vex` | **pure** OpenVEX / CycloneDX VEX parsing (bounded, fuzzed), OpenVEX export, statement matching | normalize, go-containerregistry |
 | `internal/sbom` | **pure** reading of components back from stored CycloneDX SBOMs (bounded, fuzzed) | — |
 | `internal/notify` | notifier registry, **pure** event computation from monitoring state, dispatch (digest, bounds), hardened HTTP helpers; `notifytest` conformance kit | redact |
-| `internal/store` | SQLite schema, migrations, transactional apply | lifecycle, model |
+| `internal/store` | SQLite schema, migrations, transactional apply; audit chain sealed in every write transaction and its verification | lifecycle, model |
 | `internal/report` | monthly report from the audit trail; format registry (md/json/csv) | store, config |
 | `internal/redact` | credential redaction | — |
 | `internal/config` | YAML config, SLA profiles | model |
