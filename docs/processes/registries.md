@@ -12,8 +12,23 @@ scanners. Public images on any registry need no configuration.
 | GitHub `ghcr.io`, Quay `quay.io`, Microsoft `mcr.microsoft.com`, Red Hat `registry.access.redhat.com` | ✅ anonymous | `docker login` |
 | Azure ACR, GitLab, Harbor, Zot, self-hosted | ✅ anonymous if public | `docker login` or a docker credential helper |
 
-Resolution order (first match wins): docker config and credential helpers → ECR → Google
-→ anonymous. A registry that answers 401/403 opens a `registry_auth` health finding.
+Resolution order (first match wins): `registries:` rules, in file order → docker config and
+credential helpers → ECR → Google → anonymous. A registry that answers 401/403 opens a
+`registry_auth` health finding. `shieldmon plugins` lists the providers
+([ADR 0013](../adr/0013-registry-providers.md)).
+
+## Configuring providers
+
+```yaml
+registries:
+  - hosts: [registry.gitlab.example.com]       # exact host[:port], or *.suffix
+    provider: gitlab
+    options: { api_url: https://gitlab.example.com, token_env: CI_JOB_TOKEN }
+```
+
+Options are validated at startup: unknown keys are refused, and so is any value that looks
+like a credential. Credentials come only from environment variables named by `*_env`
+options, so that no secret ever sits in the config file.
 
 ## Recommended practice
 

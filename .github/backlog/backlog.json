@@ -821,6 +821,19 @@
       "milestone": "M2 — Hardening & packaging",
       "epic": "epic-s1",
       "body": "## Context\n\nThe scratch quota is enforced by the Runner's watch, which can overshoot by 100 ms of writing (ADR 0011, #47). A kernel-enforced total needs a size-limited filesystem, which only the deployment can create. Mounted `noexec,nosuid,nodev` at `<data_dir>/tmp`, it also gives W^X to every scanner output at mount level, including under `bwrap` on kernels without Landlock (#53).\n\n## Acceptance criteria\n\n- [ ] Examples for a host (loop image or LV, mount unit) and Kubernetes (generic ephemeral volume) in `deploy/scratch`\n- [ ] `shieldmon doctor` reports whether `<data_dir>/tmp` is a dedicated filesystem, its size against `limits.max_scratch_bytes`, and missing `noexec`/`nosuid`/`nodev`; warnings, not failures\n- [ ] Not required: without it, the watch and the free-disk floor stay the default protection"
+    },
+    {
+      "key": "f12-provider",
+      "title": "RegistryProvider extension point: interface, registry, conformance kit, built-in providers",
+      "labels": [
+        "kind/feature",
+        "area/registry",
+        "security",
+        "priority/high"
+      ],
+      "milestone": "M3 — Registries & inputs",
+      "epic": "epic-f12",
+      "body": "## Context\n\nCredentials come from one hard-wired keychain (docker config, then ECR, then Google) and nothing can list repositories or tags. Epic #2 asks for a `RegistryProvider` extension point mirrored on scanner plugins, a conformance kit, and docs.\n\n## Acceptance criteria\n\n- [ ] `oci.Provider` (keychain + bounded repository and tag listing) with `oci.RegisterProvider`; `shieldmon plugins` lists providers\n- [ ] Today's sources become built-in providers (`docker`, `ecr`, `google`) applied in the same order, so nothing changes for existing setups\n- [ ] `registries:` config binds hosts to providers with validated options; credentials only through environment variables, never literal values\n- [ ] Listing is bounded (pages, bytes, entries) and validates every name a registry returns\n- [ ] `ocitest.CheckProvider`: owned vs foreign hosts, limits, cancellation, 401/403 classified as auth failures, secrets absent from errors\n- [ ] ADR and docs/extending/registry-provider.md"
     }
   ]
 }

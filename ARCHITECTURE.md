@@ -81,7 +81,7 @@ matcher runs: SBOM-first is a property of the pipeline, not a separate mode.
 | `cmd/shieldmon` | entry point, signals | `cli` |
 | `internal/cli` | cobra commands, output formatting | everything below |
 | `internal/engine` | orchestration, health findings, data-dir lock | oci, scanner, normalize, store |
-| `internal/oci` | ref parsing, digest resolution, bounded fetch to OCI layout | go-containerregistry |
+| `internal/oci` | ref parsing, digest resolution, bounded fetch to OCI layout; registry providers (credentials, bounded listing) | go-containerregistry, AWS SDK |
 | `internal/scanner` | plugin registry, hardened process runner, syft/grype/trivy adapters, parsers | redact |
 | `internal/scanner/scannertest` | conformance kit for scanner adapters | scanner, normalize |
 | `internal/normalize` | canonical PURL / vuln IDs, alias mapping, merge | packageurl-go |

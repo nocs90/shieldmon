@@ -39,7 +39,7 @@ These are not features; violating one is a bug.
 | F9 | Notifications: pluggable (SMTP, webhook, Matrix, Mattermost, Slack, GitLab/GitHub issues), deduplicated, digest mode. | ⬜ |
 | F10 | Self-health as findings: scanner failures, stale DBs, missed schedules, auth failures, checksum mismatches. | ✅ |
 | F11 | Helm: ingest charts (HTTP, OCI, Artifact Hub), render, extract every image, flag operator-managed images, track neglected charts, upstream-contribution queue (human-approved). | ⬜ (OCI Helm charts are already *rejected* safely as non-images) |
-| F12 | Registries: AWS ECR (cross-account, multi-region, all AWS partitions, ECR Public), GitLab.com + self-managed, generic OCI. Short-lived credentials only. No Docker daemon. | ✅ any OCI registry, no daemon; native ECR (any AWS partition, cross-account via roles) and GCR/Artifact Registry credentials; docker config/credential helpers for the rest · ⬜ repository listing, GitLab provider |
+| F12 | Registries: AWS ECR (cross-account, multi-region, all AWS partitions, ECR Public), GitLab.com + self-managed, generic OCI. Short-lived credentials only. No Docker daemon. | ✅ any OCI registry, no daemon; native ECR (any AWS partition, cross-account via roles) and GCR/Artifact Registry credentials; docker config/credential helpers for the rest ; `RegistryProvider` extension point with bounded repository and tag listing (ADR 0013) · ⬜ ECR listing and role assumption, GitLab provider |
 
 ## Security requirements (non-negotiable)
 

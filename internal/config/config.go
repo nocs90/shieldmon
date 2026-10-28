@@ -37,6 +37,14 @@ type Tool struct {
 	Options map[string]any `yaml:"options,omitempty"`
 }
 
+// Registry binds registry hosts to a provider (docs/adr/0013-registry-providers.md). Options
+// are validated by the provider and never hold a credential: they name environment variables.
+type Registry struct {
+	Hosts    []string       `yaml:"hosts"`
+	Provider string         `yaml:"provider"`
+	Options  map[string]any `yaml:"options,omitempty"`
+}
+
 // Config is the top-level configuration.
 type Config struct {
 	DataDir  string `yaml:"data_dir"`
@@ -74,6 +82,9 @@ type Config struct {
 		Profile string         `yaml:"profile"`
 		Days    map[string]int `yaml:"days,omitempty"`
 	} `yaml:"sla"`
+
+	// Registries come before the built-in providers (docker config, ECR, Google), in order.
+	Registries []Registry `yaml:"registries,omitempty"`
 
 	// Decisions bounds risk acceptances (docs/adr/0010-decision-policy.md).
 	Decisions struct {
@@ -267,6 +278,15 @@ decisions:
   # when a fix ships) or operational-requirement (fix exists, cannot be applied).
   vendor_dependency_max_days: 30
   operational_requirement_max_days: 365
+
+# Registry credentials and listing (docs/processes/registries.md). Without rules, the
+# built-in providers apply in this order: docker config and credential helpers, Amazon
+# ECR through the AWS default chain, Google ADC; everything else is anonymous. Rules come
+# first. Options never hold a credential: they name environment variables (*_env).
+registries: []
+# - hosts: [registry.gitlab.example.com]
+#   provider: gitlab
+#   options: { api_url: https://gitlab.example.com, token_env: CI_JOB_TOKEN }
 `
 
 // Policy builds the decision policy from configuration.
