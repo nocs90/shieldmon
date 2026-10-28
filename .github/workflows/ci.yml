@@ -161,6 +161,32 @@ jobs:
             dist/e2e-ubi9-node/remediation-plan.csv
           retention-days: 30
 
+  # ECR provider against a sandbox AWS account through GitHub OIDC: no static keys (#16).
+  # Skipped until a maintainer sets the repository variables SHIELDMON_ECR_ROLE_ARN (a role
+  # with deploy/iam/shieldmon-readonly.json that trusts this repository's OIDC tokens),
+  # SHIELDMON_ECR_REGION and SHIELDMON_ECR_REPO (a repository with at least one tag).
+  ecr:
+    if: vars.SHIELDMON_ECR_ROLE_ARN != '' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run/integration'))
+    runs-on: ubuntu-24.04
+    needs: test
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.SHIELDMON_ECR_ROLE_ARN }}
+          aws-region: ${{ vars.SHIELDMON_ECR_REGION }}
+      - run: go test -tags integration -run TestECRIntegration -count=1 ./internal/oci
+        env:
+          SHIELDMON_TEST_ECR_REPO: ${{ vars.SHIELDMON_ECR_REPO }}
+
   # Container image (docs/adr/0012-container-image.md): multi-arch build, configuration checks
   # and a smoke test on every change; a scan run by the image, and a scan of the image, on
   # main, nightly and PRs labelled run/integration. The only image this job runs is

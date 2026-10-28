@@ -6,7 +6,7 @@ scanners. Public images on any registry need no configuration.
 | Registry | Public images | Private images |
 |---|---|---|
 | Docker Hub `docker.io` | ✅ anonymous | `docker login` (docker config) |
-| Amazon ECR `<acct>.dkr.ecr.<region>.amazonaws.com` (any AWS partition, FIPS endpoints) | — | ✅ native: AWS default credential chain (env, SSO/profile, IRSA, EKS Pod Identity, instance role). Cross-account works through the role's ECR permissions. |
+| Amazon ECR `<acct>.dkr.ecr.<region>.amazonaws.com` (any AWS partition, FIPS endpoints) | — | ✅ native: AWS default credential chain (env, SSO/profile, web identity from CI OIDC, IRSA, EKS Pod Identity, instance role); `role_arn` assumes a role in another account. Repositories and tags listed with push times. |
 | Amazon ECR Public `public.ecr.aws` | ✅ anonymous | — |
 | Google GCR `gcr.io`, Artifact Registry `*-docker.pkg.dev` | ✅ anonymous | ✅ native: gcloud or Application Default Credentials |
 | GitHub `ghcr.io`, Quay `quay.io`, Microsoft `mcr.microsoft.com`, Red Hat `registry.access.redhat.com` | ✅ anonymous | `docker login` |
@@ -29,6 +29,21 @@ registries:
 Options are validated at startup: unknown keys are refused, and so is any value that looks
 like a credential. Credentials come only from environment variables named by `*_env`
 options, so that no secret ever sits in the config file.
+
+### Amazon ECR in other accounts
+
+The built-in `ecr` provider uses whatever the AWS default chain finds. For a registry in
+another account, bind its hosts to a role there that trusts ShieldMon's identity and carries
+`deploy/iam/shieldmon-readonly.json`:
+
+```yaml
+registries:
+  - hosts: [210987654321.dkr.ecr.eu-west-1.amazonaws.com, 210987654321.dkr.ecr.us-east-1.amazonaws.com]
+    provider: ecr
+    options: { role_arn: "arn:aws:iam::210987654321:role/shieldmon-read", external_id: shieldmon }
+```
+
+Pull tokens are cached in memory only, until five minutes before they expire.
 
 ## Recommended practice
 

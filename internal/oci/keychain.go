@@ -1,16 +1,10 @@
 package oci
 
 import (
-	"context"
-	"io"
-	"os"
 	"strings"
 	"sync"
 
-	ecr "github.com/awslabs/amazon-ecr-credential-helper/ecr-login"
-	ecrapi "github.com/awslabs/amazon-ecr-credential-helper/ecr-login/api"
 	"github.com/google/go-containerregistry/pkg/authn"
-	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/google"
 )
 
@@ -51,37 +45,6 @@ func (p dockerProvider) Resolve(r authn.Resource) (authn.Authenticator, error) {
 	return authn.DefaultKeychain.Resolve(r)
 }
 
-// ecrHelperProvider is Amazon ECR through the AWS default credential chain. Credentials are
-// short-lived tokens obtained on demand; the helper's on-disk token cache is disabled so that
-// no credential is persisted (S2).
-type ecrHelperProvider struct {
-	kc authn.Keychain
-}
-
-func newECRHelperProvider(ProviderSpec) (Provider, error) {
-	if os.Getenv("AWS_ECR_DISABLE_CACHE") == "" {
-		_ = os.Setenv("AWS_ECR_DISABLE_CACHE", "true")
-	}
-	return ecrHelperProvider{kc: authn.NewKeychainFromHelper(ecr.NewECRHelper(ecr.WithLogger(io.Discard)))}, nil
-}
-
-func (ecrHelperProvider) Owns(registry string) bool {
-	_, err := ecrapi.ExtractRegistry(registry)
-	return err == nil
-}
-
-func (p ecrHelperProvider) Resolve(r authn.Resource) (authn.Authenticator, error) {
-	return p.kc.Resolve(r)
-}
-
-func (ecrHelperProvider) Repositories(context.Context, string, string, int) ([]string, error) {
-	return nil, errNoListing("ecr")
-}
-
-func (p ecrHelperProvider) Tags(ctx context.Context, repo name.Repository, limit int) ([]Tag, error) {
-	return V2Lister{Keychain: p.kc}.Tags(ctx, repo, limit)
-}
-
 // googleProvider is GCR and Artifact Registry through gcloud or Application Default
 // Credentials.
 type googleProvider struct{ V2Lister }
@@ -106,9 +69,10 @@ func init() {
 	})
 	RegisterProvider(ProviderPlugin{
 		Name:        "ecr",
-		Description: "Amazon ECR, every partition, through the AWS default credential chain (IRSA, EKS Pod Identity, web identity, SSO, instance role)",
+		Description: "Amazon ECR, every partition and ECR Public, through the AWS default credential chain (IRSA, EKS Pod Identity, web identity, SSO, instance role); role_arn for other accounts; lists repositories and tags with push times",
+		Options:     []string{"role_arn", "external_id", "session_name"},
 		Default:     2,
-		New:         newECRHelperProvider,
+		New:         func(s ProviderSpec) (Provider, error) { return NewECRProvider(s, nil) },
 	})
 	RegisterProvider(ProviderPlugin{
 		Name:        "google",
