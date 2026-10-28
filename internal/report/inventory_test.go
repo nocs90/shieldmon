@@ -22,6 +22,8 @@ type fakeInventory struct {
 	sboms     map[string][]store.SBOM
 	findings  []store.Finding
 	history   []store.DigestChange
+	events    []store.TargetEvent
+	scans     []store.Scan
 }
 
 func (f fakeInventory) ListTargets(context.Context) ([]store.Target, error) { return f.targets, nil }
@@ -57,6 +59,20 @@ func (f fakeInventory) ListFindings(context.Context, store.FindingFilter) ([]sto
 
 func (f fakeInventory) DigestHistory(context.Context) ([]store.DigestChange, error) {
 	return f.history, nil
+}
+
+func (f fakeInventory) TargetEvents(context.Context) ([]store.TargetEvent, error) {
+	return f.events, nil
+}
+
+func (f fakeInventory) Scans(_ context.Context, d string) ([]store.Scan, error) {
+	var out []store.Scan
+	for _, s := range f.scans {
+		if s.Digest == d {
+			out = append(out, s)
+		}
+	}
+	return out, nil
 }
 
 var invNow = time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)

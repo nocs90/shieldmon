@@ -229,6 +229,8 @@ func renderMarkdown(w io.Writer, r Monthly) error {
 				h.FirstSeen.Format(time.DateOnly), mdEscape(truncate(h.Detail, 160)))
 		}
 	}
+	b.WriteString("\n")
+	writeChangesMarkdown(b, r.InventoryChanges)
 	_, err := io.WriteString(w, b.String())
 	return err
 }

@@ -22,7 +22,7 @@ type InventorySource interface {
 	LatestCompleteScan(ctx context.Context, digest string) (store.Scan, error)
 	SBOMs(ctx context.Context, digest string) ([]store.SBOM, error)
 	ListFindings(ctx context.Context, f store.FindingFilter) ([]store.Finding, error)
-	DigestHistory(ctx context.Context) ([]store.DigestChange, error)
+	ChangesSource
 }
 
 // Evidence gaps: why the inventory cannot vouch for an image's findings.
@@ -42,6 +42,8 @@ type InventoryOptions struct {
 	StaleAfter time.Duration
 	// Generators are the SBOM generators the configured matchers require.
 	Generators []string
+	// Changes, when set, adds the inventory changes of that period.
+	Changes *Period
 }
 
 // Inventory is what ShieldMon monitors and how fresh its evidence is.
@@ -49,6 +51,7 @@ type Inventory struct {
 	GeneratedAt time.Time        `json:"generated_at"`
 	Summary     InventorySummary `json:"summary"`
 	Images      []Image          `json:"images"`
+	Changes     *Changes         `json:"changes,omitempty"`
 }
 
 // InventorySummary counts images and their evidence gaps.
@@ -162,6 +165,13 @@ func BuildInventory(ctx context.Context, src InventorySource, opts InventoryOpti
 		inv.Images = append(inv.Images, img)
 	}
 	inv.Summary.Digests = len(digests)
+	if opts.Changes != nil {
+		c, err := BuildChanges(ctx, src, *opts.Changes)
+		if err != nil {
+			return inv, err
+		}
+		inv.Changes = &c
+	}
 	sort.SliceStable(inv.Images, func(i, j int) bool {
 		a, b := inv.Images[i], inv.Images[j]
 		if a.Ref != b.Ref {

@@ -93,6 +93,10 @@ func renderInventoryMarkdown(w io.Writer, inv Inventory) error {
 			mdEscape(img.Ref), mdEscape(img.Platform), digest, timeOrEmpty(img.LastComplete), mdEscape(scanners(img)),
 			mdEscape(sbomGenerators(img)), img.Open["critical"], img.Open["high"], img.Open["medium"], img.Open["low"], gaps)
 	}
+	if inv.Changes != nil {
+		b.WriteString("\n")
+		writeChangesMarkdown(b, *inv.Changes)
+	}
 	_, err := io.WriteString(w, b.String())
 	return err
 }

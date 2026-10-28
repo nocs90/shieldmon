@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -1035,5 +1036,63 @@ func TestRetiredImagesAreNotNotified(t *testing.T) {
 	pending, err = h.eng.PendingNotifications(h.ctx)
 	if err != nil || len(pending["all"]) != 1 || pending["all"][0].Kind != notify.SLABreached {
 		t.Fatalf("restored, the breach is news again: %+v %v", pending, err)
+	}
+}
+
+// TestInventoryChanges: images added, rebuilt (with the scan of the new digest), retired and
+// restored in a month, from append-only history: the same answer later.
+func TestInventoryChanges(t *testing.T) {
+	h := newHarness(t) // 2026-10-01
+	const api = "registry.test/api:1"
+	h.image(ref, digestA)
+	h.scan(ref)
+	h.advance(5 * 24 * time.Hour)
+	h.image(api, digestC)
+	h.scan(api)
+	h.advance(5 * 24 * time.Hour)
+	h.image(ref, digestB)
+	h.scan(ref)
+	h.advance(5 * 24 * time.Hour)
+	tgs, _ := h.store.TargetsByRef(h.ctx, api)
+	if err := h.eng.RetireTarget(h.ctx, tgs[0], "ops", "decommissioned in CHG-9"); err != nil {
+		t.Fatal(err)
+	}
+	october := report.MonthPeriod(h.clock)
+	before, err := report.BuildChanges(h.ctx, h.store, october)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before.Added) != 2 || len(before.Retired) != 1 || before.Retired[0].Actor != "ops" || len(before.Restored) != 0 {
+		t.Fatalf("october changes: %+v", before)
+	}
+	if len(before.Rebuilt) != 1 {
+		t.Fatalf("one rebuild: %+v", before.Rebuilt)
+	}
+	rb := before.Rebuilt[0]
+	if rb.From != digestA || rb.To != digestB || rb.Scan == nil || rb.Scan.Kind != "initial" || rb.Scan.Status != "complete" {
+		t.Errorf("rebuild with the scan of the new digest: %+v %+v", rb, rb.Scan)
+	}
+
+	// November: restored. October's changes do not move.
+	h.advance(20 * 24 * time.Hour)
+	if err := h.eng.RestoreTarget(h.ctx, tgs[0], "ops", "back in production"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := report.BuildChanges(h.ctx, h.store, october)
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Errorf("past changes are reproducible:\n before %+v\n after  %+v", before, after)
+	}
+	november, err := report.BuildChanges(h.ctx, h.store, report.MonthPeriod(h.clock))
+	if err != nil || len(november.Restored) != 1 || len(november.Added)+len(november.Rebuilt)+len(november.Retired) != 0 {
+		t.Errorf("november changes: %+v", november)
+	}
+	rep, err := report.BuildMonthly(h.ctx, h.store, october, "standard", nil, h.clock)
+	if err != nil || len(rep.InventoryChanges.Rebuilt) != 1 {
+		t.Fatalf("the monthly report carries the changes: %v", err)
+	}
+	var md bytes.Buffer
+	if err := report.Render(&md, rep, "md"); err != nil || !strings.Contains(md.String(), "## Inventory changes (2026-10-01 to 2026-10-31)") ||
+		!strings.Contains(md.String(), "decommissioned in CHG-9") {
+		t.Errorf("markdown section: %v\n%s", err, md.String())
 	}
 }

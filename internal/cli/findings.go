@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -576,7 +577,7 @@ func (a *app) reportCmd() *cobra.Command {
 }
 
 func (a *app) inventoryCmd() *cobra.Command {
-	var format, out string
+	var format, out, month string
 	cmd := &cobra.Command{
 		Use:   "inventory",
 		Short: "What is monitored: images, digests, SBOMs, last scan evidence and its gaps",
@@ -598,9 +599,19 @@ health.monitor_interval, a required SBOM generator missing.`,
 				}
 			}
 			slices.Sort(gens)
-			inv, err := report.BuildInventory(cmd.Context(), a.store, report.InventoryOptions{
-				Now: time.Now().UTC(), StaleAfter: a.cfg.Health.MonitorInterval.Duration * 3 / 2, Generators: gens,
-			})
+			opts := report.InventoryOptions{Now: time.Now().UTC(), StaleAfter: a.cfg.Health.MonitorInterval.Duration * 3 / 2, Generators: gens}
+			if month != "" {
+				if format == "csv" {
+					return errors.New("--month: the changes of a month are in -o md and -o json (csv has one row per image)")
+				}
+				t, err := time.Parse("2006-01", month)
+				if err != nil {
+					return fmt.Errorf("--month: want YYYY-MM: %w", err)
+				}
+				p := report.MonthPeriod(t)
+				opts.Changes = &p
+			}
+			inv, err := report.BuildInventory(cmd.Context(), a.store, opts)
 			if err != nil {
 				return err
 			}
@@ -621,6 +632,7 @@ health.monitor_interval, a required SBOM generator missing.`,
 	}
 	cmd.Flags().StringVarP(&format, "output", "o", "md", "format: "+strings.Join(names, ", "))
 	cmd.Flags().StringVar(&out, "out", "", "write to file instead of stdout")
+	cmd.Flags().StringVar(&month, "month", "", "also list the images added, rebuilt, retired and restored in month YYYY-MM")
 	return cmd
 }
 

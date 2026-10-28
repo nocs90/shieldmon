@@ -57,6 +57,7 @@ weaknesses).
 | Open past SLA | open findings older than the SLA for their severity (`sla.profile`) |
 | Burndown | open count at end of each day |
 | Monitoring health | open health findings: gaps in the evidence itself |
+| Inventory changes | images added, rebuilt (new digest, with its scan), retired and restored in the period ([inventory.md](inventory.md#changes-over-a-period)) |
 | Retired with the image | findings still open whose images were all retired (`targets retire`): not open, not fixed ([inventory.md](inventory.md#retiring-an-image)) |
 
 The current month is reported "as of now". Deadlines come from `sla.profile` and

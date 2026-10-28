@@ -23,6 +23,7 @@ type Source interface {
 	LatestDecisions(ctx context.Context) (map[int64]store.Decision, error)
 	// LoadScope says when findings were out of scope because their images were retired.
 	LoadScope(ctx context.Context) (store.Scope, error)
+	ChangesSource
 }
 
 // Period is a half-open time interval [Start, End).
@@ -128,6 +129,8 @@ type Monthly struct {
 	RetiredWithAsset []Row                 `json:"retired_with_asset"`
 	HealthOpen       []store.HealthFinding `json:"health_open"`
 	TargetSummaries  []TargetSummary       `json:"target_summaries"`
+	// InventoryChanges are the images added, rebuilt, retired and restored in the period.
+	InventoryChanges Changes `json:"inventory_changes"`
 }
 
 // AgingBuckets are the age buckets for open findings, in days.
@@ -296,7 +299,8 @@ func BuildMonthly(ctx context.Context, src Source, p Period, profile string, sla
 		return r, err
 	}
 	r.HealthOpen = health
-	return r, nil
+	r.InventoryChanges, err = BuildChanges(ctx, src, p)
+	return r, err
 }
 
 // stateAt replays a finding's events up to and including t.

@@ -48,6 +48,12 @@ func TestInitAndEmptyQueries(t *testing.T) {
 			t.Errorf("%v: code=%d out=%s err=%s", args, code, out, errOut)
 		}
 	}
+	if out, errOut, code := run(t, append([]string{"report", "inventory", "--month", "2026-10"}, common...)...); code != 0 || !strings.Contains(out, "## Inventory changes (2026-10-01 to 2026-10-31)") {
+		t.Errorf("inventory with the month's changes: code=%d out=%s err=%s", code, out, errOut)
+	}
+	if _, errOut, code := run(t, append([]string{"report", "inventory", "--month", "2026-10", "-o", "csv"}, common...)...); code == 0 || !strings.Contains(errOut, "-o md and -o json") {
+		t.Errorf("csv has no room for changes: %s", errOut)
+	}
 	// Scripts rely on the exit status: no image contains it.
 	_, errOut, code = run(t, append([]string{"components", "where", "xz-libs@5.6.0"}, common...)...)
 	if code != 1 || !strings.Contains(errOut, "no monitored image contains xz-libs@5.6.0") {

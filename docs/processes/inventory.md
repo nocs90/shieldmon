@@ -44,6 +44,20 @@ counts each digest's findings once.
 An image without gaps has a complete scan within the expected cadence, with every required
 SBOM: its findings are current evidence.
 
+## Changes over a period
+
+```sh
+shieldmon report inventory --month 2026-10        # inventory now, plus October's changes
+shieldmon report monthly --month 2026-10 -o html  # the monthly report has the same section
+```
+
+For the month: images **added** (targets created), **rebuilt** (the tag moved to a new
+digest: old → new, with the first scan of the new digest for that image as evidence, or
+"not scanned yet"), **retired** and **restored** (with who and why). Everything comes from
+append-only history (`target_digests`, `target_events`, scans), so the changes of a past
+month are the same whenever they are computed. In `md` and `json`; `csv` has one row per
+image and refuses `--month`.
+
 ## Retiring an image
 
 When an image is decommissioned, retire its target instead of leaving it monitored:

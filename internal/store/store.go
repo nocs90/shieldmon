@@ -414,6 +414,31 @@ func (s *Store) latestScan(ctx context.Context, where string, args ...any) (Scan
 	return sc, nil
 }
 
+// Scans returns the finished scans of a digest, oldest first.
+func (s *Store) Scans(ctx context.Context, digest string) ([]Scan, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, digest, target_id, kind, status, started_at, finished_at, tools, error
+		FROM scans WHERE digest = ? AND status != 'running' ORDER BY id`, digest)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Scan
+	for rows.Next() {
+		var sc Scan
+		var tid sql.NullInt64
+		var started string
+		var finished, errMsg sql.NullString
+		var tools string
+		if err := rows.Scan(&sc.ID, &sc.Digest, &tid, &sc.Kind, &sc.Status, &started, &finished, &tools, &errMsg); err != nil {
+			return nil, err
+		}
+		sc.TargetID, sc.StartedAt, sc.FinishedAt, sc.Error = tid.Int64, parseTS(started), parseNullTS(finished), errMsg.String
+		_ = json.Unmarshal([]byte(tools), &sc.Tools)
+		out = append(out, sc)
+	}
+	return out, rows.Err()
+}
+
 // DigestChange is one entry of the append-only digest history of a target: the first
 // resolution (Previous empty) or a change.
 type DigestChange struct {
