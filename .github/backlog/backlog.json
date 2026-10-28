@@ -885,6 +885,80 @@
       "milestone": "M4 — Prioritization, VEX, notifications",
       "epic": null,
       "body": "## Context\n\n`store.ExpireDecisions` (`internal/store/lifecycle.go`) selects expired decisions with `d.expires_at <= ?`, comparing `ts()` strings in SQL. `ts` formats with `time.RFC3339Nano`, which drops trailing zeros, so the strings do not sort as times within the same second: `2026-10-11T09:00:00Z` sorts after `2026-10-11T09:00:00.5Z` ('Z' > '.').\n\nEffect: a decision expiring in the same second as the cycle's clock is not seen as expired and is reopened one cycle later. Low impact, but it understates the time a finding was suppressed after expiry, and the same pattern may exist elsewhere.\n\nFound while writing the notification store (#66), which compares times in Go for this reason.\n\n## Acceptance criteria\n\n- [ ] Reproduce with a store test (expiry and now in the same second, fractional seconds)\n- [ ] Fix: compare in Go, or store a fixed-width format (e.g. always 9 fractional digits) via a new numbered migration that rewrites nothing in append-only tables\n- [ ] Audit every SQL comparison or ORDER BY on `*_at` columns (store, report)\n"
+    },
+    {
+      "key": "epic-inventory",
+      "title": "[epic] Inventory: what is monitored, what it contains, how fresh the evidence is",
+      "labels": [
+        "kind/epic",
+        "area/report",
+        "priority/high"
+      ],
+      "milestone": "M5 — Compliance profiles",
+      "epic": null,
+      "body": "## Context\n\nEpic #5 (F8) asks for an inventory export next to the remediation plan. Auditors and incident\nresponders ask three questions before they look at findings:\n\n1. **What is monitored?** Every image, the digest it runs, since when, and whether ShieldMon\n   still has fresh evidence for it.\n2. **What does it contain?** Which components (packages, versions, PURLs) are in which images:\n   \"are we running xz 5.6.0 anywhere?\" must be answerable in seconds, from SBOMs already stored.\n3. **What changed?** Images added, rebuilt (new digests) and retired during a period.\n\nShieldMon already records most of this (targets, the append-only digest history, SBOMs with\nSHA-256, scans with tools and DB build times) but only shows it piecemeal (`targets list`,\n`sbom list`). Targets cannot be retired at all: a decommissioned image stays \"monitored\"\nforever, which makes both the inventory and the open-finding numbers wrong.\n\n## Goals\n\n- One command for the image inventory, one for components, both exportable (CSV, JSON) and\n  reproducible from the store like the monthly report.\n- Evidence gaps visible: images without a recent complete scan, without an SBOM from a\n  required generator, or scanned unconfined.\n- Asset lifecycle: retire a target without rewriting history.\n\n## Non-goals\n\n- Runtime inventory (which images actually run in a cluster): that is the runtime context work\n  of #38.\n- License compliance: licenses are carried when SBOMs have them, not evaluated.\n\n## Acceptance criteria\n\n- [ ] #69 Image inventory report\n- [ ] #70 Component inventory and \"where is this package\" query from stored SBOMs\n- [ ] #71 Inventory changes over a period\n- [ ] #72 Target retirement with an ADR: history kept, retired images out of the open numbers\n- [ ] #73 Aggregated CycloneDX inventory BOM\n- [ ] docs/processes/inventory.md; SPEC F8 updated\n\n## Risks\n\n- SBOMs are hostile input: component parsing must be bounded and fuzzed like every parser.\n- Retirement touches the lifecycle invariants (only `lifecycle.Reconcile` closes findings):\n  it needs an ADR before code.\n\n## References\n\nSPEC.md F8 · Epic #5 · docs/processes/reporting.md"
+    },
+    {
+      "key": "inventory-images",
+      "title": "Image inventory: `shieldmon report inventory` with digests, SBOMs and scan evidence",
+      "labels": [
+        "kind/feature",
+        "area/report",
+        "priority/high"
+      ],
+      "milestone": "M5 — Compliance profiles",
+      "epic": "epic-inventory",
+      "body": "## Context\n\nThe first inventory question: what is monitored, and how fresh is the evidence for it.\n\n## Acceptance criteria\n\n- [ ] `shieldmon report inventory -o csv|json|md [--out FILE]`: one row per target with ref, platform,\n  current digest, repository, monitored since, last resolved, digest changes so far, last scan\n  (time, kind, status, scanners with versions and DB build times), SBOMs (generator, format,\n  SHA-256, size) and open findings by severity\n- [ ] Evidence gaps per row and in a summary: no scan yet, last scan partial or failed, last\n  complete scan older than `health.monitor_interval` x 1.5, a required generator without SBOM\n- [ ] Deterministic order; formula-injection safe CSV; golden-file tests\n- [ ] Files written 0600 (an inventory is sensitive); docs/processes/inventory.md"
+    },
+    {
+      "key": "inventory-components",
+      "title": "Component inventory: packages per image from stored SBOMs, and `components where`",
+      "labels": [
+        "kind/feature",
+        "area/report",
+        "priority/high",
+        "security"
+      ],
+      "milestone": "M5 — Compliance profiles",
+      "epic": "epic-inventory",
+      "body": "## Context\n\nDuring an incident the question is \"where do we run package X (version Y)?\". Every monitored\ndigest has CycloneDX SBOMs on disk; nothing reads them back except the matchers.\n\n## Acceptance criteria\n\n- [ ] Parse stored CycloneDX SBOMs into components (name, version, type, PURL, licenses when\n  present): bounded (size, count, depth), SHA-256 checked against the store before parsing,\n  fuzzed (`make fuzz`)\n- [ ] `shieldmon components list [--target T] [-o csv|json]`: components of the current digests,\n  deduplicated by PURL, with the images that contain them\n- [ ] `shieldmon components where NAME[@VERSION]|PURL`: images (targets and digests) containing\n  it, exact or by package name; exit code 1 when none, for scripts\n- [ ] Hostile names escaped on terminal output; formula-safe CSV; tests with trimmed real SBOMs"
+    },
+    {
+      "key": "inventory-changes",
+      "title": "Inventory changes over a period: images added, rebuilt and retired",
+      "labels": [
+        "kind/feature",
+        "area/report",
+        "priority/medium"
+      ],
+      "milestone": "M5 — Compliance profiles",
+      "epic": "epic-inventory",
+      "body": "## Context\n\nAuditors compare inventories between periods. The append-only `target_digests` history already\nsays when each image was added and rebuilt.\n\n## Acceptance criteria\n\n- [ ] `shieldmon report inventory --month YYYY-MM` adds the changes of the month: targets added,\n  digest changes (old → new, with the scan that proved the new one), targets retired\n- [ ] The monthly report gains an \"Inventory changes\" section (md, html, json)\n- [ ] Computed from the append-only history only: reproducible for any past month"
+    },
+    {
+      "key": "inventory-retire",
+      "title": "Retire targets: stop monitoring a decommissioned image, keep its history",
+      "labels": [
+        "kind/feature",
+        "area/lifecycle",
+        "area/storage",
+        "priority/medium"
+      ],
+      "milestone": "M5 — Compliance profiles",
+      "epic": "epic-inventory",
+      "body": "## Context\n\nThere is no way to stop monitoring an image: decommissioned images keep their open findings\nin every report and keep being resolved every cycle.\n\n## Acceptance criteria\n\n- [ ] ADR first: retirement is an asset event, not a fix. Findings of a retired target are not\n  closed as `fixed` (no scan evidence); decide how they leave the open numbers (e.g. reported\n  as \"retired with the asset\") without breaking invariants I1-I7\n- [ ] `shieldmon targets retire TARGET --reason ... --by ...` and `targets restore`; recorded\n  append-only with actor and reason; `monitor` skips retired targets\n- [ ] Inventory and monthly reports show retired targets and exclude their findings from open\n  counts as decided in the ADR; step in `TestContinuousMonitoringLifecycle`"
+    },
+    {
+      "key": "inventory-bom",
+      "title": "Aggregated CycloneDX inventory BOM of all monitored images",
+      "labels": [
+        "kind/feature",
+        "area/report",
+        "priority/low"
+      ],
+      "milestone": "M5 — Compliance profiles",
+      "epic": "epic-inventory",
+      "body": "## Context\n\nCustomers and regulators increasingly ask for an SBOM of the whole product, not one per image.\n\n## Acceptance criteria\n\n- [ ] `shieldmon report inventory -o cyclonedx`: one CycloneDX 1.6 BOM with each monitored image as\n  a container component (digest as hash, repository and tag as PURL) and its components nested\n- [ ] Valid against the CycloneDX 1.6 JSON schema (pinned in testdata); bounded size"
     }
   ]
 }
