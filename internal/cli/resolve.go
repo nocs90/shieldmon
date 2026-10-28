@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/nocs90/shieldmon/internal/oci"
+	"github.com/nocs90/shieldmon/internal/store"
 )
 
 var (
@@ -68,6 +69,39 @@ func (a *app) resolveDigest(ctx context.Context, arg string) (string, error) {
 		ids = append(ids, fmt.Sprintf("#%d (%s)", t.ID, t.Platform))
 	}
 	return "", fmt.Errorf("%s is monitored on several platforms, use a target ID: %s", ref.Name(), strings.Join(ids, ", "))
+}
+
+// resolveTarget turns a target ID ("3" or "#3") or the image reference of a target monitored
+// on one platform into the target; a reference on several platforms needs an ID.
+func (a *app) resolveTarget(ctx context.Context, arg string) (store.Target, error) {
+	arg = strings.TrimSpace(arg)
+	if targetIDArg.MatchString(arg) {
+		id, _ := strconv.ParseInt(strings.TrimPrefix(arg, "#"), 10, 64)
+		t, err := a.store.GetTarget(ctx, id)
+		if err != nil {
+			return t, fmt.Errorf("target #%d: %w", id, err)
+		}
+		return t, nil
+	}
+	ref, err := oci.ParseReference(arg, false)
+	if err != nil {
+		return store.Target{}, fmt.Errorf("%q is not a target ID or image reference", arg)
+	}
+	ts, err := a.store.TargetsByRef(ctx, ref.Name())
+	if err != nil {
+		return store.Target{}, err
+	}
+	switch len(ts) {
+	case 0:
+		return store.Target{}, fmt.Errorf("%s is not a target (see 'shieldmon targets list')", ref.Name())
+	case 1:
+		return ts[0], nil
+	}
+	var ids []string
+	for _, t := range ts {
+		ids = append(ids, fmt.Sprintf("#%d (%s)", t.ID, t.Platform))
+	}
+	return store.Target{}, fmt.Errorf("%s is a target on several platforms, use a target ID: %s", ref.Name(), strings.Join(ids, ", "))
 }
 
 // shortDigest abbreviates sha256:<64 hex> to sha256:<12 hex> for display.

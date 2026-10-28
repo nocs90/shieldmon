@@ -404,6 +404,45 @@ func TestContinuousMonitoringLifecycle(t *testing.T) {
 	if f := h.finding("CVE-2024-6119", digestC); f.State != model.StateNotAffected {
 		t.Fatalf("state after the VEX statement = %s", f.State)
 	}
+
+	// Day 10: the image is decommissioned (ADR 0017). Monitoring stops, the busybox regression
+	// keeps its state but leaves the open numbers; restoring brings it back as it was.
+	h.advance(24 * time.Hour)
+	tgs, err := h.store.TargetsByRef(h.ctx, ref)
+	if err != nil || len(tgs) != 1 {
+		t.Fatal(tgs, err)
+	}
+	if err := h.eng.RetireTarget(h.ctx, tgs[0], "platform-team", "decommissioned in CHG-2041"); err != nil {
+		t.Fatal(err)
+	}
+	h.fetch.tags[ref] = digestA // the tag moves, but nobody looks any more
+	if sum, err := h.eng.Monitor(h.ctx); err != nil || len(sum.Results) != 0 || len(sum.Failures) != 0 || sum.Status != "ok" {
+		t.Fatalf("monitor must skip a retired target, not fail on it: %+v %v", sum, err)
+	}
+	if _, err := h.eng.Scan(h.ctx, ref, model.Platform{OS: "linux", Architecture: "amd64"}); !errors.Is(err, engine.ErrRetiredTarget) {
+		t.Fatalf("scanning a retired target: %v", err)
+	}
+	if tg, _ := h.store.GetTarget(h.ctx, tgs[0].ID); tg.CurrentDigest != digestC {
+		t.Fatalf("a retired target is not resolved: %s", tg.CurrentDigest)
+	}
+	if f := h.finding("CVE-2022-48174", digestC); f.State != model.StateReopened {
+		t.Fatalf("retirement must not change findings: %s", f.State)
+	}
+	rep, err = report.BuildMonthly(h.ctx, h.store, report.MonthPeriod(h.clock), "standard", sla, h.clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Summary.OpenAtEnd != 0 || rep.Summary.RetiredWithAsset != 1 || rep.Summary.Fixed != 2 ||
+		rep.Burndown[len(rep.Burndown)-1].Open != 0 || rep.Burndown[len(rep.Burndown)-2].Open != 1 {
+		t.Fatalf("retired with the image: out of the open numbers, not fixed: %+v %v", rep.Summary, rep.Burndown)
+	}
+	if err := h.eng.RestoreTarget(h.ctx, tgs[0], "platform-team", "back in production"); err != nil {
+		t.Fatal(err)
+	}
+	rep, err = report.BuildMonthly(h.ctx, h.store, report.MonthPeriod(h.clock), "standard", sla, h.clock)
+	if err != nil || rep.Summary.OpenAtEnd != 1 || rep.Summary.RetiredWithAsset != 0 {
+		t.Fatalf("a restored image's findings are open again: %+v %v", rep.Summary, err)
+	}
 }
 
 // TestVEXStatements covers docs/adr/0014-vex.md: statements are stored once, apply now and to
@@ -965,5 +1004,36 @@ func TestReadSBOMChecksIntegrity(t *testing.T) {
 	b.Path = "../outside.json"
 	if _, err := h.eng.ReadSBOM(b, 1<<20); err == nil || !strings.Contains(err.Error(), "outside the data directory") {
 		t.Errorf("path outside: %v", err)
+	}
+}
+
+// TestRetiredImagesAreNotNotified: a decommissioned image's open findings raise no deadline
+// events (ADR 0017); restored, they do again.
+func TestRetiredImagesAreNotNotified(t *testing.T) {
+	h := newHarness(t)
+	sla, err := config.SLAProfile("standard", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.eng.Decisions = lifecycle.Policy{Profile: "standard", SLADays: sla}
+	h.eng.DueSoon = 7 * 24 * time.Hour
+	h.eng.Channels = []notify.Channel{{Name: "all", Kinds: notify.DefaultKinds, Sender: &recordingNotifier{}}}
+	h.image(ref, digestA, vuln("zlib", "1.2.13-r0", "CVE-2023-45853", model.SeverityHigh, "1.2.13-r1"))
+	h.scan(ref)
+	h.advance(40 * 24 * time.Hour) // past the 30-day deadline
+	tgs, _ := h.store.TargetsByRef(h.ctx, ref)
+	if err := h.eng.RetireTarget(h.ctx, tgs[0], "ops", "decommissioned in CHG-7"); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := h.eng.PendingNotifications(h.ctx)
+	if err != nil || len(pending["all"]) != 0 {
+		t.Fatalf("no deadline events for a retired image: %+v %v", pending, err)
+	}
+	if err := h.eng.RestoreTarget(h.ctx, tgs[0], "ops", "back in production"); err != nil {
+		t.Fatal(err)
+	}
+	pending, err = h.eng.PendingNotifications(h.ctx)
+	if err != nil || len(pending["all"]) != 1 || pending["all"][0].Kind != notify.SLABreached {
+		t.Fatalf("restored, the breach is news again: %+v %v", pending, err)
 	}
 }

@@ -82,12 +82,19 @@ func inventoryFixture() fakeInventory {
 			{ID: 3, Ref: "=registry.test/evil|x:1", Platform: "linux/amd64", CurrentDigest: c, CreatedAt: invNow.AddDate(0, 0, -10), LastResolvedAt: invNow.AddDate(0, 0, -5)},
 			{ID: 4, Ref: "registry.test/never:1", Platform: "linux/amd64", CreatedAt: invNow.AddDate(0, 0, -1)},
 			{ID: 5, Ref: "registry.test/app:latest", Platform: "linux/amd64", CurrentDigest: a, CreatedAt: invNow.AddDate(0, -1, 0), LastResolvedAt: invNow.Add(-time.Hour)},
+			{
+				ID: 6, Ref: "registry.test/legacy:1", Platform: "linux/amd64", CurrentDigest: "sha256:dddd", CreatedAt: invNow.AddDate(-1, 0, 0),
+				LastResolvedAt: invNow.AddDate(0, 0, -20), RetiredAt: invNow.AddDate(0, 0, -20),
+			},
 		},
 		artifacts: map[string]store.Artifact{a: {Repository: "registry.test/app"}, b: {Repository: "registry.test/app"}, c: {Repository: "registry.test/evil"}},
 		last:      map[string]store.Scan{a: scan(a, store.ScanComplete, invNow.Add(-time.Hour)), b: scan(b, store.ScanPartial, invNow.Add(-time.Hour)), c: scan(c, store.ScanComplete, invNow.AddDate(0, 0, -5))},
 		complete:  map[string]store.Scan{a: scan(a, store.ScanComplete, invNow.Add(-time.Hour)), b: scan(b, store.ScanComplete, invNow.AddDate(0, 0, -1)), c: scan(c, store.ScanComplete, invNow.AddDate(0, 0, -5))},
 		sboms:     map[string][]store.SBOM{a: {sbom(a, "trivy"), sbom(a, "syft")}, b: {sbom(b, "syft"), sbom(b, "trivy")}, c: {sbom(c, "syft")}},
-		findings:  []store.Finding{finding(a, model.SeverityCritical), finding(a, model.SeverityHigh), finding(a, model.SeverityNegligible), finding(b, model.SeverityLow)},
+		findings: []store.Finding{
+			finding(a, model.SeverityCritical), finding(a, model.SeverityHigh), finding(a, model.SeverityNegligible), finding(b, model.SeverityLow),
+			finding("sha256:dddd", model.SeverityCritical), // on the retired image only: not counted
+		},
 		history: []store.DigestChange{
 			{TargetID: 1, Digest: "sha256:old"}, {TargetID: 1, Digest: a, Previous: "sha256:old"}, {TargetID: 2, Digest: b}, {TargetID: 3, Digest: c},
 		},
@@ -111,14 +118,15 @@ func TestInventory(t *testing.T) {
 		"registry.test/app:prod linux/arm64":   "last_scan_partial",
 		"=registry.test/evil|x:1 linux/amd64":  "stale_evidence,missing_sbom:trivy",
 		"registry.test/never:1 linux/amd64":    "unresolved",
+		"registry.test/legacy:1 linux/amd64":   "", // retired: not evaluated
 	} {
 		if gaps[image] != want {
 			t.Errorf("%s: gaps %q, want %q", image, gaps[image], want)
 		}
 	}
 	s := inv.Summary
-	if s.Targets != 5 || s.Digests != 3 || s.WithGaps != 3 || s.Open["critical"] != 1 || s.Gaps["missing_sbom:trivy"] != 1 {
-		t.Errorf("summary %+v: digests shared by two targets count once", s)
+	if s.Targets != 5 || s.Retired != 1 || s.Digests != 3 || s.WithGaps != 3 || s.Open["critical"] != 1 || s.Gaps["missing_sbom:trivy"] != 1 {
+		t.Errorf("summary %+v: digests shared by two targets count once, retired images not at all", s)
 	}
 	if inv.Images[1].Ref != "registry.test/app:latest" || inv.Images[2].DigestChanges != 1 {
 		t.Errorf("sorted by ref and platform, with digest changes: %+v", inv.Images)

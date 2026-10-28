@@ -199,8 +199,12 @@ func (a *app) addTargets(cmd *cobra.Command, refs []string, platform string, dry
 		return err
 	}
 	have := map[string]bool{}
+	retired := map[string]int64{}
 	for _, t := range existing {
 		have[t.Ref+" "+t.Platform] = true
+		if !t.RetiredAt.IsZero() {
+			retired[t.Ref+" "+t.Platform] = t.ID
+		}
 	}
 	w := cmd.OutOrStdout()
 	added, present := 0, 0
@@ -218,6 +222,12 @@ func (a *app) addTargets(cmd *cobra.Command, refs []string, platform string, dry
 			continue
 		}
 		seen[key] = true
+		if id, ok := retired[key]; ok {
+			// Adding back is a decision with its own record: restore.
+			fmt.Fprintf(w, "%s (%s) is retired target #%d: 'shieldmon targets restore %d' to monitor it again\n", ref, p, id, id)
+			present++
+			continue
+		}
 		if have[key] {
 			present++
 			continue
@@ -236,6 +246,6 @@ func (a *app) addTargets(cmd *cobra.Command, refs []string, platform string, dry
 	if dryRun {
 		verb = "would add"
 	}
-	fmt.Fprintf(w, "%s %d target(s), %d already monitored; 'shieldmon monitor' scans them\n", verb, added, present)
+	fmt.Fprintf(w, "%s %d target(s), %d already targets; 'shieldmon monitor' scans them\n", verb, added, present)
 	return nil
 }

@@ -24,7 +24,7 @@ func init() {
 var inventoryHeader = []string{
 	"ref", "platform", "digest", "repository", "monitored_since", "last_resolved", "digest_changes",
 	"last_scan", "last_scan_kind", "last_scan_status", "last_complete_scan", "scanners", "sboms",
-	"open_critical", "open_high", "open_medium", "open_low", "open_other", "gaps",
+	"open_critical", "open_high", "open_medium", "open_low", "open_other", "gaps", "retired_at",
 }
 
 // openSeverities are the columns of open findings; the rest is "other".
@@ -47,7 +47,7 @@ func renderInventoryCSV(w io.Writer, inv Inventory) error {
 		for _, sev := range openSeverities {
 			rec = append(rec, strconv.Itoa(img.Open[sev]))
 		}
-		rec = append(rec, strconv.Itoa(otherOpen(img.Open)), strings.Join(img.Gaps, "; "))
+		rec = append(rec, strconv.Itoa(otherOpen(img.Open)), strings.Join(img.Gaps, "; "), timeOrEmpty(img.RetiredAt))
 		for i, v := range rec {
 			rec[i] = CSVSafe(oneLine(v))
 		}
@@ -62,8 +62,8 @@ func renderInventoryCSV(w io.Writer, inv Inventory) error {
 func renderInventoryMarkdown(w io.Writer, inv Inventory) error {
 	b := &strings.Builder{}
 	s := inv.Summary
-	fmt.Fprintf(b, "# Monitored image inventory\n\nGenerated: %s · Targets: %d · Distinct digests: %d · With evidence gaps: %d\n\n",
-		inv.GeneratedAt.Format(time.RFC3339), s.Targets, s.Digests, s.WithGaps)
+	fmt.Fprintf(b, "# Monitored image inventory\n\nGenerated: %s · Monitored targets: %d · Distinct digests: %d · With evidence gaps: %d · Retired: %d\n\n",
+		inv.GeneratedAt.Format(time.RFC3339), s.Targets, s.Digests, s.WithGaps, s.Retired)
 	if len(s.Gaps) > 0 {
 		b.WriteString("## Evidence gaps\n\n| Gap | Images |\n|---|---:|\n")
 		gaps := make([]string, 0, len(s.Gaps))
@@ -85,10 +85,13 @@ func renderInventoryMarkdown(w io.Writer, inv Inventory) error {
 				digest = "`" + mdEscape(img.Digest[:19]) + "…`"
 			}
 		}
+		gaps := mdEscape(strings.Join(img.Gaps, ", "))
+		if !img.RetiredAt.IsZero() {
+			gaps = "retired " + img.RetiredAt.UTC().Format(time.DateOnly)
+		}
 		fmt.Fprintf(b, "| %s (%s) | %s | %s | %s | %s | %d/%d/%d/%d | %s |\n",
 			mdEscape(img.Ref), mdEscape(img.Platform), digest, timeOrEmpty(img.LastComplete), mdEscape(scanners(img)),
-			mdEscape(sbomGenerators(img)), img.Open["critical"], img.Open["high"], img.Open["medium"], img.Open["low"],
-			mdEscape(strings.Join(img.Gaps, ", ")))
+			mdEscape(sbomGenerators(img)), img.Open["critical"], img.Open["high"], img.Open["medium"], img.Open["low"], gaps)
 	}
 	_, err := io.WriteString(w, b.String())
 	return err

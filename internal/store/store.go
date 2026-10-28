@@ -169,6 +169,8 @@ type Target struct {
 	CurrentDigest  string
 	CreatedAt      time.Time
 	LastResolvedAt time.Time
+	// RetiredAt is when the target was retired, zero while it is monitored (ADR 0017).
+	RetiredAt time.Time
 }
 
 // UpsertTarget returns the target for (ref, platform), creating it if needed.
@@ -203,7 +205,9 @@ func (s *Store) ListTargets(ctx context.Context) ([]Target, error) {
 }
 
 func (s *Store) listTargets(ctx context.Context, where string, args ...any) ([]Target, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, ref, platform, current_digest, created_at, last_resolved_at
+	rows, err := s.db.QueryContext(ctx, `SELECT id, ref, platform, current_digest, created_at, last_resolved_at,
+			(SELECT CASE WHEN e.action = 'retire' THEN e.at END FROM target_events e
+			 WHERE e.target_id = targets.id ORDER BY e.id DESC LIMIT 1)
 		FROM targets WHERE `+where+` ORDER BY id`, args...)
 	if err != nil {
 		return nil, err
@@ -212,12 +216,13 @@ func (s *Store) listTargets(ctx context.Context, where string, args ...any) ([]T
 	var out []Target
 	for rows.Next() {
 		var t Target
-		var cur, last sql.NullString
+		var cur, last, retired sql.NullString
 		var created string
-		if err := rows.Scan(&t.ID, &t.Ref, &t.Platform, &cur, &created, &last); err != nil {
+		if err := rows.Scan(&t.ID, &t.Ref, &t.Platform, &cur, &created, &last, &retired); err != nil {
 			return nil, err
 		}
 		t.CurrentDigest, t.CreatedAt, t.LastResolvedAt = cur.String, parseTS(created), parseNullTS(last)
+		t.RetiredAt = parseNullTS(retired)
 		out = append(out, t)
 	}
 	return out, rows.Err()

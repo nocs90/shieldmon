@@ -44,6 +44,24 @@ counts each digest's findings once.
 An image without gaps has a complete scan within the expected cadence, with every required
 SBOM: its findings are current evidence.
 
+## Retiring an image
+
+When an image is decommissioned, retire its target instead of leaving it monitored:
+
+```sh
+shieldmon targets retire 7 --reason "decommissioned in CHG-2041"   # --by defaults to $SHIELDMON_ACTOR or $USER
+shieldmon targets restore 7 --reason "back in production"
+```
+
+- Retirement is recorded append-only with who and why; `monitor` skips the target and
+  `scan` refuses it; `targets add` of the same image points to `restore`.
+- **Findings are not closed**: nothing proved them fixed ([ADR 0017](../adr/0017-target-retirement.md)).
+  A finding whose images are all retired is *retired with the image*: out of open counts,
+  burndown, SLA breaches and notifications, counted apart in the monthly report. If another
+  monitored target still resolves to the same digest, its findings stay in scope.
+- The inventory keeps listing retired images with their retirement date, without gaps or
+  open counts. Restoring puts everything back as it was; the next cycle rescans.
+
 ## Components: what the images contain
 
 During an incident the question is "where do we run this package?". The SBOMs stored at scan

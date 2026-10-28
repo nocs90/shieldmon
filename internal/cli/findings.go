@@ -109,7 +109,7 @@ func printResults(w io.Writer, results []engine.Result, format string) error {
 
 func (a *app) targetsCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "targets", Short: "Manage monitoring targets"}
-	cmd.AddCommand(a.targetsAddCmd(), a.targetsAddRepoCmd())
+	cmd.AddCommand(a.targetsAddCmd(), a.targetsAddRepoCmd(), a.targetsRetireCmd(true), a.targetsRetireCmd(false))
 	cmd.AddCommand(&cobra.Command{
 		Use:   "list",
 		Short: "List monitoring targets",
@@ -123,9 +123,13 @@ func (a *app) targetsCmd() *cobra.Command {
 				return err
 			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-			fmt.Fprintln(tw, "ID\tREF\tPLATFORM\tDIGEST\tLAST RESOLVED")
+			fmt.Fprintln(tw, "ID\tREF\tPLATFORM\tDIGEST\tLAST RESOLVED\tSTATUS")
 			for _, t := range targets {
-				fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\n", t.ID, t.Ref, t.Platform, shortDigest(t.CurrentDigest), fmtTime(t.LastResolvedAt))
+				status := "monitored"
+				if !t.RetiredAt.IsZero() {
+					status = "retired " + t.RetiredAt.Format(time.DateOnly)
+				}
+				fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\n", t.ID, t.Ref, t.Platform, shortDigest(t.CurrentDigest), fmtTime(t.LastResolvedAt), status)
 			}
 			return tw.Flush()
 		},

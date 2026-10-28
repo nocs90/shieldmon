@@ -53,7 +53,9 @@ type Inventory struct {
 
 // InventorySummary counts images and their evidence gaps.
 type InventorySummary struct {
+	// Targets are the monitored targets; Retired those no longer monitored (ADR 0017).
 	Targets  int            `json:"targets"`
+	Retired  int            `json:"retired"`
 	Digests  int            `json:"digests"`
 	WithGaps int            `json:"with_gaps"`
 	Gaps     map[string]int `json:"gaps"`
@@ -74,6 +76,9 @@ type Image struct {
 	SBOMs          []SBOMInfo     `json:"sboms"`
 	Open           map[string]int `json:"open_by_severity"`
 	Gaps           []string       `json:"gaps"`
+	// RetiredAt is when the image was retired: it is listed, not monitored, and neither its
+	// gaps nor its findings count.
+	RetiredAt time.Time `json:"retired_at,omitzero"`
 }
 
 // ScanInfo is a scan as the inventory shows it.
@@ -128,7 +133,14 @@ func BuildInventory(ctx context.Context, src InventorySource, opts InventoryOpti
 		img := Image{
 			Ref: t.Ref, Platform: t.Platform, Digest: t.CurrentDigest, MonitoredSince: t.CreatedAt,
 			LastResolved: t.LastResolvedAt, DigestChanges: changes[t.ID], SBOMs: []SBOMInfo{}, Open: map[string]int{}, Gaps: []string{},
+			RetiredAt: t.RetiredAt,
 		}
+		if !t.RetiredAt.IsZero() {
+			inv.Summary.Retired++
+			inv.Images = append(inv.Images, img)
+			continue
+		}
+		inv.Summary.Targets++
 		if err := fillEvidence(ctx, src, &img, opts); err != nil {
 			return inv, fmt.Errorf("%s: %w", t.Ref, err)
 		}
@@ -149,7 +161,7 @@ func BuildInventory(ctx context.Context, src InventorySource, opts InventoryOpti
 		}
 		inv.Images = append(inv.Images, img)
 	}
-	inv.Summary.Targets, inv.Summary.Digests = len(targets), len(digests)
+	inv.Summary.Digests = len(digests)
 	sort.SliceStable(inv.Images, func(i, j int) bool {
 		a, b := inv.Images[i], inv.Images[j]
 		if a.Ref != b.Ref {

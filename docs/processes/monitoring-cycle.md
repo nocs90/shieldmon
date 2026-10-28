@@ -17,7 +17,7 @@ registry's provider (registries.md). Both take `--dry-run`.
 | 1 | Schedule check: was the previous cycle on time? | `Engine.Monitor` | `monitor_runs` | `monitor_missed` health finding |
 | 2 | Expire decisions past their date → `reopened` | `store.ExpireDecisions` | `finding_events` | — |
 | 2a | Preflight (only when there are targets): record whether scanners are sandboxed; refresh each matcher's vulnerability DB — the only scanner processes with network, and they never see image content or SBOMs | `Engine.Preflight` | — | `scanner_unsandboxed`; `db_update_failed` (the cycle goes on with the DBs on disk) |
-| 3 | For each target: resolve tag → index → platform manifest digest | `oci.Resolve` | `targets.current_digest`, `target_digests` (on change) | `registry_auth` / `resolve_failed`; target skipped |
+| 3 | For each target not retired (`targets retire`, ADR 0017): resolve tag → index → platform manifest digest | `oci.Resolve` | `targets.current_digest`, `target_digests` (on change) | `registry_auth` / `resolve_failed`; target skipped |
 | 4 | If an SBOM is missing for a required generator: fetch once (limits checked first, digests verified) into a private temp OCI layout | `oci.Fetch` | — | `fetch_failed` / `registry_auth`; scan fails |
 | 5 | Generate SBOMs (syft: CycloneDX + SPDX; trivy: CycloneDX) without network, validate, store with SHA-256; delete the layout | `engine.generate` | `sboms` | `sbom_generator_failed` / `scanner_checksum_mismatch` |
 | 6 | Run each matcher on its own generator's SBOM without network and with the DB read-only; record tool + DB version + DB build time | `scanner.*.Match` | `scans.tools` | `matcher_failed`; scan becomes **partial** |

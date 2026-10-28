@@ -16,7 +16,7 @@ ShieldMon tells people what needs them after each `shieldmon monitor` cycle
 
 A *problem* is followed across digests: when a new digest of a target still has the
 vulnerability, its deadline events are not sent again. Risk-accepted and not-affected
-findings get no deadline events.
+findings get no deadline events, nor do findings whose images are all retired.
 
 ## Channels
 

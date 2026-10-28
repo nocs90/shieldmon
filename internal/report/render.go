@@ -148,6 +148,7 @@ func renderMarkdown(w io.Writer, r Monthly) error {
 		{"MTTR mean / median (days)", fmt.Sprintf("%.1f / %.1f", s.MTTRMeanDays, s.MTTRMedianDays)},
 		{"Open past SLA", strconv.Itoa(s.SLABreaches)},
 		{"Open on CISA KEV", strconv.Itoa(s.KEVOpen)},
+		{"Retired with the image (not counted as open, not fixed)", strconv.Itoa(s.RetiredWithAsset)},
 	} {
 		fmt.Fprintf(b, "| %s | %s |\n", kv[0], kv[1])
 	}

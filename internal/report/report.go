@@ -21,6 +21,8 @@ type Source interface {
 	ListHealth(ctx context.Context, includeResolved bool) ([]store.HealthFinding, error)
 	ListTargets(ctx context.Context) ([]store.Target, error)
 	LatestDecisions(ctx context.Context) (map[int64]store.Decision, error)
+	// LoadScope says when findings were out of scope because their images were retired.
+	LoadScope(ctx context.Context) (store.Scope, error)
 }
 
 // Period is a half-open time interval [Start, End).
@@ -51,6 +53,9 @@ type Summary struct {
 	SLABreaches    int     `json:"sla_breaches"`
 	KEVOpen        int     `json:"kev_open"`
 	WontFixOpen    int     `json:"wont_fix_open"`
+	// RetiredWithAsset counts findings still open whose images were all retired: out of the
+	// open numbers, not fixed (ADR 0017).
+	RetiredWithAsset int `json:"retired_with_asset"`
 }
 
 // Row is one finding as of the end of the period.
@@ -97,6 +102,8 @@ type TargetSummary struct {
 	Open     int            `json:"open"`
 	BySev    map[string]int `json:"open_by_severity"`
 	Breached int            `json:"sla_breaches"`
+	// RetiredAt is when the target was retired, zero while monitored.
+	RetiredAt time.Time `json:"retired_at,omitzero"`
 }
 
 // DayCount is one point of the burndown series.
@@ -107,19 +114,20 @@ type DayCount struct {
 
 // Monthly is the monthly lifecycle report.
 type Monthly struct {
-	Period          Period                `json:"period"`
-	GeneratedAt     time.Time             `json:"generated_at"`
-	SLAProfile      string                `json:"sla_profile"`
-	Targets         int                   `json:"targets"`
-	Summary         Summary               `json:"summary"`
-	OpenBySeverity  map[string]int        `json:"open_by_severity"`
-	Aging           map[string]int        `json:"aging"`
-	Burndown        []DayCount            `json:"burndown"`
-	Open            []Row                 `json:"open"`
-	FixedInPeriod   []Row                 `json:"fixed_in_period"`
-	AcceptedRisks   []Row                 `json:"accepted_risks"`
-	HealthOpen      []store.HealthFinding `json:"health_open"`
-	TargetSummaries []TargetSummary       `json:"target_summaries"`
+	Period           Period                `json:"period"`
+	GeneratedAt      time.Time             `json:"generated_at"`
+	SLAProfile       string                `json:"sla_profile"`
+	Targets          int                   `json:"targets"`
+	Summary          Summary               `json:"summary"`
+	OpenBySeverity   map[string]int        `json:"open_by_severity"`
+	Aging            map[string]int        `json:"aging"`
+	Burndown         []DayCount            `json:"burndown"`
+	Open             []Row                 `json:"open"`
+	FixedInPeriod    []Row                 `json:"fixed_in_period"`
+	AcceptedRisks    []Row                 `json:"accepted_risks"`
+	RetiredWithAsset []Row                 `json:"retired_with_asset"`
+	HealthOpen       []store.HealthFinding `json:"health_open"`
+	TargetSummaries  []TargetSummary       `json:"target_summaries"`
 }
 
 // AgingBuckets are the age buckets for open findings, in days.
@@ -151,10 +159,19 @@ func BuildMonthly(ctx context.Context, src Source, p Period, profile string, sla
 	if err != nil {
 		return r, err
 	}
+	scope, err := src.LoadScope(ctx)
+	if err != nil {
+		return r, err
+	}
 	byTarget := map[string]*TargetSummary{}
 	for _, t := range targets {
 		key := t.Ref + " (" + t.Platform + ")"
-		byTarget[key] = &TargetSummary{Ref: t.Ref, Platform: t.Platform, Digest: t.CurrentDigest, BySev: map[string]int{}}
+		byTarget[key] = &TargetSummary{Ref: t.Ref, Platform: t.Platform, Digest: t.CurrentDigest, BySev: map[string]int{}, RetiredAt: t.RetiredAt}
+	}
+	// open: a finding counts as open at t when its state is active and its images were not
+	// all retired then.
+	open := func(f store.Finding, evs []store.Event, t time.Time) bool {
+		return stateAt(evs, t).Active() && !scope.Retired(f.Digest, t)
 	}
 	withDecision := func(rw Row, f store.Finding) Row {
 		if d, ok := decisions[f.ID]; ok {
@@ -179,7 +196,7 @@ func BuildMonthly(ctx context.Context, src Source, p Period, profile string, sla
 	var mttr []float64
 	for _, f := range findings {
 		evs := byFinding[f.ID]
-		if stateAt(evs, p.Start).Active() {
+		if open(f, evs, p.Start) {
 			r.Summary.OpenAtStart++
 		}
 		for _, e := range evs {
@@ -217,6 +234,9 @@ func BuildMonthly(ctx context.Context, src Source, p Period, profile string, sla
 		}
 		st := stateAt(evs, asOf)
 		switch {
+		case st.Active() && scope.Retired(f.Digest, asOf):
+			r.Summary.RetiredWithAsset++
+			r.RetiredWithAsset = append(r.RetiredWithAsset, withDecision(row(f, st, asOf, sla), f))
 		case st.Active():
 			rw := row(f, st, asOf, sla)
 			r.Summary.OpenAtEnd++
@@ -254,7 +274,7 @@ func BuildMonthly(ctx context.Context, src Source, p Period, profile string, sla
 		}
 		n := 0
 		for _, f := range findings {
-			if stateAt(byFinding[f.ID], eod).Active() {
+			if open(f, byFinding[f.ID], eod) {
 				n++
 			}
 		}
@@ -263,6 +283,7 @@ func BuildMonthly(ctx context.Context, src Source, p Period, profile string, sla
 
 	sortRows(r.Open)
 	sortRows(r.AcceptedRisks)
+	sortRows(r.RetiredWithAsset)
 	slices.SortFunc(r.FixedInPeriod, func(a, b Row) int { return a.ClosedAt.Compare(b.ClosedAt) })
 
 	for _, t := range targets {

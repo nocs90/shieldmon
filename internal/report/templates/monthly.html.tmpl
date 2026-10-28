@@ -110,6 +110,7 @@ footer{margin-top:28px;color:var(--muted);font-size:12px}
       <span>Reopened <b>{{$s.Reopened}}</b></span><span>Withdrawn <b>{{$s.Withdrawn}}</b></span>
       <span>Risk accepted <b>{{$s.RiskAccepted}}</b></span><span>Not affected <b>{{$s.NotAffected}}</b></span>
       <span>Won't fix (open) <b>{{$s.WontFixOpen}}</b></span>
+      {{if $s.RetiredWithAsset}}<span>Retired with the image <b>{{$s.RetiredWithAsset}}</b></span>{{end}}
     </div>
   </div>
 </div>

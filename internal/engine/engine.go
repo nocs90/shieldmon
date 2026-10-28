@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -144,6 +145,9 @@ func (e *Engine) healthy(ctx context.Context, check, subject string) {
 // unchanged tag is therefore a cheap re-match: SBOM-first by construction.
 func (e *Engine) Scan(ctx context.Context, ref string, platform model.Platform) (Result, error) {
 	var res Result
+	if err := e.refuseRetired(ctx, ref, platform); err != nil {
+		return res, err
+	}
 	resolved, err := e.Fetcher.Resolve(ctx, ref, platform)
 	if err != nil {
 		subject := ref
@@ -577,6 +581,8 @@ func (e *Engine) Monitor(ctx context.Context) (MonitorSummary, error) {
 	if err != nil {
 		return sum, err
 	}
+	// Retired targets are not monitored (ADR 0017).
+	targets = slices.DeleteFunc(targets, func(t store.Target) bool { return !t.RetiredAt.IsZero() })
 	// Without targets nothing is matched, so the cycle needs no DB and no network.
 	if len(targets) > 0 {
 		if err := e.Preflight(ctx); err != nil {
@@ -711,9 +717,47 @@ func (e *Engine) PendingNotifications(ctx context.Context) (map[string][]notify.
 }
 
 func (e *Engine) notifyInput(ctx context.Context, since, now time.Time) (notify.Input, error) {
-	in, err := e.Store.NotifyInput(ctx, e.Decisions, since)
+	in, err := e.Store.NotifyInput(ctx, e.Decisions, since, now)
 	in.Now, in.Since, in.DueSoon = now, since, e.DueSoon
 	return in, err
+}
+
+// ErrRetiredTarget is returned when scanning a retired target: restore it first.
+var ErrRetiredTarget = errors.New("target is retired")
+
+// refuseRetired fails before any registry access when (ref, platform) is a retired target.
+func (e *Engine) refuseRetired(ctx context.Context, ref string, platform model.Platform) error {
+	r, err := oci.ParseReference(ref, false)
+	if err != nil {
+		return nil // Resolve reports the invalid reference
+	}
+	targets, err := e.Store.TargetsByRef(ctx, r.Name())
+	if err != nil {
+		return err
+	}
+	for _, t := range targets {
+		if t.Platform == platform.String() && !t.RetiredAt.IsZero() {
+			return fmt.Errorf("%w: %s (%s) since %s; 'shieldmon targets restore %d' to monitor it again",
+				ErrRetiredTarget, t.Ref, t.Platform, t.RetiredAt.Format(time.DateOnly), t.ID)
+		}
+	}
+	return nil
+}
+
+// RetireTarget stops monitoring a target (ADR 0017): recorded with actor and reason, findings
+// unchanged. Health findings about resolving its reference are resolved, since no cycle will
+// check them again.
+func (e *Engine) RetireTarget(ctx context.Context, t store.Target, actor, reason string) error {
+	if err := e.Store.RetireTarget(ctx, t.ID, actor, reason, e.now()); err != nil {
+		return err
+	}
+	e.healthy(ctx, CheckResolve, t.Ref)
+	return nil
+}
+
+// RestoreTarget monitors a retired target again; the next cycle resolves and rescans it.
+func (e *Engine) RestoreTarget(ctx context.Context, t store.Target, actor, reason string) error {
+	return e.Store.RestoreTarget(ctx, t.ID, actor, reason, e.now())
 }
 
 // ActorFromEnv returns a default human actor name for manual transitions.
