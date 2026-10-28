@@ -30,6 +30,39 @@ compliance mode, GCS bucket lock), a WORM share, a ticket or chat message, or th
 report itself — every report carries the chain head it was generated from ("Audit trail
 anchor"), so distributing reports distributes anchors.
 
+## Signing reports and digests
+
+Reports (`report monthly --out`, `report inventory --out`) and digests (`audit digest -o`) are
+plain files written once: sign them with the tool your organization already trusts. ShieldMon
+does not hold signing keys (ADR 0018); a signature makes a distributed report, and the audit
+anchor it carries, attributable and unalterable.
+
+With [minisign](https://jedisct1.github.io/minisign/):
+
+```sh
+minisign -G -p shieldmon.pub -s ~/.minisign/shieldmon.key          # once; publish shieldmon.pub
+minisign -Sm reports/2026-10.html -s ~/.minisign/shieldmon.key -t "ShieldMon report 2026-10"
+minisign -Vm reports/2026-10.html -p shieldmon.pub                  # reports/2026-10.html.minisig next to it
+```
+
+With [cosign](https://docs.sigstore.dev/cosign/signing/signing_with_blobs/), with a key pair:
+
+```sh
+cosign sign-blob --yes --key cosign.key --bundle digest.json.sigstore.json digests/2026-10-28.json
+cosign verify-blob digests/2026-10-28.json --key cosign.pub --bundle digest.json.sigstore.json
+```
+
+or keyless, in CI, bound to the workflow's identity:
+
+```sh
+cosign sign-blob --yes --bundle report.sigstore.json reports/2026-10.html
+cosign verify-blob reports/2026-10.html --bundle report.sigstore.json \
+  --certificate-identity "https://github.com/acme/conmon/.github/workflows/report.yml@refs/heads/main" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Sign the exact file you distribute: rendering again later gives a different generation time.
+
 ## When verification fails
 
 | Problem | Meaning |

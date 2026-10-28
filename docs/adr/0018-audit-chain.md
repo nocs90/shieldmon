@@ -44,8 +44,11 @@
 6. **Verification is scheduled**, not optional: `monitor` verifies the chain every
    `health.audit_verify_interval` (default 24h) and opens an `audit_chain_broken` health
    finding on failure.
-7. **Signing** of exported reports and digests is a separate step (minisign-compatible
-   Ed25519 through a maintained library, never a hand-written format).
+7. **Signing** of exported reports and digests is done with the organization's tools
+   (minisign, cosign: documented in docs/processes/audit.md). ShieldMon holds no signing
+   key and adds no cryptographic dependency for it; native signing, if ever needed, uses a
+   maintained library with interoperability tests against the real tools in CI, never a
+   hand-written format.
 
 ## Consequences
 
