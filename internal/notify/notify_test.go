@@ -120,8 +120,8 @@ func TestNewChannelsValidates(t *testing.T) {
 		t.Errorf("an unset credential variable must be named: %v", err)
 	}
 	chs, err := notify.NewChannels([]notify.ChannelConfig{{Name: "local", Notifier: "test-json", Options: map[string]any{"url": "http://127.0.0.1:8080/x"}}}, notify.Spec{Env: env})
-	if err != nil || !reflect.DeepEqual(chs[0].Kinds, notify.Kinds) {
-		t.Errorf("http to loopback is allowed and a channel without events gets every kind: %v %+v", err, chs)
+	if err != nil || !reflect.DeepEqual(chs[0].Kinds, notify.DefaultKinds) {
+		t.Errorf("http to loopback is allowed and a channel without events gets the alerts: %v %+v", err, chs)
 	}
 }
 
@@ -263,7 +263,7 @@ func TestMessageText(t *testing.T) {
 	if s := (notify.Message{Events: ev[:1]}).Subject(); !strings.HasPrefix(s, "ShieldMon: New known exploited vulnerability: CVE-2024-3094 in xz-libs") {
 		t.Errorf("subject = %q", s)
 	}
-	if s := (notify.Message{Digest: true, Events: ev}).Subject(); s != "ShieldMon digest: 1 finding new kev, 1 sla breached, 1 health opened" {
+	if s := (notify.Message{Digest: true, Events: ev}).Subject(); s != "ShieldMon digest: 1 finding new kev, 1 sla breached, 1 health opened, 1 finding fixed" {
 		t.Errorf("digest subject = %q", s)
 	}
 	if got := notify.Clean("a\r\nb\u202ec"+strings.Repeat("x", 10), 8); got != `a\u000d\u000ab\u202ecxx…` {
@@ -272,5 +272,30 @@ func TestMessageText(t *testing.T) {
 	lines := ev[1].Lines()
 	if !strings.Contains(strings.Join(lines, "\n"), "Remediation due: 2026-10-31") {
 		t.Errorf("SLA events give the deadline: %q", lines)
+	}
+}
+
+func TestCollectFixed(t *testing.T) {
+	const prod = "registry.test/app:prod (linux/amd64)"
+	fixed := func(id int64, closed time.Time) notify.Fixed {
+		return notify.Fixed{Finding: notify.Finding{ID: id, VulnID: "CVE-1", Targets: []string{prod}, State: "fixed"}, Lineage: id, ClosedAt: closed}
+	}
+	other := active(9, 9, "high", false, true, since.Add(-time.Hour), time.Time{})
+	other.VulnID, other.Targets = "CVE-1", []string{prod}
+	in := notify.Input{Now: now, Since: since, Fixed: []notify.Fixed{fixed(1, now), fixed(2, since.Add(-time.Second))}, Active: []notify.Active{other}}
+	got := notify.Collect(in)
+	if len(got) != 1 || got[0].Key != "finding_fixed:1" || got[0].Remaining != 1 {
+		t.Fatalf("fixed since the previous cycle, with what is left of the vulnerability on its targets: %+v", got)
+	}
+	if first := notify.Collect(notify.Input{Now: now, Fixed: in.Fixed}); len(first) != 0 {
+		t.Error("the first cycle reports the state, not fixes from history")
+	}
+	// Next cycle: the other package is fixed too; then the problem comes back.
+	if cur := notify.Current(got, notify.Input{}); len(cur) != 1 || cur[0].Remaining != 0 {
+		t.Errorf("remaining is recomputed: %+v", cur)
+	}
+	back := active(5, 1, "critical", false, false, now, time.Time{})
+	if cur := notify.Current(got, notify.Input{Active: []notify.Active{back}}); len(cur) != 0 {
+		t.Error("a fix whose problem came back is stale news")
 	}
 }

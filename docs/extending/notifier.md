@@ -63,6 +63,11 @@ func init() {
 }
 ```
 
+A notifier that only makes sense for some events declares them: `Kinds` (a channel listing
+another kind is refused), `Defaults` (what a channel listing none receives, instead of
+`notify.DefaultKinds`), and `NoDigest` for notifiers that act on each event, such as issue
+trackers.
+
 Configuration selects it per channel:
 
 ```yaml

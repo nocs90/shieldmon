@@ -24,7 +24,11 @@
      carried-over problem), critical or in CISA KEV; KEV wins when both;
    - `sla_due_soon` (within `notifications.due_soon_days`, default 7) and `sla_breached`:
      active findings by their remediation deadline (ADR 0010);
-   - `health_opened`: health findings open since the cycle began.
+   - `health_opened`: open health findings;
+   - `finding_fixed`: findings closed as fixed by scan evidence since the previous cycle
+     began. Opt-in: a channel that lists no events gets the alerts above; a notifier may
+     declare the kinds it handles and its defaults (issue trackers: the finding events, fixes
+     included) and refuse digest mode.
 3. **Sent once.** Each event has a key: the finding for new findings; the problem's lineage
    (package, vulnerability, first detection) for SLA events, so that a successor digest does
    not repeat them; the check, subject and opening time for health. `notifications`
@@ -44,6 +48,11 @@
    the signature or token elsewhere), time out, and discard response bodies beyond a bound.
    Built in: `webhook` (HMAC-SHA256 over timestamp and body) and `smtp` (STARTTLS required,
    no plaintext fallback); adapters: Slack, Mattermost, Matrix, GitLab and GitHub issues.
+8. **Issue trackers** keep one issue per target and vulnerability, found again by a marker
+   at the start of its description (no local state): opened or commented on news, reopened
+   when a problem comes back, closed only on `finding_fixed` with nothing of the
+   vulnerability left on the target. ShieldMon's lifecycle stays the source of truth: issue
+   state never flows back.
 
 ## Consequences
 

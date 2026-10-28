@@ -2,6 +2,7 @@ package notify
 
 import (
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -17,6 +18,15 @@ type Input struct {
 	Active []Active
 	// Health are the open health findings.
 	Health []Health
+	// Fixed are findings closed as fixed, with the targets of the scan that gave the evidence.
+	Fixed []Fixed
+}
+
+// Fixed is a finding closed as fixed by scan evidence.
+type Fixed struct {
+	Finding
+	Lineage  int64
+	ClosedAt time.Time
 }
 
 // Active is an active finding with its place in its lineage (the same problem followed across
@@ -35,9 +45,19 @@ type Active struct {
 //   - finding_new_kev, finding_new_critical: a finding created since the previous cycle,
 //     not carried over, in CISA KEV or critical (KEV wins: one event per finding);
 //   - sla_breached, sla_due_soon: per lineage and deadline;
-//   - health_opened: per health finding and opening.
+//   - health_opened: per health finding and opening;
+//   - finding_fixed: a finding closed as fixed since the previous cycle began (none in the
+//     first cycle, which reports the state rather than history).
 func Collect(in Input) []Event {
 	var out []Event
+	for _, x := range in.Fixed {
+		if in.Since.IsZero() || x.ClosedAt.Before(in.Since) {
+			continue
+		}
+		f := x.Finding
+		f.Lineage = x.Lineage
+		out = append(out, Event{Key: fmt.Sprintf("finding_fixed:%d", f.ID), Kind: FindingFixed, Finding: &f, Remaining: remaining(f, in.Active)})
+	}
 	for _, a := range in.Active {
 		f := a.Finding
 		f.Lineage = a.Lineage
@@ -70,6 +90,17 @@ func healthKey(h Health) string {
 	return fmt.Sprintf("health:%s:%s:%s", h.Check, h.Subject, h.FirstSeen.UTC().Format(time.RFC3339Nano))
 }
 
+// remaining counts the active findings with f's vulnerability on one of f's targets.
+func remaining(f Finding, active []Active) int {
+	n := 0
+	for _, a := range active {
+		if a.VulnID == f.VulnID && slices.ContainsFunc(a.Targets, func(t string) bool { return slices.Contains(f.Targets, t) }) {
+			n++
+		}
+	}
+	return n
+}
+
 // Current keeps the pending events that still describe the state, with their finding
 // refreshed (targets, state, fix versions may have changed since the event was recorded):
 // a finding event while its lineage is active, a health event while that health finding is
@@ -88,6 +119,11 @@ func Current(pending []Event, in Input) []Event {
 	var out []Event
 	for _, e := range pending {
 		switch {
+		case e.Kind == FindingFixed && e.Finding != nil:
+			if _, reopened := lineages[e.Finding.Lineage]; reopened {
+				continue
+			}
+			e.Remaining = remaining(*e.Finding, in.Active)
 		case e.Finding != nil:
 			f, ok := lineages[e.Finding.Lineage]
 			if !ok {

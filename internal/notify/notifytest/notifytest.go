@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -62,12 +63,19 @@ func HostileEvents() []notify.Event {
 		{Key: "health:registry_auth:ghcr.io:2026-10-01T09:00:00Z", Kind: notify.HealthOpened, Health: &notify.Health{
 			Check: "registry_auth", Subject: "ghcr.io" + evil, Severity: "high", Detail: "401 Unauthorized" + evil, FirstSeen: first,
 		}},
+		// The first event's problem, fixed: an issue tracker closes what it opened for it.
+		{Key: "finding_fixed:1", Kind: notify.FindingFixed, Finding: &notify.Finding{
+			ID: 1, Lineage: 1, VulnID: "CVE-2024-3094", Title: "xz backdoor" + evil, Severity: "critical", KEV: true,
+			Package: "xz-libs" + evil, Version: "5.6.0", PURL: "pkg:rpm/xz-libs@5.6.0", Digest: "sha256:aaaa",
+			Targets: []string{"registry.test/app:prod" + evil}, State: "fixed", FirstDetected: first,
+		}},
 	}
 }
 
-// CheckNotifier verifies a notifier's contract: registration, one message per event and
-// digests delivered with every event, hostile text neutralised, test messages, cancellation,
-// timeouts, failures reported without credentials, no redirect followed.
+// CheckNotifier verifies a notifier's contract: registration, each event of the kinds it
+// handles delivered and digests with every event (unless it refuses digests), hostile text
+// neutralised, test messages accepted, cancellation, timeouts, failures reported without
+// credentials, no redirect followed.
 func CheckNotifier(t *testing.T, f Fixture) {
 	t.Helper()
 	p, ok := notify.LookupNotifier(f.Name)
@@ -89,39 +97,56 @@ func CheckNotifier(t *testing.T, f Fixture) {
 
 	ctx := context.Background()
 	now := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
-	events := HostileEvents()
-	before := len(f.Received())
-	for _, e := range events {
-		if err := f.Notifier.Send(ctx, notify.Message{Channel: "kit", Events: []notify.Event{e}, SentAt: now}); err != nil {
-			t.Fatalf("send %s: %v", e.Kind, err)
+	var events []notify.Event
+	for _, e := range HostileEvents() {
+		if p.Kinds == nil || slices.Contains(p.Kinds, e.Kind) {
+			events = append(events, e)
 		}
 	}
-	if err := f.Notifier.Send(ctx, notify.Message{Channel: "kit", Digest: true, Events: events, SentAt: now}); err != nil {
-		t.Fatalf("send digest: %v", err)
+	if len(events) == 0 {
+		t.Fatalf("notifier %q handles none of the kit's event kinds", f.Name)
+	}
+	// send sends m and returns what the endpoint received because of it.
+	var all []string
+	send := func(what string, m notify.Message) string {
+		t.Helper()
+		before := len(f.Received())
+		if err := f.Notifier.Send(ctx, m); err != nil {
+			t.Fatalf("send %s: %v", what, err)
+		}
+		got := f.Received()[before:]
+		if len(got) == 0 {
+			t.Fatalf("send %s: the endpoint received nothing", what)
+		}
+		all = append(all, got...)
+		return strings.Join(got, "\n")
+	}
+	mentions := func(payload string, e notify.Event) bool {
+		switch {
+		case e.Finding != nil:
+			return strings.Contains(payload, e.Finding.VulnID)
+		case e.Health != nil:
+			return strings.Contains(payload, e.Health.Check)
+		}
+		return strings.Contains(payload, e.Key)
+	}
+	for _, e := range events {
+		if got := send(string(e.Kind), notify.Message{Channel: "kit", Events: []notify.Event{e}, SentAt: now}); !mentions(got, e) {
+			t.Errorf("the payload for %s does not mention its subject", e.Kind)
+		}
+	}
+	if !p.NoDigest {
+		got := send("digest", notify.Message{Channel: "kit", Digest: true, Events: events, SentAt: now})
+		for _, e := range events {
+			if !mentions(got, e) {
+				t.Errorf("the digest does not mention %s", e.Key)
+			}
+		}
 	}
 	if err := f.Notifier.Send(ctx, notify.Message{Channel: "kit", Test: true, SentAt: now}); err != nil {
 		t.Fatalf("send test message: %v", err)
 	}
-	got := f.Received()[before:]
-	if len(got) < len(events)+2 {
-		t.Fatalf("the endpoint received %d payloads, want at least %d (one per message)", len(got), len(events)+2)
-	}
-	for i, e := range events {
-		id := e.Key
-		switch {
-		case e.Finding != nil:
-			id = e.Finding.VulnID
-		case e.Health != nil:
-			id = e.Health.Check
-		}
-		if !strings.Contains(got[i], id) {
-			t.Errorf("payload for %s does not mention %s", e.Kind, id)
-		}
-		if !strings.Contains(got[len(events)], id) {
-			t.Errorf("the digest does not mention %s", id)
-		}
-	}
-	for i, payload := range got {
+	for i, payload := range all {
 		for line := range strings.Lines(payload) {
 			if strings.TrimSpace(line) == Injected {
 				t.Errorf("payload %d: hostile text injected a line %q", i, Injected)

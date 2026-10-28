@@ -671,7 +671,7 @@ func (a *app) pluginsCmd() *cobra.Command {
 				if len(n.Options) > 0 {
 					opts = " (options: " + strings.Join(n.Options, ", ") + ")"
 				}
-				fmt.Fprintf(w, "  %-10s %s%s\n", n.Name, n.Description, opts)
+				fmt.Fprintf(w, "  %-14s %s%s\n", n.Name, n.Description, opts)
 			}
 			fmt.Fprintln(w, "Sandbox backends:")
 			for _, b := range scanner.SandboxBackends() {

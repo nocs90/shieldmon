@@ -71,18 +71,19 @@ func Request(ctx context.Context, c *http.Client, method string, u *url.URL, con
 
 // Do sends req and checks the answer is 2xx, with the error discipline of Post.
 func Do(c *http.Client, req *http.Request) error {
-	_, err := DoRead(c, req, 0)
+	_, _, err := DoRead(c, req, 0)
 	return err
 }
 
-// DoRead is Do returning up to limit bytes of the answer's body (0: discard it).
-func DoRead(c *http.Client, req *http.Request, limit int64) ([]byte, error) {
+// DoRead is Do returning up to limit bytes of the answer's body (0: discard it) and its
+// headers.
+func DoRead(c *http.Client, req *http.Request, limit int64) ([]byte, http.Header, error) {
 	resp, err := c.Do(req) //nolint:gosec // G704: the endpoint is the operator's configured URL (ParseURL), not request input
 	if err != nil {
 		if ctxErr := req.Context().Err(); ctxErr != nil {
-			return nil, fmt.Errorf("%s %s: %w", req.Method, req.URL.Host, ctxErr)
+			return nil, nil, fmt.Errorf("%s %s: %w", req.Method, req.URL.Host, ctxErr)
 		}
-		return nil, fmt.Errorf("%s %s: %s", req.Method, req.URL.Host, transportError(err))
+		return nil, nil, fmt.Errorf("%s %s: %s", req.Method, req.URL.Host, transportError(err))
 	}
 	defer resp.Body.Close()
 	var body []byte
@@ -95,13 +96,13 @@ func DoRead(c *http.Client, req *http.Request, limit int64) ([]byte, error) {
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBytes))
 	switch {
 	case resp.StatusCode >= 300 && resp.StatusCode < 400:
-		return nil, fmt.Errorf("%s %s: answered %s; redirects are not followed", req.Method, req.URL.Host, resp.Status)
+		return nil, nil, fmt.Errorf("%s %s: answered %s; redirects are not followed", req.Method, req.URL.Host, resp.Status)
 	case resp.StatusCode < 200 || resp.StatusCode > 299:
-		return nil, fmt.Errorf("%s %s: answered %s", req.Method, req.URL.Host, resp.Status)
+		return nil, nil, fmt.Errorf("%s %s: answered %s", req.Method, req.URL.Host, resp.Status)
 	case err != nil:
-		return nil, fmt.Errorf("%s %s: %w", req.Method, req.URL.Host, err)
+		return nil, nil, fmt.Errorf("%s %s: %w", req.Method, req.URL.Host, err)
 	}
-	return body, nil
+	return body, resp.Header, nil
 }
 
 // transportError describes a transport failure without the URL, which *url.Error includes.

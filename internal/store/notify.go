@@ -14,52 +14,93 @@ import (
 	"github.com/nocs90/shieldmon/internal/notify"
 )
 
-// NotifyInput returns the active findings, with their lineage and remediation deadline under
-// policy p, and the open health findings: what notify.Collect computes events from
-// (docs/adr/0015-notifications.md).
-func (s *Store) NotifyInput(ctx context.Context, p lifecycle.Policy) ([]notify.Active, []notify.Health, error) {
-	rows, err := s.db.QueryContext(ctx, `WITH RECURSIVE lineage (id, root) AS (
-			SELECT id, id FROM findings WHERE predecessor_id IS NULL
-			UNION ALL
-			SELECT f.id, l.root FROM findings f JOIN lineage l ON f.predecessor_id = l.id
-		)
-		SELECT `+findingCols+`, l.root FROM findings f JOIN lineage l ON l.id = f.id
+const lineageCTE = `WITH RECURSIVE lineage (id, root) AS (
+		SELECT id, id FROM findings WHERE predecessor_id IS NULL
+		UNION ALL
+		SELECT f.id, l.root FROM findings f JOIN lineage l ON f.predecessor_id = l.id
+	) `
+
+// NotifyInput returns what notify.Collect computes events from (docs/adr/0015-
+// notifications.md): the active findings, with their lineage and remediation deadline under
+// policy p; the open health findings; the findings closed as fixed since since, with the
+// targets of the scans that gave the evidence. The caller sets the times.
+func (s *Store) NotifyInput(ctx context.Context, p lifecycle.Policy, since time.Time) (notify.Input, error) {
+	var in notify.Input
+	rows, err := s.db.QueryContext(ctx, lineageCTE+`SELECT `+findingCols+`, l.root FROM findings f JOIN lineage l ON l.id = f.id
 		WHERE f.state IN (?, ?, ?, ?) ORDER BY f.id`,
 		model.StateOpen, model.StateTriaged, model.StateInRemediation, model.StateReopened)
 	if err != nil {
-		return nil, nil, err
+		return in, err
 	}
 	defer rows.Close()
-	var active []notify.Active
 	for rows.Next() {
 		var root int64
 		f, err := scanFinding(withExtra{rows, []any{&root}})
 		if err != nil {
-			return nil, nil, err
+			return in, err
 		}
-		active = append(active, notify.Active{
-			Finding: notify.Finding{
-				ID: f.ID, Lineage: root, VulnID: f.VulnID, Aliases: f.Aliases, Title: f.Title, Severity: f.Severity.String(),
-				KEV: f.KEV, CVSS: f.CVSSScore, EPSS: f.EPSS, Package: f.PkgName, Version: f.PkgVersion, PURL: f.PURL,
-				FixVersions: f.FixVersions, Digest: f.Digest, Targets: f.Targets, State: string(f.State),
-				FirstDetected: f.FirstDetected,
-				SLADue:        p.SLADue(lifecycle.Subject{Severity: f.Severity, FirstDetected: f.FirstDetected}),
-			},
-			Lineage: root, CreatedAt: f.CreatedAt, Carried: f.PredecessorID != 0,
-		})
+		nf := notifyFinding(f, root)
+		nf.SLADue = p.SLADue(lifecycle.Subject{Severity: f.Severity, FirstDetected: f.FirstDetected})
+		in.Active = append(in.Active, notify.Active{Finding: nf, Lineage: root, CreatedAt: f.CreatedAt, Carried: f.PredecessorID != 0})
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, err
+		return in, err
 	}
 	hs, err := s.ListHealth(ctx, false)
 	if err != nil {
-		return nil, nil, err
+		return in, err
 	}
-	health := make([]notify.Health, 0, len(hs))
 	for _, h := range hs {
-		health = append(health, notify.Health{Check: h.Check, Subject: h.Subject, Severity: h.Severity, Detail: h.Detail, FirstSeen: h.FirstSeen})
+		in.Health = append(in.Health, notify.Health{Check: h.Check, Subject: h.Subject, Severity: h.Severity, Detail: h.Detail, FirstSeen: h.FirstSeen})
 	}
-	return active, health, nil
+	in.Fixed, err = s.fixedSince(ctx, since)
+	return in, err
+}
+
+// fixedSince returns the findings closed as fixed at or after since, with the targets of the
+// scans whose evidence closed them.
+func (s *Store) fixedSince(ctx context.Context, since time.Time) ([]notify.Fixed, error) {
+	// closed_at is compared as text only to narrow the rows, a second early (RFC 3339 strings
+	// with fractional seconds do not sort as text within a second, #67); exactly in Go.
+	rows, err := s.db.QueryContext(ctx, lineageCTE+`SELECT `+findingCols+`, l.root,
+			(SELECT group_concat(DISTINCT t.ref || ' (' || t.platform || ')') FROM finding_events e
+			 JOIN scans sc ON sc.id = e.scan_id JOIN targets t ON t.id = sc.target_id
+			 WHERE e.finding_id = f.id AND e.to_state = ?)
+		FROM findings f JOIN lineage l ON l.id = f.id
+		WHERE f.state = ? AND f.closed_at >= ? ORDER BY f.id`,
+		model.StateFixed, model.StateFixed, ts(since.Add(-time.Second).Truncate(time.Second)))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []notify.Fixed
+	for rows.Next() {
+		var root int64
+		var targets sql.NullString
+		f, err := scanFinding(withExtra{rows, []any{&root, &targets}})
+		if err != nil {
+			return nil, err
+		}
+		if f.ClosedAt.Before(since) {
+			continue
+		}
+		nf := notifyFinding(f, root)
+		nf.Targets = nil
+		if targets.String != "" {
+			nf.Targets = strings.Split(targets.String, ",")
+		}
+		out = append(out, notify.Fixed{Finding: nf, Lineage: root, ClosedAt: f.ClosedAt})
+	}
+	return out, rows.Err()
+}
+
+func notifyFinding(f Finding, lineage int64) notify.Finding {
+	return notify.Finding{
+		ID: f.ID, Lineage: lineage, VulnID: f.VulnID, Aliases: f.Aliases, Title: f.Title, Severity: f.Severity.String(),
+		KEV: f.KEV, CVSS: f.CVSSScore, EPSS: f.EPSS, Package: f.PkgName, Version: f.PkgVersion, PURL: f.PURL,
+		FixVersions: f.FixVersions, Digest: f.Digest, Targets: f.Targets, State: string(f.State),
+		FirstDetected: f.FirstDetected,
+	}
 }
 
 // withExtra scans the finding columns followed by extra columns.

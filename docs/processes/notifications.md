@@ -12,6 +12,7 @@ ShieldMon tells people what needs them after each `shieldmon monitor` cycle
 | `sla_breached` | an active finding (open, triaged, in remediation, reopened) past its remediation deadline | problem and deadline |
 | `sla_due_soon` | an active finding within `notifications.due_soon_days` (default 7) of its deadline | problem and deadline |
 | `health_opened` | an open health finding | health finding and opening |
+| `finding_fixed` | a finding closed as fixed by scan evidence since the previous cycle began (not in the first cycle); opt-in, except for issue trackers | finding |
 
 A *problem* is followed across digests: when a new digest of a target still has the
 vulnerability, its deadline events are not sent again. Risk-accepted and not-affected
@@ -25,7 +26,7 @@ notifications:
   channels:
     - name: secops                 # lowercase letters, digits, - and _
       notifier: <name>             # 'shieldmon plugins' lists the notifiers
-      events: [finding_new_kev, finding_new_critical, sla_breached, health_opened]  # default: all
+      events: [finding_new_kev, finding_new_critical, sla_breached, health_opened]  # default: all but finding_fixed
       digest: false                # true: one summary per cycle
       options: { … }               # per notifier; credentials only through *_env options
 ```
@@ -128,6 +129,42 @@ Messages carry an empty `m.mentions` (they mention nobody, whatever the text), a
 with everything escaped, and the delivery ID as transaction ID: a retry of the same events
 is deduplicated by the homeserver. Encrypted rooms are not supported; use a room without
 end-to-end encryption, restricted to the people who should see findings.
+
+### `github-issues`, `gitlab-issues`
+
+One issue per **target and vulnerability**, kept in step with the findings:
+
+```yaml
+- name: app-issues
+  notifier: github-issues               # or gitlab-issues
+  options:
+    repo: acme/app                      # gitlab-issues: project: acme/platform/app (or its ID)
+    api_url: https://api.github.com     # GitHub Enterprise: https://ghe.example.com/api/v3;
+                                        # gitlab-issues: https://gitlab.com or self-managed
+    token_env: SHIELDMON_GITHUB_TOKEN   # GitHub: fine-grained token, Issues read/write on the
+                                        # repository; GitLab: project access token, api scope,
+                                        # Reporter role
+    labels: [security]                  # added to "shieldmon"
+```
+
+| Event | Effect |
+|---|---|
+| `finding_new_kev`, `finding_new_critical` | open an issue for each of the finding's targets, or comment on the existing one; reopen it if closed (the problem is back) |
+| `sla_due_soon`, `sla_breached` | the same: open, or comment with the deadline |
+| `finding_fixed` | comment; close the issue when no package of the target has the vulnerability any more |
+
+- Issues are only ever opened by a channel configured this way; trackers default to the
+  events above (`health_opened` and `digest` do not apply).
+- An issue is closed only when ShieldMon closes the finding by **scan evidence**. Risk
+  acceptances and VEX statements do not close it (record them with `shieldmon findings` /
+  `shieldmon vex`); closing the issue by hand does not change the finding, and a later event
+  about the problem reopens it.
+- ShieldMon reads and changes only issues labelled `shieldmon` whose description starts with
+  its group marker (`<!-- shieldmon:group=… -->`); it lists them once per cycle and refuses to
+  act beyond 2,000 of them rather than risk duplicates. Anyone who can label issues can make
+  one look managed: keep labelling to maintainers.
+- Package names and titles go in code blocks: no mention, reference or markup from scanner
+  output applies.
 
 ## Failures
 

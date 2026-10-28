@@ -711,8 +711,9 @@ func (e *Engine) PendingNotifications(ctx context.Context) (map[string][]notify.
 }
 
 func (e *Engine) notifyInput(ctx context.Context, since, now time.Time) (notify.Input, error) {
-	active, health, err := e.Store.NotifyInput(ctx, e.Decisions)
-	return notify.Input{Now: now, Since: since, DueSoon: e.DueSoon, Active: active, Health: health}, err
+	in, err := e.Store.NotifyInput(ctx, e.Decisions, since)
+	in.Now, in.Since, in.DueSoon = now, since, e.DueSoon
+	return in, err
 }
 
 // ActorFromEnv returns a default human actor name for manual transitions.

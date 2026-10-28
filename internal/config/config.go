@@ -310,7 +310,8 @@ registries: []
 
 # Notifications after each 'shieldmon monitor' cycle (docs/processes/notifications.md).
 # Events: finding_new_kev, finding_new_critical, sla_breached, sla_due_soon, health_opened
-# (all when events is omitted). Each event reaches a channel once; digest: true sends one
+# (all of these when events is omitted), and finding_fixed (opt-in; github-issues and
+# gitlab-issues default to it). Each event reaches a channel once; digest: true sends one
 # summary per cycle. 'shieldmon plugins' lists the notifiers and their options; options
 # never hold a credential: they name environment variables (*_env).
 notifications:

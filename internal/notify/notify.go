@@ -30,10 +30,16 @@ const (
 	SLABreached        Kind = "sla_breached"
 	SLADueSoon         Kind = "sla_due_soon"
 	HealthOpened       Kind = "health_opened"
+	// FindingFixed is good news, and what lets an issue tracker close its issue: opt-in.
+	FindingFixed Kind = "finding_fixed"
 )
 
 // Kinds lists every kind, most urgent first: the order of events in a message.
-var Kinds = []Kind{FindingNewKEV, FindingNewCritical, SLABreached, SLADueSoon, HealthOpened}
+var Kinds = []Kind{FindingNewKEV, FindingNewCritical, SLABreached, SLADueSoon, HealthOpened, FindingFixed}
+
+// DefaultKinds are what a channel that lists no events receives (unless its notifier says
+// otherwise): the alerts.
+var DefaultKinds = []Kind{FindingNewKEV, FindingNewCritical, SLABreached, SLADueSoon, HealthOpened}
 
 // ParseKind validates a kind name.
 func ParseKind(v string) (Kind, error) {
@@ -58,6 +64,8 @@ func (k Kind) Summary() string {
 		return "Remediation deadline approaching"
 	case HealthOpened:
 		return "Monitoring problem"
+	case FindingFixed:
+		return "Vulnerability fixed"
 	}
 	return string(k)
 }
@@ -101,6 +109,9 @@ type Event struct {
 	Kind    Kind     `json:"kind"`
 	Finding *Finding `json:"finding,omitempty"`
 	Health  *Health  `json:"health,omitempty"`
+	// Remaining is, for finding_fixed, how many active findings still have the vulnerability
+	// on the finding's targets (in other packages): 0 means it is gone from them.
+	Remaining int `json:"remaining,omitempty"`
 }
 
 // Title is a one-line description of the event (unescaped: notifiers escape for their
@@ -147,6 +158,13 @@ func (e Event) Lines() []string {
 		out = append(out, "First detected: "+day(f.FirstDetected))
 		if !f.SLADue.IsZero() {
 			out = append(out, "Remediation due: "+day(f.SLADue))
+		}
+		if e.Kind == FindingFixed {
+			if e.Remaining > 0 {
+				out = append(out, fmt.Sprintf("Still present in %d other package(s) of the image", e.Remaining))
+			} else {
+				out = append(out, "No longer present in the image: closed by scan evidence")
+			}
 		}
 		out = append(out, fmt.Sprintf("Finding #%d (state %s): shieldmon findings show %d", f.ID, f.State, f.ID))
 	}
@@ -209,7 +227,14 @@ type Plugin struct {
 	Description string
 	// Options lists the keys accepted under notifications.channels[].options.
 	Options []string
-	New     func(Spec) (Notifier, error)
+	// Kinds are the event kinds the notifier handles; nil for every kind. A channel that
+	// lists another kind is refused.
+	Kinds []Kind
+	// Defaults are what a channel that lists no events receives; nil for DefaultKinds.
+	Defaults []Kind
+	// NoDigest marks notifiers that act on each event (issue trackers): digest is refused.
+	NoDigest bool
+	New      func(Spec) (Notifier, error)
 }
 
 // Spec is what a notifier receives at construction time.
@@ -399,13 +424,23 @@ func NewChannels(cfgs []ChannelConfig, base Spec) ([]Channel, error) {
 		if !ok {
 			return nil, fmt.Errorf("%s: unknown notifier %q (registered: %s)", where, c.Notifier, notifierNames())
 		}
-		kinds := slices.Clone(Kinds)
+		if c.Digest && p.NoDigest {
+			return nil, fmt.Errorf("%s: notifier %s acts on each event: digest does not apply", where, c.Notifier)
+		}
+		kinds := p.Defaults
+		if kinds == nil {
+			kinds = DefaultKinds
+		}
+		kinds = slices.DeleteFunc(slices.Clone(kinds), func(k Kind) bool { return p.Kinds != nil && !slices.Contains(p.Kinds, k) })
 		if len(c.Events) > 0 {
 			kinds = nil
 			for _, ev := range c.Events {
 				k, err := ParseKind(ev)
 				if err != nil {
 					return nil, fmt.Errorf("%s.events: %w", where, err)
+				}
+				if p.Kinds != nil && !slices.Contains(p.Kinds, k) {
+					return nil, fmt.Errorf("%s.events: notifier %s does not handle %s", where, c.Notifier, k)
 				}
 				if !slices.Contains(kinds, k) {
 					kinds = append(kinds, k)

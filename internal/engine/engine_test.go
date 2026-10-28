@@ -747,10 +747,11 @@ func TestNotificationsAfterMonitor(t *testing.T) {
 	h.eng.DueSoon = 7 * 24 * time.Hour
 	// No scanner_unsandboxed or monitor_missed health finding in this scenario.
 	h.eng.Sandboxed, h.eng.MonitorInterval = true, 0
-	all, dig := &recordingNotifier{}, &recordingNotifier{}
+	all, dig, fixes := &recordingNotifier{}, &recordingNotifier{}, &recordingNotifier{}
 	h.eng.Channels = []notify.Channel{
-		{Name: "all", Kinds: notify.Kinds, Sender: all},
+		{Name: "all", Kinds: notify.DefaultKinds, Sender: all},
 		{Name: "dig", Kinds: []notify.Kind{notify.FindingNewKEV, notify.HealthOpened}, Digest: true, Sender: dig},
+		{Name: "fixes", Kinds: []notify.Kind{notify.FindingFixed}, Sender: fixes},
 	}
 	xz := vuln("xz-libs", "5.6.0", "CVE-2024-3094", model.SeverityCritical, "5.6.1")
 	xz.KEV = true
@@ -828,7 +829,7 @@ func TestNotificationsAfterMonitor(t *testing.T) {
 	// Day 31: the day-0 deadlines passed, curl's is due soon. A channel added now hears only
 	// from now on: no backlog of the due-soon events sent before.
 	late := &recordingNotifier{}
-	h.eng.Channels = append(h.eng.Channels, notify.Channel{Name: "late", Kinds: notify.Kinds, Sender: late})
+	h.eng.Channels = append(h.eng.Channels, notify.Channel{Name: "late", Kinds: notify.DefaultKinds, Sender: late})
 	h.advance(7 * 24 * time.Hour)
 	if pending, err := h.eng.PendingNotifications(h.ctx); err != nil || len(pending["all"]) != 3 || len(pending["late"]) != 3 {
 		t.Fatalf("preview shows what the cycle will send: %v %+v", err, pending)
@@ -853,5 +854,19 @@ func TestNotificationsAfterMonitor(t *testing.T) {
 	h.monitor()
 	if got := all.sent()[sent:]; len(got) != 0 {
 		t.Fatalf("nothing about fixed problems: %q", got)
+	}
+
+	// Only a channel that asks for finding_fixed hears of the fixes, with the target whose
+	// scan gave the evidence and nothing of the vulnerability left in it.
+	got := fixes.sent()
+	slices.Sort(got)
+	if !slices.Equal(got, []string{"finding_fixed CVE-2023-45853", "finding_fixed CVE-2024-2398", "finding_fixed CVE-2024-3094"}) {
+		t.Fatalf("fixes got %q", got)
+	}
+	for _, m := range fixes.msgs {
+		e := m.Events[0]
+		if e.Remaining != 0 || !slices.Equal(e.Finding.Targets, []string{ref + " (linux/amd64)"}) || e.Finding.State != "fixed" {
+			t.Errorf("fixed event %+v %+v", e, e.Finding)
+		}
 	}
 }
