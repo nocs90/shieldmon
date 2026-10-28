@@ -44,7 +44,7 @@ not be falsifiable.
 | **E**levation of privilege | Image content executed. | Never run images; no Docker daemon; scanners only parse files ✅ |
 | E | Argument/flag injection through image refs. | Strict reference parsing (rejects leading `-`, whitespace); no shell; digest refs passed to scanners as local paths ✅ |
 | E | Scanner exploited by a crafted layer → host compromise. | Sandbox (ADR 0011): one launcher for both backends, W^X on everything a scanner can write (Landlock), `bwrap` on Linux hosts with seccomp deny-list (no new namespaces, ptrace, mounts, bpf, io_uring, keyrings, userfaultfd, modules) and no sockets while handling image content ✅; `landlock` backend for containers ✅; sandbox by default (`auto`, refuses to scan without a backend) ✅ |
-| E | Over-scoped registry credentials. | Least-privilege IAM policy, short-lived creds only ⬜ M3 |
+| E | Over-scoped registry credentials. | `deploy/iam/shieldmon-readonly.json` grants exactly the ECR calls ShieldMon makes, enforced by a test ✅; trust policies pinned by `aud`/`sub`, source account or external ID ✅; short-lived credentials only, from the environment ✅ |
 | Report injection | Package names like `=HYPERLINK(...)` or Markdown/HTML in titles. | CSV formula neutralization, Markdown/HTML escaping ✅ |
 
 ## Residual risks (accepted for M1, tracked in ROADMAP)

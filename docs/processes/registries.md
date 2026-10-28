@@ -49,10 +49,10 @@ Pull tokens are cached in memory only, until five minutes before they expire.
 
 - Use **short-lived credentials** only: IAM roles (IRSA / Pod Identity) for ECR, Workload
   Identity / ADC for Google, CI job tokens or deploy tokens with `read_registry` for GitLab.
-- Grant read-only pull permissions. For ECR: `ecr:GetAuthorizationToken`,
-  `ecr:BatchGetImage`, `ecr:GetDownloadUrlForLayer`, `ecr:DescribeImages`,
-  `ecr:ListImages`, `ecr:DescribeRepositories` (a tested policy file is tracked in #18).
-- ShieldMon disables the ECR helper's on-disk token cache: tokens live only in memory.
+- Grant read-only pull permissions. For ECR, `deploy/iam/shieldmon-readonly.json` is exactly
+  what ShieldMon calls, and a test fails if it grants more; `deploy/iam` also has trust
+  policies for GitHub and GitLab OIDC, IRSA, EKS Pod Identity and other accounts.
+- ECR pull tokens live only in memory, never on disk.
 
 ## Examples
 
