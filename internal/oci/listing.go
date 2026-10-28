@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -174,8 +175,20 @@ func getJSON(ctx context.Context, c *http.Client, u string, v any) (bool, error)
 	return more, ListResponse(resp, v)
 }
 
+// repoPathComponent is one component of a repository path in the distribution spec's
+// grammar. go-containerregistry checks only the characters, so "team/../x" would pass.
+var repoPathComponent = regexp.MustCompile(`^[a-z0-9]+(?:(?:\.|_|__|-+)[a-z0-9]+)*$`)
+
 // validRepository returns registry/path when path is a valid repository path.
 func validRepository(registry, path string) (string, bool) {
+	if path == "" || len(path) > 255 {
+		return "", false
+	}
+	for _, c := range strings.Split(path, "/") {
+		if !repoPathComponent.MatchString(c) {
+			return "", false
+		}
+	}
 	r, err := name.NewRepository(registry+"/"+path, name.StrictValidation)
 	if err != nil {
 		return "", false

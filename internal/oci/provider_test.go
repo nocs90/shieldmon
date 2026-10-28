@@ -188,3 +188,22 @@ func TestSortTagsNewestFirst(t *testing.T) {
 		t.Errorf("order = %s, want %s", strings.Join(got, " "), want)
 	}
 }
+
+// TestV2ListerDropsHostileRepositoryNames: go-containerregistry only checks characters, so a
+// registry could slip path traversal into names that end up in URLs and targets.
+func TestV2ListerDropsHostileRepositoryNames(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v2/" {
+			return
+		}
+		_, _ = w.Write([]byte(`{"repositories":["team/app","team/../etc","team/./x","Team/Upper","a//b","-x/y","x/y-","` + strings.Repeat("a", 256) + `"]}`))
+	}))
+	defer srv.Close()
+	repos, err := oci.V2Lister{Keychain: authn.NewMultiKeychain()}.Repositories(context.Background(), host(srv), "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repos) != 1 || repos[0] != host(srv)+"/team/app" {
+		t.Errorf("repositories = %q, want only team/app", repos)
+	}
+}
