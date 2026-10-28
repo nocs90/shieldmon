@@ -1,0 +1,364 @@
+{
+  "$schema": "https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "ShieldMon",
+          "informationUri": "https://github.com/nocs90/shieldmon",
+          "rules": [
+            {
+              "id": "CVE-2022-48174",
+              "shortDescription": {
+                "text": "CVE-2022-48174"
+              },
+              "helpUri": "https://osv.dev/vulnerability/CVE-2022-48174",
+              "properties": {
+                "tags": [
+                  "security",
+                  "vulnerability"
+                ]
+              }
+            },
+            {
+              "id": "CVE-2023-45853",
+              "shortDescription": {
+                "text": "CVE-2023-45853"
+              },
+              "helpUri": "https://osv.dev/vulnerability/CVE-2023-45853",
+              "properties": {
+                "tags": [
+                  "security",
+                  "vulnerability"
+                ]
+              }
+            },
+            {
+              "id": "CVE-2024-6119",
+              "shortDescription": {
+                "text": "openssl: possible denial of service in X.509 name checks"
+              },
+              "helpUri": "https://osv.dev/vulnerability/CVE-2024-6119",
+              "properties": {
+                "security-severity": "7.5",
+                "tags": [
+                  "security",
+                  "vulnerability"
+                ]
+              }
+            },
+            {
+              "id": "CVE-2026-0001",
+              "shortDescription": {
+                "text": "CVE-2026-0001"
+              },
+              "helpUri": "https://osv.dev/vulnerability/CVE-2026-0001",
+              "properties": {
+                "tags": [
+                  "security",
+                  "vulnerability"
+                ]
+              }
+            },
+            {
+              "id": "CVE-2026-0002",
+              "shortDescription": {
+                "text": "CVE-2026-0002"
+              },
+              "helpUri": "https://osv.dev/vulnerability/CVE-2026-0002",
+              "properties": {
+                "tags": [
+                  "security",
+                  "vulnerability"
+                ]
+              }
+            },
+            {
+              "id": "GHSA-xxxx-yyyy-zzzz",
+              "shortDescription": {
+                "text": "\u003cscript\u003ealert(1)\u003c/script\u003e {{ x }} ```"
+              },
+              "helpUri": "https://osv.dev/vulnerability/GHSA-xxxx-yyyy-zzzz",
+              "properties": {
+                "security-severity": "5.3",
+                "tags": [
+                  "security",
+                  "vulnerability"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "CVE-2024-6119",
+          "ruleIndex": 2,
+          "level": "error",
+          "message": {
+            "text": "libcrypto3 3.3.1-r0 is affected by CVE-2024-6119; fixed in 3.3.2-r0"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "pkg:apk/alpine/libcrypto3@3.3.1-r0"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "libcrypto3",
+                  "fullyQualifiedName": "pkg:apk/alpine/libcrypto3@3.3.1-r0",
+                  "kind": "package"
+                },
+                {
+                  "name": "registry.test/app:prod (linux/amd64)",
+                  "fullyQualifiedName": "registry.test/app:prod (linux/amd64)@sha256:aaaa",
+                  "kind": "image"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "shieldmon/v1": "5e59ad72393754e81ebf2809d92020ab"
+          },
+          "properties": {
+            "digest": "sha256:aaaa",
+            "epss": 0.01234,
+            "finding_id": 7,
+            "first_detected": "2026-09-01",
+            "kev": false,
+            "severity": "high",
+            "sla_breached": true,
+            "sla_due": "2026-10-01",
+            "state": "open"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-0001",
+          "ruleIndex": 3,
+          "level": "error",
+          "message": {
+            "text": "=HYPERLINK(\"http://evil\",\"x\") 1.0 is affected by CVE-2026-0001"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "pkg:npm/evil@1.0"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "=HYPERLINK(\"http://evil\",\"x\")",
+                  "fullyQualifiedName": "pkg:npm/evil@1.0",
+                  "kind": "package"
+                },
+                {
+                  "name": "registry.test/app:prod (linux/amd64)",
+                  "fullyQualifiedName": "registry.test/app:prod (linux/amd64)@sha256:aaaa",
+                  "kind": "image"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "shieldmon/v1": "e98d04d86a00c614f7cff46315d39dfa"
+          },
+          "properties": {
+            "digest": "sha256:aaaa",
+            "finding_id": 9,
+            "first_detected": "2026-10-20",
+            "kev": false,
+            "severity": "critical",
+            "sla_breached": false,
+            "sla_due": "2026-11-19",
+            "state": "triaged"
+          }
+        },
+        {
+          "ruleId": "GHSA-xxxx-yyyy-zzzz",
+          "ruleIndex": 5,
+          "level": "warning",
+          "message": {
+            "text": "@angular/core 1.0.0 is affected by GHSA-xxxx-yyyy-zzzz"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "pkg:npm/%40angular/core@1.0.0"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "@angular/core",
+                  "fullyQualifiedName": "pkg:npm/%40angular/core@1.0.0",
+                  "kind": "package"
+                },
+                {
+                  "name": "registry.test/web:1 (linux/amd64)",
+                  "fullyQualifiedName": "registry.test/web:1 (linux/amd64)@sha256:cccc",
+                  "kind": "image"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "shieldmon/v1": "bd87903a4e46777042fa4e74730558b8"
+          },
+          "properties": {
+            "digest": "sha256:cccc",
+            "finding_id": 11,
+            "first_detected": "2026-10-10",
+            "kev": false,
+            "severity": "medium",
+            "sla_breached": false,
+            "state": "open"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-0002",
+          "ruleIndex": 4,
+          "level": "note",
+          "message": {
+            "text": "weird pkg 1 is affected by CVE-2026-0002"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "pkg:generic/weird%20pkg@1?x=%3Cy%3E%7C%22z%22"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "weird pkg",
+                  "fullyQualifiedName": "pkg:generic/weird pkg@1?x=\u003cy\u003e|\"z\"",
+                  "kind": "package"
+                },
+                {
+                  "name": "sha256:dddd",
+                  "kind": "image"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "shieldmon/v1": "9fae68f0f587f45281cabf1b3ded164c"
+          },
+          "properties": {
+            "digest": "sha256:dddd",
+            "finding_id": 12,
+            "first_detected": "2026-10-11",
+            "kev": false,
+            "severity": "low",
+            "sla_breached": false,
+            "state": "open"
+          }
+        },
+        {
+          "ruleId": "CVE-2023-45853",
+          "ruleIndex": 1,
+          "level": "error",
+          "message": {
+            "text": "zlib 1.2.13-r0 is affected by CVE-2023-45853"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "pkg:generic/zlib"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "zlib",
+                  "kind": "package"
+                },
+                {
+                  "name": "sha256:bbbb",
+                  "kind": "image"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "shieldmon/v1": "33e9e1946a3c11e99d297a7f0be92f17"
+          },
+          "suppressions": [
+            {
+              "kind": "external",
+              "status": "accepted",
+              "justification": "vendor_dependency: +vendor will not fix; minizip not built"
+            }
+          ],
+          "properties": {
+            "digest": "sha256:bbbb",
+            "finding_id": 3,
+            "first_detected": "2026-09-20",
+            "kev": false,
+            "severity": "critical",
+            "sla_breached": true,
+            "sla_due": "2026-10-20",
+            "state": "risk_accepted"
+          }
+        },
+        {
+          "ruleId": "CVE-2022-48174",
+          "ruleIndex": 0,
+          "level": "note",
+          "message": {
+            "text": "busybox 1.36.0 is affected by CVE-2022-48174"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "pkg:generic/busybox"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "busybox",
+                  "kind": "package"
+                },
+                {
+                  "name": "sha256:bbbb",
+                  "kind": "image"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "shieldmon/v1": "a2ec5082f10278214aa4da68a2b748de"
+          },
+          "suppressions": [
+            {
+              "kind": "external",
+              "status": "accepted",
+              "justification": "shell not reachable"
+            }
+          ],
+          "properties": {
+            "digest": "sha256:bbbb",
+            "finding_id": 4,
+            "first_detected": "2026-10-02",
+            "kev": false,
+            "severity": "low",
+            "sla_breached": false,
+            "sla_due": "2027-03-31",
+            "state": "risk_accepted"
+          }
+        }
+      ],
+      "properties": {
+        "generated_at": "0001-01-01T00:00:00Z",
+        "period_end": "2026-11-01",
+        "period_start": "2026-10-01",
+        "sla_profile": "standard"
+      }
+    }
+  ]
+}

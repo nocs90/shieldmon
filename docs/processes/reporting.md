@@ -7,7 +7,18 @@ shieldmon report monthly --month 2026-10 -o csv --out reports/2026-10.csv   # op
 shieldmon report monthly --month 2026-10 -o remediation-plan --out reports/2026-10-plan.csv
 shieldmon report monthly --month 2026-10 -o remediation-plan-excel --out reports/2026-10-plan.csv  # BOM + CRLF for spreadsheets
 shieldmon report monthly --month 2026-10 -o json --out reports/2026-10.json
+shieldmon report monthly --month 2026-10 -o sarif --out reports/2026-10.sarif  # code-scanning dashboards
 ```
+
+## SARIF
+
+`sarif` writes SARIF 2.1.0 (validated against the OASIS schema in tests) for dashboards
+that read it: one result per open finding, and risk acceptances as results with an
+`accepted` suppression and their justification. Each vulnerability is a rule (with
+`security-severity` from CVSS and a link to OSV); the location is the package URL, with the
+package and the images as logical locations; `partialFingerprints` stay the same while the
+problem persists across versions and digests, so dashboards do not count it again. Not
+affected findings are not results.
 
 ## Remediation plan
 

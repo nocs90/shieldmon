@@ -4,19 +4,21 @@ Report formats are renderers over the computed `report.Monthly` value; they neve
 the store themselves.
 
 ```go
-// internal/report/sarif.go
+// internal/report/render_junit.go
 func init() {
 	RegisterFormat(Format{
-		Name:        "sarif",
-		Description: "SARIF 2.1.0 for code-scanning dashboards",
-		Render:      renderSARIF,
+		Name:        "junit",
+		Description: "JUnit XML: one failing test case per open finding, for CI dashboards",
+		Render:      renderJUnit,
 	})
 }
 
-func renderSARIF(w io.Writer, r Monthly) error { … }
+func renderJUnit(w io.Writer, r Monthly) error { … }
 ```
 
-`shieldmon report monthly -o sarif` and `shieldmon plugins` pick it up automatically.
+`shieldmon report monthly -o junit` and `shieldmon plugins` pick it up automatically. Built in:
+`md`, `json`, `csv`, `html`, `remediation-plan`, `remediation-plan-excel`, `sarif`
+(`render_sarif.go` is a complete example with schema validation in its test).
 
 Requirements:
 

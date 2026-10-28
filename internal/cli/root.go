@@ -682,8 +682,12 @@ func (a *app) pluginsCmd() *cobra.Command {
 				fmt.Fprintf(w, "  %-8s %s (%s)\n", b.Name, b.Description, status)
 			}
 			fmt.Fprintln(w, "Report formats:")
+			width := 0
 			for _, f := range report.Formats() {
-				fmt.Fprintf(w, "  %-8s %s\n", f.Name, f.Description)
+				width = max(width, len(f.Name))
+			}
+			for _, f := range report.Formats() {
+				fmt.Fprintf(w, "  %-*s %s\n", width, f.Name, f.Description)
 			}
 		},
 	}
