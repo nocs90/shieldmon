@@ -358,8 +358,11 @@ func TestContinuousMonitoringLifecycle(t *testing.T) {
 	}
 
 	// The monthly report is derived from the audit trail.
-	sla, _ := config.SLAProfile("commercial", nil)
-	rep, err := report.BuildMonthly(h.ctx, h.store, report.MonthPeriod(h.clock), "commercial", sla, h.clock)
+	sla, err := config.SLAProfile("standard", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep, err := report.BuildMonthly(h.ctx, h.store, report.MonthPeriod(h.clock), "standard", sla, h.clock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -510,8 +513,11 @@ func TestRiskAcceptanceExpiresAndFollowsSuccessor(t *testing.T) {
 	h.image(ref, digestB, vuln("zlib", "1.2.13-r2", "CVE-2023-45853", model.SeverityCritical))
 	h.scan(ref)
 	fb := h.finding("CVE-2023-45853", digestB)
-	sla, _ := config.SLAProfile("commercial", nil)
-	rep, err := report.BuildMonthly(h.ctx, h.store, report.MonthPeriod(h.clock), "commercial", sla, h.clock)
+	sla, err := config.SLAProfile("standard", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep, err := report.BuildMonthly(h.ctx, h.store, report.MonthPeriod(h.clock), "standard", sla, h.clock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -683,8 +689,11 @@ func TestCarryOverIsNotCountedAsNew(t *testing.T) {
 	if got := h.finding("CVE-2023-45853", digestB); got.State != model.StateOpen || got.PredecessorID == 0 {
 		t.Fatalf("successor = %+v", got)
 	}
-	sla, _ := config.SLAProfile("commercial", nil)
-	rep, err := report.BuildMonthly(h.ctx, h.store, report.MonthPeriod(h.clock), "commercial", sla, h.clock)
+	sla, err := config.SLAProfile("standard", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep, err := report.BuildMonthly(h.ctx, h.store, report.MonthPeriod(h.clock), "standard", sla, h.clock)
 	if err != nil {
 		t.Fatal(err)
 	}
