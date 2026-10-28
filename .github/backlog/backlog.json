@@ -871,6 +871,20 @@
       "milestone": "M4 — Prioritization, VEX, notifications",
       "epic": "epic-f9",
       "body": "## Context\n\nEpic #4 needs the `Notifier` interface, the events, deduplication and digest mode before the adapters (#23, #24, #25).\n\n## Acceptance criteria\n\n- [ ] `notify.Notifier` + `notify.RegisterNotifier`; `shieldmon plugins` lists notifiers; `notifytest.CheckNotifier`\n- [ ] Events after each monitor cycle: new critical finding, new KEV finding, SLA due soon, SLA breached, health finding opened\n- [ ] An event is sent at most once per channel (append-only record); digest mode sends one message per cycle\n- [ ] A failing channel opens a `notify_failed` health finding; secrets only from environment variables, never in errors or logs\n- [ ] `shieldmon notify preview` and `shieldmon notify test CHANNEL`; ADR"
+    },
+    {
+      "key": "store-time-compare",
+      "title": "Store compares RFC 3339 timestamps as text in SQL: decision expiry can slip a cycle",
+      "labels": [
+        "kind/bug",
+        "area/storage",
+        "area/lifecycle",
+        "priority/low",
+        "needs-triage"
+      ],
+      "milestone": "M4 — Prioritization, VEX, notifications",
+      "epic": null,
+      "body": "## Context\n\n`store.ExpireDecisions` (`internal/store/lifecycle.go`) selects expired decisions with `d.expires_at <= ?`, comparing `ts()` strings in SQL. `ts` formats with `time.RFC3339Nano`, which drops trailing zeros, so the strings do not sort as times within the same second: `2026-10-11T09:00:00Z` sorts after `2026-10-11T09:00:00.5Z` ('Z' > '.').\n\nEffect: a decision expiring in the same second as the cycle's clock is not seen as expired and is reopened one cycle later. Low impact, but it understates the time a finding was suppressed after expiry, and the same pattern may exist elsewhere.\n\nFound while writing the notification store (#66), which compares times in Go for this reason.\n\n## Acceptance criteria\n\n- [ ] Reproduce with a store test (expiry and now in the same second, fractional seconds)\n- [ ] Fix: compare in Go, or store a fixed-width format (e.g. always 9 fractional digits) via a new numbered migration that rewrites nothing in append-only tables\n- [ ] Audit every SQL comparison or ORDER BY on `*_at` columns (store, report)\n"
     }
   ]
 }
