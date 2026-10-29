@@ -87,12 +87,13 @@ matcher runs: SBOM-first is a property of the pipeline, not a separate mode.
 | `internal/normalize` | canonical PURL / vuln IDs, alias mapping, merge | packageurl-go |
 | `internal/lifecycle` | **pure** state machine + reconciliation planner | model |
 | `internal/priority` | **pure** remediation priority score with reasons (ADR 0020) | model |
+| `internal/gate` | **pure** policy gate: rules, exemptions by decision, fail-closed verdict, SARIF (ADR 0021) | config, report |
 | `internal/vex` | **pure** OpenVEX / CycloneDX VEX parsing (bounded, fuzzed), OpenVEX export, statement matching | normalize, go-containerregistry |
 | `internal/enrich` | enricher registry, CISA KEV catalog (bounded, validated, fuzzed, cached outside the scanners' reach); `enrichtest` conformance kit | model, redact |
 | `internal/sbom` | **pure** reading of components back from stored CycloneDX SBOMs (bounded, fuzzed) | — |
 | `internal/notify` | notifier registry, **pure** event computation from monitoring state, dispatch (digest, bounds), hardened HTTP helpers; `notifytest` conformance kit | redact |
 | `internal/store` | SQLite schema, migrations, transactional apply; audit chain sealed in every write transaction and its verification | lifecycle, model |
-| `internal/report` | monthly report from the audit trail; format registry (md/json/csv) | store, config |
+| `internal/report` | monthly report from the audit trail; format registry (md/json/csv/html/sarif, remediation plan, inventory) | store, config |
 | `internal/redact` | credential redaction | — |
 | `internal/config` | YAML config, SLA profiles | model |
 | `internal/model` | shared domain types | — |
