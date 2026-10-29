@@ -46,7 +46,8 @@ func renderPlan(w io.Writer, r Monthly, excel bool) error {
 	if err := cw.Write(planHeader); err != nil {
 		return err
 	}
-	rows := slices.Concat(r.Open, r.AcceptedRisks)
+	// Open and risk-accepted items; a not_affected finding is no weakness to remediate.
+	rows := slices.Concat(r.Open, slices.DeleteFunc(slices.Clone(r.AcceptedRisks), func(x Row) bool { return x.State != "risk_accepted" }))
 	// Soonest scheduled completion first; items without a date last.
 	slices.SortStableFunc(rows, func(a, b Row) int {
 		ca, cb := scheduledCompletion(a), scheduledCompletion(b)

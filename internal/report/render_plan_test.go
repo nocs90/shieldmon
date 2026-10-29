@@ -53,6 +53,13 @@ func planFixture() Monthly {
 				Digest: "sha256:bbbb", FirstDetected: day("2026-10-02"), AgeDays: 26, SLADue: day("2027-03-31"),
 				Decision: &DecisionInfo{State: "risk_accepted", Author: "@team", Justification: "shell not reachable", ExpiresAt: day("2026-12-01")},
 			},
+			// Not affected is no weakness: in neither the plan nor SARIF (docs/processes/reporting.md).
+			{
+				ID: 13, State: "not_affected", VulnID: "CVE-2026-0003", Severity: "critical", Package: "zlib", Version: "1.3",
+				PURL: "pkg:apk/alpine/zlib@1.3", Digest: "sha256:eeee", FirstDetected: day("2026-09-12"), AgeDays: 46,
+				SLADue: day("2026-10-12"), SLABreached: true,
+				Decision: &DecisionInfo{State: "not_affected", Author: "vendor", Justification: "vulnerable_code_not_present"},
+			},
 		},
 	}
 }
