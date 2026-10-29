@@ -22,6 +22,18 @@ Normative rules: [ADR 0004](../adr/0004-finding-lifecycle.md). This page is the 
 There is **no** command to close a finding. Ship the fix (rebuild the image, move the
 tag); the next cycle proves it and records the evidence scan.
 
+## What to look at first
+
+```sh
+shieldmon findings list --sort priority --limit 20
+shieldmon findings list --sort priority -o json   # with the reasons behind each score
+```
+
+The priority (0–100) adds impact (CVSS), exploitation (CISA KEV, else EPSS), whether a fix
+exists, and how close the remediation deadline of your SLA profile is
+([ADR 0020](../adr/0020-priority-score.md)). It orders work; it never changes a finding's
+severity or state.
+
 ## Decision rules
 
 Remediation deadlines come from `sla.profile` (default `standard`: critical and

@@ -27,13 +27,13 @@ func planFixture() Monthly {
 		Period: MonthPeriod(day("2026-10-01")),
 		Open: []Row{
 			{
-				ID: 7, State: "open", VulnID: "CVE-2024-6119", Severity: "high", CVSS: 7.5, EPSS: 0.01234, Package: "libcrypto3",
+				ID: 7, Priority: 60, State: "open", VulnID: "CVE-2024-6119", Severity: "high", CVSS: 7.5, EPSS: 0.01234, Package: "libcrypto3",
 				Version: "3.3.1-r0", PURL: "pkg:apk/alpine/libcrypto3@3.3.1-r0", FixVersions: []string{"3.3.2-r0"}, FixState: "fixed",
 				Title: "openssl: possible denial of service\nin X.509 name checks", Targets: []string{"registry.test/app:prod (linux/amd64)"},
 				Digest: "sha256:aaaa", FirstDetected: day("2026-09-01"), AgeDays: 58, SLADue: day("2026-10-01"), SLABreached: true,
 			},
 			{
-				ID: 9, State: "triaged", VulnID: "CVE-2026-0001", Severity: "critical", Package: `=HYPERLINK("http://evil","x")`,
+				ID: 9, Priority: 46, State: "triaged", VulnID: "CVE-2026-0001", Severity: "critical", Package: `=HYPERLINK("http://evil","x")`,
 				Version: "1.0", PURL: "pkg:npm/evil@1.0", FixState: "not_fixed", Targets: []string{"registry.test/app:prod (linux/amd64)"},
 				Digest: "sha256:aaaa", FirstDetected: day("2026-10-20"), AgeDays: 8, SLADue: day("2026-11-19"),
 			},

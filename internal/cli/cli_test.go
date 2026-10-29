@@ -42,6 +42,7 @@ func TestInitAndEmptyQueries(t *testing.T) {
 		{"notify", "preview"},
 		{"report", "inventory", "-o", "csv"},
 		{"report", "inventory", "-o", "cyclonedx"},
+		{"findings", "list", "--sort", "priority", "--limit", "5"},
 		{"components", "list"},
 	} {
 		out, errOut, code = run(t, append(args, common...)...)

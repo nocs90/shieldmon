@@ -21,6 +21,7 @@ import (
 	"github.com/nocs90/shieldmon/internal/engine"
 	"github.com/nocs90/shieldmon/internal/lifecycle"
 	"github.com/nocs90/shieldmon/internal/model"
+	"github.com/nocs90/shieldmon/internal/priority"
 	"github.com/nocs90/shieldmon/internal/report"
 	"github.com/nocs90/shieldmon/internal/sbom"
 	"github.com/nocs90/shieldmon/internal/store"
@@ -144,7 +145,7 @@ func (a *app) findingsCmd() *cobra.Command {
 
 	var states []string
 	var all bool
-	var severity, digest, vuln, format, target string
+	var severity, digest, vuln, format, target, sortBy string
 	var limit int
 	list := &cobra.Command{
 		Use:   "list",
@@ -154,7 +155,13 @@ func (a *app) findingsCmd() *cobra.Command {
 			if err := a.setup(cmd); err != nil {
 				return err
 			}
+			if sortBy != "severity" && sortBy != "priority" {
+				return fmt.Errorf("--sort: want severity or priority, got %q", sortBy)
+			}
 			flt := store.FindingFilter{VulnID: vuln, Limit: limit}
+			if sortBy == "priority" {
+				flt.Limit = 0 // the top N by priority, not by severity
+			}
 			for _, arg := range []string{digest, target} {
 				if arg == "" {
 					continue
@@ -190,9 +197,16 @@ func (a *app) findingsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if sortBy == "priority" {
+				sortByPriority(fs, policy)
+				if limit > 0 && len(fs) > limit {
+					fs = fs[:limit]
+				}
+			}
 			return printFindings(cmd.OutOrStdout(), fs, format, policy)
 		},
 	}
+	list.Flags().StringVar(&sortBy, "sort", "severity", "order: severity, priority (CVSS, EPSS, KEV, fix, SLA clock; docs/adr/0020-priority-score.md)")
 	list.Flags().StringSliceVar(&states, "state", nil, "filter by state (repeatable)")
 	list.Flags().BoolVar(&all, "all", false, "include every state")
 	list.Flags().StringVar(&severity, "severity", "", "minimum severity: low, medium, high, critical")
@@ -429,23 +443,41 @@ func slaDue(p lifecycle.Policy, f store.Finding) time.Time {
 	return p.SLADue(lifecycle.Subject{Severity: f.Severity, FirstDetected: f.FirstDetected})
 }
 
+// findingPriority is a finding's remediation priority now (docs/adr/0020-priority-score.md).
+func findingPriority(policy lifecycle.Policy, f store.Finding) priority.Score {
+	return priority.Compute(priority.Input{
+		Severity: f.Severity, CVSS: f.CVSSScore, EPSS: f.EPSS, KEV: f.KEV, Fixable: len(f.FixVersions) > 0,
+		SLADue: slaDue(policy, f), Now: time.Now(),
+	})
+}
+
+// sortByPriority orders findings by priority, highest first; ties keep their order.
+func sortByPriority(fs []store.Finding, policy lifecycle.Policy) {
+	scores := make(map[int64]int, len(fs))
+	for _, f := range fs {
+		scores[f.ID] = findingPriority(policy, f).Value
+	}
+	slices.SortStableFunc(fs, func(a, b store.Finding) int { return scores[b.ID] - scores[a.ID] })
+}
+
 func printFindings(w io.Writer, fs []store.Finding, format string, policy lifecycle.Policy) error {
 	switch format {
 	case "json":
 		type row struct {
 			store.Finding
-			Severity string `json:"severity"`
+			Severity string         `json:"severity"`
+			Priority priority.Score `json:"priority"`
 		}
 		rows := make([]row, 0, len(fs))
 		for _, f := range fs {
-			rows = append(rows, row{Finding: f, Severity: f.Severity.String()})
+			rows = append(rows, row{Finding: f, Severity: f.Severity.String(), Priority: findingPriority(policy, f)})
 		}
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(rows)
 	case "csv":
 		cw := csv.NewWriter(w)
-		_ = cw.Write([]string{"id", "severity", "vuln_id", "package", "version", "fix_versions", "fix_state", "state", "first_detected", "sla_due", "targets", "digest", "purl"})
+		_ = cw.Write([]string{"id", "severity", "vuln_id", "package", "version", "fix_versions", "fix_state", "state", "first_detected", "sla_due", "targets", "digest", "purl", "priority"})
 		for _, f := range fs {
 			due := ""
 			if d := slaDue(policy, f); !d.IsZero() {
@@ -454,7 +486,7 @@ func printFindings(w io.Writer, fs []store.Finding, format string, policy lifecy
 			rec := []string{
 				strconv.FormatInt(f.ID, 10), f.Severity.String(), f.VulnID, f.PkgName, f.PkgVersion,
 				strings.Join(f.FixVersions, " "), string(f.FixState), string(f.State), f.FirstDetected.Format(time.RFC3339), due,
-				strings.Join(f.Targets, "; "), f.Digest, f.PURL,
+				strings.Join(f.Targets, "; "), f.Digest, f.PURL, strconv.Itoa(findingPriority(policy, f).Value),
 			}
 			for i, v := range rec {
 				rec[i] = report.CSVSafe(v)
@@ -465,7 +497,7 @@ func printFindings(w io.Writer, fs []store.Finding, format string, policy lifecy
 		return cw.Error()
 	case "table":
 		tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(tw, "ID\tSEVERITY\tVULNERABILITY\tPACKAGE\tVERSION\tFIX\tSTATE\tAGE\tSLA DUE\tTARGET")
+		fmt.Fprintln(tw, "ID\tPRIORITY\tSEVERITY\tVULNERABILITY\tPACKAGE\tVERSION\tFIX\tSTATE\tAGE\tSLA DUE\tTARGET")
 		for _, f := range fs {
 			vuln := printable(f.VulnID)
 			if f.KEV {
@@ -482,7 +514,7 @@ func printFindings(w io.Writer, fs []store.Finding, format string, policy lifecy
 					due += " ⚠"
 				}
 			}
-			fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%dd\t%s\t%s\n", f.ID, f.Severity, vuln, short(printable(f.PkgName), 30),
+			fmt.Fprintf(tw, "%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%dd\t%s\t%s\n", f.ID, findingPriority(policy, f).Value, f.Severity, vuln, short(printable(f.PkgName), 30),
 				short(printable(f.PkgVersion), 24), short(printable(fixLabel(f)), 24), f.State,
 				int(time.Since(f.FirstDetected).Hours()/24), due, target)
 		}

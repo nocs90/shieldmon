@@ -1248,3 +1248,30 @@ func TestEnrichersFollowEveryCycle(t *testing.T) {
 		}
 	}
 }
+
+// TestPriorityInReports: a high-severity KEV finding with a fix outranks a critical one nobody
+// exploits (docs/adr/0020-priority-score.md).
+func TestPriorityInReports(t *testing.T) {
+	h := newHarness(t)
+	exploited := vuln("libcrypto3", "3.3.1-r0", "CVE-2024-6119", model.SeverityHigh, "3.3.2-r0")
+	exploited.KEV = true
+	quiet := vuln("zlib", "1.2.13-r0", "CVE-2023-45853", model.SeverityCritical)
+	h.image(ref, digestA, exploited, quiet)
+	h.scan(ref)
+	sla, err := config.SLAProfile("standard", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep, err := report.BuildMonthly(h.ctx, h.store, report.MonthPeriod(h.clock), "standard", sla, h.clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := map[string]report.Row{}
+	for _, r := range rep.Open {
+		p[r.VulnID] = r
+	}
+	kev, crit := p["CVE-2024-6119"], p["CVE-2023-45853"]
+	if kev.Priority <= crit.Priority || len(kev.PriorityReasons) == 0 {
+		t.Fatalf("KEV with a fix %d %q must outrank an unexploited critical %d %q", kev.Priority, kev.PriorityReasons, crit.Priority, crit.PriorityReasons)
+	}
+}
