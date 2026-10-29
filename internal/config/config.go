@@ -55,6 +55,19 @@ type Channel struct {
 	Options  map[string]any `yaml:"options,omitempty"`
 }
 
+// Enricher configures one enricher (docs/adr/0019-enrichers.md). Options never hold a
+// credential.
+type Enricher struct {
+	// Enabled turns an enricher on or off; unset keeps its default (kev: on).
+	Enabled *bool `yaml:"enabled,omitempty"`
+	// MaxAge is how old its data may get before enrichment_stale (0: the default, 72h).
+	MaxAge  Duration       `yaml:"max_age,omitempty"`
+	Options map[string]any `yaml:"options,omitempty"`
+}
+
+// DefaultEnrichMaxAge is the data age that opens enrichment_stale when none is configured.
+const DefaultEnrichMaxAge = 72 * time.Hour
+
 // Config is the top-level configuration.
 type Config struct {
 	DataDir  string `yaml:"data_dir"`
@@ -103,6 +116,9 @@ type Config struct {
 		VendorDependencyMaxDays       int `yaml:"vendor_dependency_max_days"`
 		OperationalRequirementMaxDays int `yaml:"operational_requirement_max_days"`
 	} `yaml:"decisions"`
+
+	// Enrichers add facts to findings, refreshed with the vulnerability DBs.
+	Enrichers map[string]Enricher `yaml:"enrichers,omitempty"`
 
 	// Notifications are sent after each monitoring cycle (docs/adr/0015-notifications.md).
 	Notifications struct {
@@ -365,6 +381,15 @@ registries: []
 # - hosts: [registry.gitlab.example.com]
 #   provider: gitlab
 #   options: { api_url: https://gitlab.example.com, token_env: CI_JOB_TOKEN }
+
+# Enrichers add facts scanners do not reliably report, refreshed with the vulnerability DBs
+# (docs/processes/enrichment.md). kev (CISA Known Exploited Vulnerabilities) is on by
+# default; without internet access, point it at a local copy or turn it off.
+enrichers:
+  kev:
+    max_age: 72h           # older data opens an enrichment_stale health finding
+    # enabled: false
+    # options: { url: https://mirror.example.com/kev.json }   # or { file: /srv/kev.json }
 
 # Notifications after each 'shieldmon monitor' cycle (docs/processes/notifications.md).
 # Events: finding_new_kev, finding_new_critical, sla_breached, sla_due_soon, health_opened

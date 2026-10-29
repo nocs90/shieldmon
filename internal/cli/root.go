@@ -19,6 +19,7 @@ import (
 
 	"github.com/nocs90/shieldmon/internal/config"
 	"github.com/nocs90/shieldmon/internal/engine"
+	"github.com/nocs90/shieldmon/internal/enrich"
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/notify"
 	"github.com/nocs90/shieldmon/internal/oci"
@@ -163,6 +164,24 @@ func (a *app) setup(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
+	enrichCfg := map[string]enrich.Config{}
+	for name, c := range cfg.Enrichers {
+		maxAge := c.MaxAge.Duration
+		if maxAge <= 0 {
+			maxAge = config.DefaultEnrichMaxAge
+		}
+		enrichCfg[name] = enrich.Config{Enabled: c.Enabled, MaxAge: maxAge, Options: c.Options}
+	}
+	// Outside <data_dir>/cache, which scanner processes may write while updating their DBs.
+	enrichers, err := enrich.New(enrichCfg, filepath.Join(cfg.DataDir, "enrich"), enrich.Spec{})
+	if err != nil {
+		return err
+	}
+	for i := range enrichers {
+		if enrichers[i].MaxAge <= 0 {
+			enrichers[i].MaxAge = config.DefaultEnrichMaxAge
+		}
+	}
 	a.engine = &engine.Engine{
 		Store:               st,
 		Scanners:            set,
@@ -176,6 +195,7 @@ func (a *app) setup(cmd *cobra.Command) error {
 		Channels:            channels,
 		DueSoon:             time.Duration(cfg.Notifications.DueSoonDays) * 24 * time.Hour,
 		AuditVerifyInterval: cfg.Health.AuditVerifyInterval.Duration,
+		Enrichers:           enrichers,
 		Log:                 a.log,
 	}
 	return nil
@@ -673,6 +693,14 @@ func (a *app) pluginsCmd() *cobra.Command {
 					opts = " (options: " + strings.Join(n.Options, ", ") + ")"
 				}
 				fmt.Fprintf(w, "  %-14s %s%s\n", n.Name, n.Description, opts)
+			}
+			fmt.Fprintln(w, "Enrichers:")
+			for _, p := range enrich.Plugins() {
+				state := "opt-in"
+				if p.Default {
+					state = "on by default"
+				}
+				fmt.Fprintf(w, "  %-14s %s (%s; options: %s)\n", p.Name, p.Description, state, strings.Join(p.Options, ", "))
 			}
 			fmt.Fprintln(w, "Sandbox backends:")
 			for _, b := range scanner.SandboxBackends() {

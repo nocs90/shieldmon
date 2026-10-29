@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nocs90/shieldmon/internal/enrich"
 	"github.com/nocs90/shieldmon/internal/lifecycle"
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/normalize"
@@ -44,6 +45,8 @@ const (
 	CheckDBUpdate        = "db_update_failed"
 	CheckNotify          = "notify_failed"
 	CheckAuditChain      = "audit_chain_broken"
+	CheckEnrichUpdate    = "enrichment_update_failed"
+	CheckEnrichStale     = "enrichment_stale"
 	maxSBOMBytes         = 256 << 20
 	monitorMissedFactor  = 1.5
 )
@@ -92,8 +95,10 @@ type Engine struct {
 	// AuditVerifyInterval is how often monitor verifies the audit chain (0 disables;
 	// docs/adr/0018-audit-chain.md).
 	AuditVerifyInterval time.Duration
-	Now                 func() time.Time
-	Log                 *slog.Logger
+	// Enrichers add facts (CISA KEV) to every scan's matches (docs/adr/0019-enrichers.md).
+	Enrichers []enrich.Instance
+	Now       func() time.Time
+	Log       *slog.Logger
 }
 
 func (e *Engine) now() time.Time {
@@ -442,6 +447,13 @@ func (e *Engine) match(ctx context.Context, digest string, targetID int64, kind 
 
 	if status != store.ScanFailed {
 		merged := normalize.Merge(raw)
+		// Enriched on every scan, so that findings follow the data (a CVE added to KEV is
+		// flagged at the next cycle, whatever the scanners say).
+		for _, en := range e.Enrichers {
+			for i := range merged {
+				en.Enricher.Enrich(&merged[i])
+			}
+		}
 		res.Matches = len(merged)
 		var tids []int64
 		targets, err := e.Store.TargetsForDigest(ctx, digest)
@@ -539,7 +551,35 @@ func (e *Engine) UpdateDBs(ctx context.Context) error {
 		}
 		e.healthy(ctx, CheckDBUpdate, m.Name())
 	}
+	for _, en := range e.Enrichers {
+		e.log().Info("updating enrichment data", "enricher", en.Name)
+		if err := en.Enricher.Update(ctx); err != nil {
+			e.health(ctx, CheckEnrichUpdate, en.Name, "medium", err)
+			errs = append(errs, fmt.Errorf("%s: %s", en.Name, redact.Error(err)))
+		} else {
+			e.healthy(ctx, CheckEnrichUpdate, en.Name)
+		}
+		e.checkEnrichAge(ctx, en)
+	}
 	return errors.Join(errs...)
+}
+
+// checkEnrichAge keeps enrichment_stale in step with the age of an enricher's data: findings
+// are enriched from whatever data is on disk, and old data misses recent KEV additions.
+func (e *Engine) checkEnrichAge(ctx context.Context, en enrich.Instance) {
+	if en.MaxAge <= 0 {
+		return
+	}
+	at := en.Enricher.UpdatedAt()
+	switch {
+	case at.IsZero():
+		e.health(ctx, CheckEnrichStale, en.Name, "high", fmt.Errorf("%s has no data yet: findings are not enriched", en.Name))
+	case e.now().Sub(at) > en.MaxAge:
+		e.health(ctx, CheckEnrichStale, en.Name, "high", fmt.Errorf("%s data last confirmed %s ago (max %s)",
+			en.Name, e.now().Sub(at).Round(time.Minute), en.MaxAge))
+	default:
+		e.healthy(ctx, CheckEnrichStale, en.Name)
+	}
 }
 
 // MonitorSummary summarizes one monitoring cycle.

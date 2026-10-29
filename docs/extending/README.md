@@ -15,7 +15,7 @@ The core never imports an adapter; adapters never touch the lifecycle or storage
 | Report format / exporter | `report.Format` | `report.RegisterFormat` | golden tests | md, json, csv | ✅ |
 | Scanner sandbox | `scanner.Sandbox` | `scanner.RegisterSandbox` | `scannertest.CheckSandbox` | none, bwrap, landlock | 🟡 M2, [ADR 0011](../adr/0011-scanner-sandbox.md) |
 | Registry provider | `oci.Provider` (keychain + listing) | `oci.RegisterProvider` | `ocitest.CheckProvider` | docker, ecr, google, gitlab | ✅ M3, [ADR 0013](../adr/0013-registry-providers.md) |
-| Enricher (EPSS, KEV, CVSS) | `Enricher` | planned | planned | (EPSS/KEV from grype output) | ⬜ M4 |
+| Enricher (EPSS, KEV, CVSS) | `enrich.Enricher` | `enrich.Register` | `enrichtest.CheckEnricher` | kev | 🟡 M4, [ADR 0019](../adr/0019-enrichers.md) |
 | Notifier | `notify.Notifier` | `notify.RegisterNotifier` | `notifytest.CheckNotifier` | webhook, smtp, slack, mattermost, matrix, github-issues, gitlab-issues | ✅ M4, [ADR 0015](../adr/0015-notifications.md) |
 | Chart source | `ChartSource` | planned | planned | — | ⬜ M7 |
 | Remediation advisor | `RemediationAdvisor` | planned | planned | fixed-in versions | ⬜ M7 |
@@ -49,4 +49,5 @@ to keep the trust boundary small. See [ADR 0008](../adr/0008-extension-model.md)
 - [Report format](report-format.md)
 - [Registry provider](registry-provider.md)
 - [Notifier](notifier.md)
+- [Enricher](enricher.md)
 - [Conformance kit](conformance.md)

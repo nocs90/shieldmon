@@ -42,7 +42,8 @@ FUZZ_TARGETS := \
 	FuzzString:./internal/redact \
 	FuzzParseReference:./internal/oci \
 	FuzzParse:./internal/vex \
-	FuzzParseCycloneDX:./internal/sbom
+	FuzzParseCycloneDX:./internal/sbom \
+	FuzzParseKEV:./internal/enrich
 
 # Parsers of hostile input: run every fuzz target for FUZZTIME each.
 fuzz:

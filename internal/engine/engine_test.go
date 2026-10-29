@@ -17,6 +17,7 @@ import (
 
 	"github.com/nocs90/shieldmon/internal/config"
 	"github.com/nocs90/shieldmon/internal/engine"
+	"github.com/nocs90/shieldmon/internal/enrich"
 	"github.com/nocs90/shieldmon/internal/lifecycle"
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/notify"
@@ -1164,5 +1165,86 @@ func TestAuditChainIsVerifiedByMonitor(t *testing.T) {
 	r, err := h.eng.VerifyAudit(h.ctx, []store.AuditDigest{exported})
 	if err != nil || r.OK() || r.Digests != 1 {
 		t.Fatalf("verify: %+v %v", r, err)
+	}
+}
+
+// fakeEnricher marks the IDs in kev; Update fails while fail is set.
+type fakeEnricher struct {
+	kev  map[string]bool
+	at   time.Time
+	now  func() time.Time
+	fail bool
+}
+
+func (f *fakeEnricher) Update(context.Context) error {
+	if f.fail {
+		return errors.New("GET www.cisa.gov: answered 503 Service Unavailable")
+	}
+	f.at = f.now()
+	return nil
+}
+func (f *fakeEnricher) UpdatedAt() time.Time { return f.at }
+func (f *fakeEnricher) Enrich(m *model.Match) {
+	if f.kev[m.VulnID] {
+		m.KEV = true
+	}
+}
+
+// TestEnrichersFollowEveryCycle: KEV comes from the catalog whatever the scanners say, and a
+// CVE added to it is flagged at the next cycle; update failures and old data are health
+// findings (docs/adr/0019-enrichers.md).
+func TestEnrichersFollowEveryCycle(t *testing.T) {
+	h := newHarness(t)
+	kev := &fakeEnricher{kev: map[string]bool{"CVE-2024-3094": true}, now: func() time.Time { return h.clock }}
+	h.eng.Enrichers = []enrich.Instance{{Name: "kev", MaxAge: 72 * time.Hour, Enricher: kev}}
+	h.image(ref, digestA,
+		vuln("xz-libs", "5.6.0", "CVE-2024-3094", model.SeverityCritical, "5.6.1"),
+		vuln("zlib", "1.2.13-r0", "CVE-2023-45853", model.SeverityCritical))
+	if _, err := h.eng.Monitor(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	h.scan(ref)
+	if !h.finding("CVE-2024-3094", digestA).KEV || h.finding("CVE-2023-45853", digestA).KEV {
+		t.Fatal("KEV from the catalog, not from the scanners")
+	}
+
+	// CISA adds the zlib CVE; the next cycle's rematch flags the existing finding.
+	h.advance(24 * time.Hour)
+	kev.kev["CVE-2023-45853"] = true
+	if _, err := h.eng.Monitor(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !h.finding("CVE-2023-45853", digestA).KEV {
+		t.Fatal("a CVE added to the catalog is flagged at the next cycle")
+	}
+
+	// The catalog cannot be fetched: matching goes on with the data on disk until it is too old.
+	kev.fail = true
+	h.advance(24 * time.Hour)
+	if _, err := h.eng.Monitor(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if hf := h.health(engine.CheckEnrichUpdate, "kev"); hf == nil || hf.State != "open" {
+		t.Fatalf("update failure: %+v", hf)
+	}
+	if hf := h.health(engine.CheckEnrichStale, "kev"); hf != nil && hf.State == "open" {
+		t.Fatal("one day old: not stale yet")
+	}
+	h.advance(3 * 24 * time.Hour)
+	if _, err := h.eng.Monitor(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if hf := h.health(engine.CheckEnrichStale, "kev"); hf == nil || hf.State != "open" || hf.Severity != "high" {
+		t.Fatalf("stale after max_age: %+v", hf)
+	}
+	kev.fail = false
+	h.advance(time.Hour)
+	if _, err := h.eng.Monitor(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []string{engine.CheckEnrichUpdate, engine.CheckEnrichStale} {
+		if hf := h.health(c, "kev"); hf.State != "resolved" {
+			t.Errorf("%s resolves once the catalog updates: %+v", c, hf)
+		}
 	}
 }
