@@ -14,6 +14,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/spf13/cobra"
 
+	"github.com/nocs90/shieldmon/internal/engine"
 	"github.com/nocs90/shieldmon/internal/oci"
 )
 
@@ -26,7 +27,7 @@ const (
 // targetsAddCmd registers references as monitoring targets without scanning them: the next
 // `monitor` cycle resolves and scans them (F1).
 func (a *app) targetsAddCmd() *cobra.Command {
-	var file, platform string
+	var file, platform, base, by string
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "add [IMAGE...]",
@@ -35,8 +36,11 @@ func (a *app) targetsAddCmd() *cobra.Command {
 next 'shieldmon monitor' cycle resolves and scans them.
 
 A file (-f, "-" for stdin) holds one reference per line; blank lines and lines starting
-with # are ignored. Every reference is checked before any is added.`,
-		Example: "  shieldmon targets add alpine:3.20 ghcr.io/org/app:1.4\n  shieldmon targets add -f images.txt --dry-run",
+with # are ignored. Every reference is checked before any is added.
+
+--base records the base image the new targets are built on (see 'targets set-base').`,
+		Example: "  shieldmon targets add alpine:3.20 ghcr.io/org/app:1.4\n  shieldmon targets add -f images.txt --dry-run\n" +
+			"  shieldmon targets add ghcr.io/org/api:2.1 --base registry.access.redhat.com/ubi9/nodejs-22-minimal:latest",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			refs := args
 			if file != "" {
@@ -54,11 +58,22 @@ with # are ignored. Every reference is checked before any is added.`,
 					return fmt.Errorf("%q: %w", r, err)
 				}
 			}
-			return a.addTargets(cmd, refs, platform, dryRun)
+			if base != "" {
+				var err error
+				if base, err = baseRef(base); err != nil {
+					return err
+				}
+				if by == "" {
+					return errors.New("--base needs --by (who; default from $SHIELDMON_ACTOR or $USER)")
+				}
+			}
+			return a.addTargets(cmd, refs, platform, base, by, dryRun)
 		},
 	}
 	cmd.Flags().StringVarP(&file, "file", "f", "", `file with one reference per line ("-" for stdin)`)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be added, add nothing")
+	cmd.Flags().StringVar(&base, "base", "", "base image tag the new targets are built on (docs/adr/0022-base-image-lineage.md)")
+	cmd.Flags().StringVar(&by, "by", engine.ActorFromEnv(), "who records the base")
 	a.platformFlag(cmd, &platform)
 	return cmd
 }
@@ -171,7 +186,7 @@ registry's provider ('shieldmon plugins', docs/processes/registries.md).`,
 			if len(refs) == 0 {
 				return fmt.Errorf("no tags of %s match", repo.Name())
 			}
-			return a.addTargets(cmd, refs, platform, dryRun)
+			return a.addTargets(cmd, refs, platform, "", "", dryRun)
 		},
 	}
 	cmd.Flags().StringVar(&tagRegex, "tag-regex", "", "keep tags matching this regular expression (RE2)")
@@ -184,7 +199,8 @@ registry's provider ('shieldmon plugins', docs/processes/registries.md).`,
 }
 
 // addTargets registers refs for platform, reporting which are new.
-func (a *app) addTargets(cmd *cobra.Command, refs []string, platform string, dryRun bool) error {
+// addTargets adds new targets for refs; base, when set, is recorded for each new one by actor.
+func (a *app) addTargets(cmd *cobra.Command, refs []string, platform, base, actor string, dryRun bool) error {
 	if a.store == nil {
 		if err := a.setup(cmd); err != nil {
 			return err
@@ -237,10 +253,18 @@ func (a *app) addTargets(cmd *cobra.Command, refs []string, platform string, dry
 			fmt.Fprintf(w, "would add %s (%s)\n", ref, p)
 			continue
 		}
-		if _, err := a.store.UpsertTarget(cmd.Context(), ref, p.String(), time.Now().UTC()); err != nil {
+		t, err := a.store.UpsertTarget(cmd.Context(), ref, p.String(), time.Now().UTC())
+		if err != nil {
 			return err
 		}
-		fmt.Fprintf(w, "added %s (%s)\n", ref, p)
+		if base == "" {
+			fmt.Fprintf(w, "added %s (%s)\n", ref, p)
+			continue
+		}
+		if err := a.store.SetTargetBase(cmd.Context(), t.ID, base, actor, time.Now().UTC()); err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "added %s (%s), built on %s\n", ref, p, base)
 	}
 	verb := "added"
 	if dryRun {

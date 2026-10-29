@@ -47,6 +47,8 @@ const (
 	CheckAuditChain      = "audit_chain_broken"
 	CheckEnrichUpdate    = "enrichment_update_failed"
 	CheckEnrichStale     = "enrichment_stale"
+	CheckImageInspect    = "image_inspect_failed"
+	CheckBaseResolve     = "base_resolve_failed"
 	maxSBOMBytes         = 256 << 20
 	monitorMissedFactor  = 1.5
 )
@@ -55,6 +57,8 @@ const (
 type Fetcher interface {
 	Resolve(ctx context.Context, ref string, platform model.Platform) (oci.Resolved, error)
 	Fetch(ctx context.Context, r oci.Resolved, dir string) error
+	// Inspect reads an image's manifest and config, no layers (docs/adr/0022-base-image-lineage.md).
+	Inspect(ctx context.Context, ref string, platform model.Platform) (oci.ImageInfo, error)
 }
 
 // RegistryFetcher is the production Fetcher backed by go-containerregistry.
@@ -68,6 +72,12 @@ func (f RegistryFetcher) Resolve(ctx context.Context, ref string, p model.Platfo
 
 func (f RegistryFetcher) Fetch(ctx context.Context, r oci.Resolved, dir string) error {
 	return oci.Fetch(ctx, r, dir, f.Options)
+}
+
+func (f RegistryFetcher) Inspect(ctx context.Context, ref string, p model.Platform) (oci.ImageInfo, error) {
+	o := f.Options
+	o.Platform = p
+	return oci.Inspect(ctx, ref, o)
 }
 
 // Engine runs scans against a store.
@@ -99,6 +109,10 @@ type Engine struct {
 	Enrichers []enrich.Instance
 	Now       func() time.Time
 	Log       *slog.Logger
+
+	// observedBases are the base references observed in the running monitor cycle: each is
+	// resolved once per cycle, however many targets share it.
+	observedBases map[string]bool
 }
 
 func (e *Engine) now() time.Time {
@@ -204,6 +218,7 @@ func (e *Engine) Scan(ctx context.Context, ref string, platform model.Platform) 
 	if err := e.match(ctx, resolved.Digest, target.ID, kind, &res); err != nil {
 		return res, err
 	}
+	e.trackLineage(ctx, target, resolved, platform)
 	return res, nil
 }
 
@@ -634,6 +649,8 @@ func (e *Engine) Monitor(ctx context.Context) (MonitorSummary, error) {
 		}
 	}
 	errCount := 0
+	e.observedBases = map[string]bool{}
+	defer func() { e.observedBases = nil }()
 	for _, t := range targets {
 		if ctx.Err() != nil {
 			break

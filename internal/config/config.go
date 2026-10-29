@@ -128,6 +128,12 @@ type Config struct {
 
 	// Gate is the policy of 'shieldmon gate' (docs/adr/0021-policy-gate.md).
 	Gate Gate `yaml:"gate"`
+
+	// Bases are the base images targets are built on (docs/adr/0022-base-image-lineage.md).
+	Bases struct {
+		// MaxAge is how long a base may stay unchanged before it is unmaintained (0: never).
+		MaxAge Duration `yaml:"max_age"`
+	} `yaml:"bases"`
 }
 
 // TemplateWithSandbox is Template with scanners.sandbox.backend set to backend.
@@ -158,6 +164,7 @@ func Default() Config {
 	c.Decisions.OperationalRequirementMaxDays = 365
 	c.Notifications.DueSoonDays = 7
 	c.Gate = DefaultGate()
+	c.Bases.MaxAge = Duration{90 * 24 * time.Hour}
 	return c
 }
 
@@ -217,6 +224,9 @@ func (c Config) Validate() error {
 	}
 	if c.Limits.MaxScratchBytes < 0 || c.Limits.MinFreeDiskBytes < 0 {
 		return fmt.Errorf("limits: max_scratch_bytes and min_free_disk_bytes must not be negative (0 disables)")
+	}
+	if c.Bases.MaxAge.Duration < 0 {
+		return fmt.Errorf("bases.max_age must not be negative (0 disables base_unmaintained)")
 	}
 	return c.Gate.Validate()
 }
@@ -429,6 +439,13 @@ gate:
   # max_db_age: 72h       # default: health.db_max_age
   max_evidence_age: 24h   # with --no-scan, the latest scan may be this old
   exit_codes: { warn: 0, fail: 2, indeterminate: 3 }   # errors exit 1
+
+# Base images (docs/processes/base-images.md): each target's base comes from
+# 'targets set-base' or the org.opencontainers.image.base.name annotation, and is proven by
+# shared layers. monitor follows each base tag: a base unchanged for longer than max_age is
+# unmaintained, and rebuilding on it fixes nothing.
+bases:
+  max_age: 2160h   # 90 days; 0 disables
 `
 
 // Policy builds the decision policy from configuration.

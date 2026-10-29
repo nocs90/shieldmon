@@ -20,6 +20,7 @@ import (
 	"github.com/nocs90/shieldmon/internal/enrich"
 	"github.com/nocs90/shieldmon/internal/gate"
 	"github.com/nocs90/shieldmon/internal/lifecycle"
+	"github.com/nocs90/shieldmon/internal/lineage"
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/notify"
 	"github.com/nocs90/shieldmon/internal/oci"
@@ -34,9 +35,34 @@ import (
 type fakeFetcher struct {
 	tags    map[string]string // ref -> digest
 	fetches int
+	// infos are what Inspect reads per digest; a digest without one has a single layer of its own.
+	infos    map[string]oci.ImageInfo
+	inspects []string
+	resolves map[string]int
+}
+
+func (f *fakeFetcher) Inspect(_ context.Context, ref string, p model.Platform) (oci.ImageInfo, error) {
+	f.inspects = append(f.inspects, ref)
+	d, ok := f.tags[ref]
+	if _, digest, isDigest := strings.Cut(ref, "@"); isDigest {
+		d, ok = digest, true
+	}
+	if !ok {
+		return oci.ImageInfo{}, fmt.Errorf("%w: 401 for %s", oci.ErrAuth, ref)
+	}
+	info, ok := f.infos[d]
+	if !ok {
+		info.DiffIDs = []string{"layer-of-" + d}
+	}
+	info.Digest, info.Platform = d, p
+	return info, nil
 }
 
 func (f *fakeFetcher) Resolve(_ context.Context, ref string, p model.Platform) (oci.Resolved, error) {
+	if f.resolves == nil {
+		f.resolves = map[string]int{}
+	}
+	f.resolves[ref]++
 	d, ok := f.tags[ref]
 	if !ok {
 		return oci.Resolved{}, fmt.Errorf("%w: 401 for %s", oci.ErrAuth, ref)
@@ -1346,5 +1372,115 @@ func TestGateDecidesOnEvidenceAndDecisions(t *testing.T) {
 	}
 	if r = gateNow(res.ScanID); r.Verdict != gate.Fail || len(r.Exempt) != 0 {
 		t.Fatalf("an expired acceptance exempts nothing: %+v", r)
+	}
+}
+
+// TestBaseLineage follows images on a base tag (docs/adr/0022-base-image-lineage.md): the
+// base moves, a rebuild is available, the image is rebuilt, the base stops moving.
+func TestBaseLineage(t *testing.T) {
+	h := newHarness(t)
+	const base, api = "registry.test/base:1", "registry.test/api:1"
+	const base1, base2 = "sha256:ba5e100000000000000000000000000000000000000000000000000000000000", "sha256:ba5e200000000000000000000000000000000000000000000000000000000000"
+	h.fetch.infos = map[string]oci.ImageInfo{
+		base1:   {DiffIDs: []string{"sha256:b1"}, Created: time.Unix(0, 0)}, // reproducible: no age from it
+		base2:   {DiffIDs: []string{"sha256:b2"}},
+		digestA: {DiffIDs: []string{"sha256:b1", "sha256:app-a"}},
+		digestB: {DiffIDs: []string{"sha256:b2", "sha256:app-b"}},
+		// api names its base by annotation and claims base1, which its layers confirm.
+		digestC: {DiffIDs: []string{"sha256:b1", "sha256:api"}, BaseName: base, BaseRepository: "registry.test/base", BaseDigest: base1},
+	}
+	h.fetch.tags[base] = base1
+	h.image(ref, digestA)
+	h.image(api, digestC)
+	h.scan(ref)
+	h.scan(api)
+	app, err := h.store.TargetsByRef(h.ctx, ref)
+	if err != nil || len(app) != 1 {
+		t.Fatal(app, err)
+	}
+	if err := h.store.SetTargetBase(h.ctx, app[0].ID, base, "platform-team", h.clock); err != nil {
+		t.Fatal(err)
+	}
+	lineages := func() map[string]lineage.Result {
+		t.Helper()
+		inv, err := report.BuildInventory(h.ctx, h.store, report.InventoryOptions{Now: h.clock, BaseMaxAge: 90 * 24 * time.Hour})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]lineage.Result{}
+		for _, img := range inv.Images {
+			out[img.Ref] = img.Base
+		}
+		return out
+	}
+	count := func(ref string) int {
+		n := 0
+		for _, r := range h.fetch.inspects {
+			if r == ref {
+				n++
+			}
+		}
+		return n
+	}
+
+	h.monitor()
+	l := lineages()
+	if a := l[ref]; a.Status != lineage.Current || a.Source != lineage.SourceConfigured || a.BaseDigest != base1 {
+		t.Fatalf("app on the newest base: %+v", a)
+	}
+	if b := l[api]; b.Status != lineage.Current || b.Source != lineage.SourceAnnotation {
+		t.Fatalf("api by annotation: %+v", b)
+	}
+	if ins, err := h.store.Inspection(h.ctx, digestC); err != nil || !ins.AnnotatedVerified || ins.AnnotatedDigest != base1 {
+		t.Fatalf("the annotated base digest is checked by its layers: %+v %v", ins, err)
+	}
+
+	// The base moves: both images can be rebuilt; the base is resolved once for both.
+	h.advance(24 * time.Hour)
+	h.fetch.tags[base] = base2
+	resolved := h.fetch.resolves[base]
+	h.monitor()
+	if n := h.fetch.resolves[base] - resolved; n != 1 {
+		t.Errorf("base resolved %d times in one cycle for two images", n)
+	}
+	l = lineages()
+	if a := l[ref]; a.Status != lineage.RebuildAvailable || a.BaseDigest != base1 || a.Newest != base2 {
+		t.Fatalf("rebuild available: %+v", a)
+	}
+	if count("registry.test/app@"+base2) != 1 || count("registry.test/app@"+digestA) != 1 {
+		t.Errorf("each digest is inspected once, however many cycles and images: %q", h.fetch.inspects)
+	}
+
+	// The image is rebuilt on the new base.
+	h.advance(24 * time.Hour)
+	h.image(ref, digestB)
+	h.monitor()
+	if a := lineages()[ref]; a.Status != lineage.Current || a.BaseDigest != base2 || a.Unmaintained {
+		t.Fatalf("rebuilt: %+v", a)
+	}
+
+	// The base stops moving: 91 days after it was seen moving, it is unmaintained.
+	h.advance(91 * 24 * time.Hour)
+	h.monitor()
+	if a := lineages()[ref]; !a.Unmaintained || a.SinceSource != "observed" {
+		t.Fatalf("unmaintained: %+v", a)
+	}
+
+	// A base that cannot be resolved is a monitoring failure, not a property of the image.
+	delete(h.fetch.tags, base)
+	h.monitor()
+	if hf := h.health(engine.CheckBaseResolve, base); hf == nil || !hf.ResolvedAt.IsZero() {
+		t.Fatalf("base_resolve_failed: %+v", hf)
+	}
+	h.fetch.tags[base] = base2
+	h.monitor()
+	if hf := h.health(engine.CheckBaseResolve, base); hf == nil || hf.ResolvedAt.IsZero() {
+		t.Fatalf("resolved again: %+v", hf)
+	}
+	hs, _ := h.store.ListHealth(h.ctx, false)
+	for _, hf := range hs {
+		if hf.Check != engine.CheckUnsandboxed { // the harness runs no sandbox
+			t.Errorf("no other health finding: %+v", hf)
+		}
 	}
 }

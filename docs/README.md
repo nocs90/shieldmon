@@ -24,6 +24,7 @@ not described, describe it (that is part of the change).
 | Expressing your remediation policy (deadlines, decision limits) | [processes/remediation-policy.md](processes/remediation-policy.md) |
 | Enrichment (CISA KEV) | [processes/enrichment.md](processes/enrichment.md) |
 | CI gate: pass, warn or fail an image on policy | [processes/ci-gate.md](processes/ci-gate.md) |
+| Base images: rebuild available, unmaintained bases | [processes/base-images.md](processes/base-images.md) |
 | Notifications (webhook, e-mail, chat, issue trackers) | [processes/notifications.md](processes/notifications.md) |
 | Registries and credentials (Docker Hub, ECR, GCR/Artifact Registry, …) | [processes/registries.md](processes/registries.md) |
 | Monthly reporting (HTML, Markdown, CSV, JSON, remediation plan, SARIF) | [processes/reporting.md](processes/reporting.md) |

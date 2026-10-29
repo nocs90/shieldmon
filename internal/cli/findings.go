@@ -112,7 +112,7 @@ func printResults(w io.Writer, results []engine.Result, format string) error {
 
 func (a *app) targetsCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "targets", Short: "Manage monitoring targets"}
-	cmd.AddCommand(a.targetsAddCmd(), a.targetsAddRepoCmd(), a.targetsRetireCmd(true), a.targetsRetireCmd(false))
+	cmd.AddCommand(a.targetsAddCmd(), a.targetsAddRepoCmd(), a.targetsRetireCmd(true), a.targetsRetireCmd(false), a.targetsSetBaseCmd())
 	cmd.AddCommand(&cobra.Command{
 		Use:   "list",
 		Short: "List monitoring targets",
@@ -125,14 +125,22 @@ func (a *app) targetsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			bases, err := a.store.TargetBases(cmd.Context())
+			if err != nil {
+				return err
+			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-			fmt.Fprintln(tw, "ID\tREF\tPLATFORM\tDIGEST\tLAST RESOLVED\tSTATUS")
+			fmt.Fprintln(tw, "ID\tREF\tPLATFORM\tDIGEST\tLAST RESOLVED\tSTATUS\tBASE")
 			for _, t := range targets {
 				status := "monitored"
 				if !t.RetiredAt.IsZero() {
 					status = "retired " + t.RetiredAt.Format(time.DateOnly)
 				}
-				fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\n", t.ID, t.Ref, t.Platform, shortDigest(t.CurrentDigest), fmtTime(t.LastResolvedAt), status)
+				base := bases[t.ID]
+				if base == "" {
+					base = "-"
+				}
+				fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n", t.ID, t.Ref, t.Platform, shortDigest(t.CurrentDigest), fmtTime(t.LastResolvedAt), status, base)
 			}
 			return tw.Flush()
 		},
@@ -634,7 +642,7 @@ health.monitor_interval, a required SBOM generator missing.`,
 			slices.Sort(gens)
 			opts := report.InventoryOptions{
 				Now: time.Now().UTC(), StaleAfter: a.cfg.Health.MonitorInterval.Duration * 3 / 2, Generators: gens,
-				Tool: "shieldmon " + Version,
+				Tool: "shieldmon " + Version, BaseMaxAge: a.cfg.Bases.MaxAge.Duration,
 			}
 			if f, ok := report.LookupInventoryFormat(format); ok && f.Components {
 				opts.ReadSBOM = func(b store.SBOM) ([]byte, error) { return a.engine.ReadSBOM(b, sbom.MaxBytes) }

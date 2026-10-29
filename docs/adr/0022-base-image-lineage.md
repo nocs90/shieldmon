@@ -1,7 +1,6 @@
 # 0022 — Base image lineage: what an image is built on, proven by its layers
 
-- Status: proposed (needs schema v7: `target_bases`, `image_inspections`, `base_observations`,
-  append-only and sealed in the audit chain)
+- Status: accepted
 - Date: 2026-10-29
 
 ## Context
@@ -39,7 +38,9 @@ response; no layer is pulled and no scanner sees a base image.
   `sha256:` digest, are ignored and reported.
 - Each base reference is resolved once per monitoring cycle and platform (and when a target
   using it is scanned); a new digest is inspected and recorded append-only
-  (`base_observations`, like `target_digests`). Failing to resolve or inspect a base opens a
+  (`base_observations`, like `target_digests`). Configured bases (`target_bases`), image
+  inspections (`image_inspections`) and observations are append-only tables of schema v7,
+  sealed in the audit chain (ADR 0018). Failing to resolve or inspect a base opens a
   `base_resolve_failed` health finding: missing evidence is a monitoring failure (I6).
 
 **Status of an image**, computed from those records, never stored:
