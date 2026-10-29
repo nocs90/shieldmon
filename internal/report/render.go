@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/nocs90/shieldmon/internal/lineage"
 )
 
 // Format is a pluggable report renderer. Register new formats (HTML,
@@ -118,6 +120,38 @@ func dateOrEmpty(t time.Time) string {
 		return ""
 	}
 	return t.Format(time.DateOnly)
+}
+
+// writeMonthlyBases lists the targets whose base calls for action at the end of the period:
+// a rebuild is available, the base is unmaintained, or it could not be verified.
+func writeMonthlyBases(b *strings.Builder, r Monthly) {
+	if r.Bases == nil {
+		return
+	}
+	s := r.Bases.Status
+	fmt.Fprintf(b, "## Base images\n\nOn the newest base: %d · Rebuild available: %d · Base not verified: %d · No known base: %d · Unmaintained base: %d\n\n",
+		s[string(lineage.Current)], s[string(lineage.RebuildAvailable)], s[string(lineage.Unknown)], s[string(lineage.None)], r.Bases.Unmaintained)
+	var rows []TargetSummary
+	for _, t := range r.TargetSummaries {
+		if x := t.Base; x != nil && (x.Status == lineage.RebuildAvailable || x.Status == lineage.Unknown || x.Unmaintained) {
+			rows = append(rows, t)
+		}
+	}
+	if len(rows) == 0 {
+		b.WriteString("_No image needs a rebuild or a new base._\n\n")
+		return
+	}
+	b.WriteString("| Target | Base | Status | Newest base since | Unmaintained | Open |\n|---|---|---|---|---|---:|\n")
+	for _, t := range rows {
+		x := t.Base
+		unmaintained := ""
+		if x.Unmaintained {
+			unmaintained = "yes"
+		}
+		fmt.Fprintf(b, "| %s (%s) | %s | %s | %s | %s | %d |\n", mdEscape(t.Ref), mdEscape(t.Platform), mdEscape(x.BaseRef),
+			strings.ReplaceAll(string(x.Status), "_", " "), dateOrEmpty(x.Since), unmaintained, t.Open)
+	}
+	b.WriteString("\n")
 }
 
 // mdEscape keeps hostile strings from breaking table layout or injecting markup.
@@ -230,6 +264,7 @@ func renderMarkdown(w io.Writer, r Monthly) error {
 		}
 	}
 	b.WriteString("\n")
+	writeMonthlyBases(b, r)
 	writeChangesMarkdown(b, r.InventoryChanges)
 	if d := r.AuditDigest; d.Seq > 0 {
 		fmt.Fprintf(b, "---\n\nAudit trail anchor: entry %d, `%s` (save it: `shieldmon audit verify --digest` proves the trail was not rewritten since).\n", d.Seq, d.Hash)

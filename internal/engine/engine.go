@@ -107,8 +107,11 @@ type Engine struct {
 	AuditVerifyInterval time.Duration
 	// Enrichers add facts (CISA KEV) to every scan's matches (docs/adr/0019-enrichers.md).
 	Enrichers []enrich.Instance
-	Now       func() time.Time
-	Log       *slog.Logger
+	// BaseMaxAge is how long a base may stay unchanged before it is unmaintained (0: never;
+	// docs/adr/0022-base-image-lineage.md).
+	BaseMaxAge time.Duration
+	Now        func() time.Time
+	Log        *slog.Logger
 
 	// observedBases are the base references observed in the running monitor cycle: each is
 	// resolved once per cycle, however many targets share it.
@@ -785,6 +788,10 @@ func (e *Engine) PendingNotifications(ctx context.Context) (map[string][]notify.
 func (e *Engine) notifyInput(ctx context.Context, since, now time.Time) (notify.Input, error) {
 	in, err := e.Store.NotifyInput(ctx, e.Decisions, since, now)
 	in.Now, in.Since, in.DueSoon = now, since, e.DueSoon
+	if err != nil {
+		return in, err
+	}
+	in.Bases, err = e.baseStates(ctx, now)
 	return in, err
 }
 

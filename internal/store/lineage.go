@@ -61,6 +61,34 @@ func (s *Store) TargetBases(ctx context.Context) (map[int64]string, error) {
 	return out, rows.Err()
 }
 
+// TargetBaseChange is a base configured for a target (empty: cleared).
+type TargetBaseChange struct {
+	TargetID int64
+	BaseRef  string
+	Actor    string
+	At       time.Time
+}
+
+// TargetBaseHistory returns every configured base, oldest first.
+func (s *Store) TargetBaseHistory(ctx context.Context) ([]TargetBaseChange, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT target_id, base_ref, actor, at FROM target_bases ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TargetBaseChange
+	for rows.Next() {
+		var c TargetBaseChange
+		var at string
+		if err := rows.Scan(&c.TargetID, &c.BaseRef, &c.Actor, &at); err != nil {
+			return nil, err
+		}
+		c.At = parseTS(at)
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // ImageInspection is what an image digest was read to be: its layers and base annotations.
 type ImageInspection struct {
 	Digest  string

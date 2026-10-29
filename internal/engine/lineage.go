@@ -4,11 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"time"
 
 	"github.com/nocs90/shieldmon/internal/lineage"
 	"github.com/nocs90/shieldmon/internal/model"
+	"github.com/nocs90/shieldmon/internal/notify"
 	"github.com/nocs90/shieldmon/internal/oci"
 	"github.com/nocs90/shieldmon/internal/redact"
+	"github.com/nocs90/shieldmon/internal/report"
 	"github.com/nocs90/shieldmon/internal/store"
 )
 
@@ -74,6 +78,39 @@ func (e *Engine) inspectImage(ctx context.Context, r oci.Resolved, p model.Platf
 		e.log().Warn("image annotations", "image", r.DigestRef(), "problem", pr)
 	}
 	return ins, nil
+}
+
+// baseStates is the base lineage of each monitored image digest with a known base, for
+// notifications: one per digest and base, with the targets on it.
+func (e *Engine) baseStates(ctx context.Context, now time.Time) ([]notify.Base, error) {
+	targets, err := e.Store.ListTargets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	targets = slices.DeleteFunc(targets, func(t store.Target) bool { return !t.RetiredAt.IsZero() || t.CurrentDigest == "" })
+	lineages, err := report.Lineages(ctx, e.Store, targets, e.BaseMaxAge, now)
+	if err != nil {
+		return nil, err
+	}
+	var out []notify.Base
+	index := map[string]int{}
+	for _, t := range targets {
+		l := lineages[t.ID]
+		if l.BaseRef == "" {
+			continue
+		}
+		k := t.CurrentDigest + " " + l.BaseRef
+		i, ok := index[k]
+		if !ok {
+			i, index[k] = len(out), len(out)
+			out = append(out, notify.Base{
+				Digest: t.CurrentDigest, BaseRef: l.BaseRef, BaseDigest: l.BaseDigest, Newest: l.Newest, Since: l.Since,
+				Status: string(l.Status), Unmaintained: l.Unmaintained,
+			})
+		}
+		out[i].Images = append(out[i].Images, t.Ref+" ("+t.Platform+")")
+	}
+	return out, nil
 }
 
 // observeBase records what a base reference points to on a platform when it moved; once per

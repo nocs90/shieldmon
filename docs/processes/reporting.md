@@ -60,6 +60,7 @@ weaknesses).
 | Monitoring health | open health findings: gaps in the evidence itself |
 | Inventory changes | images added, rebuilt (new digest, with its scan), retired and restored in the period ([inventory.md](inventory.md#changes-over-a-period)) |
 | Retired with the image | findings still open whose images were all retired (`targets retire`): not open, not fixed ([inventory.md](inventory.md#retiring-an-image)) |
+| Base images | monitored targets on the newest base, with a rebuild available, with an unverified base, without a known base, and on an unmaintained base, at the end of the period; the targets needing action are listed ([base-images.md](base-images.md)) |
 
 The current month is reported "as of now". Deadlines come from `sla.profile` and
 `sla.days` in the configuration.

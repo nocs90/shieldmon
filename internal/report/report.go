@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nocs90/shieldmon/internal/config"
+	"github.com/nocs90/shieldmon/internal/lineage"
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/priority"
 	"github.com/nocs90/shieldmon/internal/store"
@@ -111,6 +112,8 @@ type TargetSummary struct {
 	Breached int            `json:"sla_breaches"`
 	// RetiredAt is when the target was retired, zero while monitored.
 	RetiredAt time.Time `json:"retired_at,omitzero"`
+	// Base is the target's base lineage at the end of the period (AddBaseLineage).
+	Base *lineage.Result `json:"base,omitempty"`
 }
 
 // DayCount is one point of the burndown series.
@@ -140,6 +143,8 @@ type Monthly struct {
 	// AuditDigest is the head of the audit chain when the report was generated: every
 	// distributed report anchors the audit trail ('shieldmon audit verify --digest').
 	AuditDigest store.AuditDigest `json:"audit_digest"`
+	// Bases summarizes the base images of the monitored targets (AddBaseLineage).
+	Bases *BaseSummary `json:"bases,omitempty"`
 }
 
 // AgingBuckets are the age buckets for open findings, in days.

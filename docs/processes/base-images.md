@@ -70,3 +70,21 @@ bases:
 
 A base that cannot be resolved opens a `base_resolve_failed` health finding: the statuses then
 rest on older observations.
+
+## Monthly report and notifications
+
+- The monthly report (section "Base images", a Base column in HTML, `bases` and
+  `target_summaries[].base` in JSON) gives the status at the end of the month, computed from
+  the append-only records: regenerating a past month gives the same answer.
+- Two opt-in notification events ([notifications.md](notifications.md)), each sent once per
+  image digest and base digest: `base_rebuild_available` and `base_unmaintained`.
+
+```yaml
+notifications:
+  channels:
+    - name: platform-team
+      notifier: slack
+      events: [base_rebuild_available, base_unmaintained]
+      digest: true
+      options: { webhook_url_env: SHIELDMON_SLACK_PLATFORM }
+```

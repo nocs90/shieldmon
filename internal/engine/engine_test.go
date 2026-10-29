@@ -803,6 +803,8 @@ func (n *recordingNotifier) sent() []string {
 				what = e.Finding.VulnID
 			case e.Health != nil:
 				what = e.Health.Check + "/" + e.Health.Subject
+			case e.Base != nil:
+				what = strings.Join(e.Base.Images, ",") + "@" + e.Base.Newest
 			}
 			out = append(out, string(e.Kind)+" "+what)
 		}
@@ -1394,6 +1396,9 @@ func TestBaseLineage(t *testing.T) {
 	h.image(api, digestC)
 	h.scan(ref)
 	h.scan(api)
+	h.eng.BaseMaxAge = 90 * 24 * time.Hour
+	bases := &recordingNotifier{}
+	h.eng.Channels = []notify.Channel{{Name: "platform", Kinds: []notify.Kind{notify.BaseRebuildAvailable, notify.BaseUnmaintained}, Sender: bases}}
 	app, err := h.store.TargetsByRef(h.ctx, ref)
 	if err != nil || len(app) != 1 {
 		t.Fatal(app, err)
@@ -1450,13 +1455,24 @@ func TestBaseLineage(t *testing.T) {
 	if count("registry.test/app@"+base2) != 1 || count("registry.test/app@"+digestA) != 1 {
 		t.Errorf("each digest is inspected once, however many cycles and images: %q", h.fetch.inspects)
 	}
+	// The channel hears it once per image digest, with every target on it.
+	want := []string{
+		"base_rebuild_available " + api + " (linux/amd64)@" + base2,
+		"base_rebuild_available " + ref + " (linux/amd64)@" + base2,
+	}
+	if got := bases.sent(); !slices.Equal(slices.Sorted(slices.Values(got)), want) {
+		t.Fatalf("sent %q, want %q", got, want)
+	}
 
-	// The image is rebuilt on the new base.
+	// The image is rebuilt on the new base: nothing more to say about it.
 	h.advance(24 * time.Hour)
 	h.image(ref, digestB)
 	h.monitor()
 	if a := lineages()[ref]; a.Status != lineage.Current || a.BaseDigest != base2 || a.Unmaintained {
 		t.Fatalf("rebuilt: %+v", a)
+	}
+	if got := bases.sent(); len(got) != 2 {
+		t.Fatalf("nothing new after the rebuild: %q", got)
 	}
 
 	// The base stops moving: 91 days after it was seen moving, it is unmaintained.
@@ -1464,6 +1480,31 @@ func TestBaseLineage(t *testing.T) {
 	h.monitor()
 	if a := lineages()[ref]; !a.Unmaintained || a.SinceSource != "observed" {
 		t.Fatalf("unmaintained: %+v", a)
+	}
+	h.monitor()
+	// The October report, generated now, says what was true at the end of October: app on the
+	// newest base, which had moved a month before.
+	sla, _ := config.SLAProfile("standard", nil)
+	oct, err := report.BuildMonthly(h.ctx, h.store, report.MonthPeriod(time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC)), "standard", sla, h.clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := report.AddBaseLineage(h.ctx, h.store, &oct, h.eng.BaseMaxAge); err != nil {
+		t.Fatal(err)
+	}
+	for _, ts := range oct.TargetSummaries {
+		if ts.Ref == ref && (ts.Base == nil || ts.Base.Status != lineage.Current || ts.Base.Unmaintained) {
+			t.Fatalf("October lineage of %s: %+v", ref, ts.Base)
+		}
+	}
+	if oct.Bases.Status["current"] != 1 || oct.Bases.Status["rebuild_available"] != 1 || oct.Bases.Unmaintained != 0 {
+		t.Fatalf("October bases: %+v", oct.Bases)
+	}
+
+	// Both images are on the unmaintained base; api's rebuild was already announced.
+	want = []string{"base_unmaintained " + api + " (linux/amd64)@" + base2, "base_unmaintained " + ref + " (linux/amd64)@" + base2}
+	if got := bases.sent()[2:]; !slices.Equal(slices.Sorted(slices.Values(got)), want) {
+		t.Fatalf("unmaintained, once each: %q", got)
 	}
 
 	// A base that cannot be resolved is a monitoring failure, not a property of the image.

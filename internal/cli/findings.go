@@ -595,6 +595,9 @@ func (a *app) reportCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := report.AddBaseLineage(cmd.Context(), a.store, &r, a.cfg.Bases.MaxAge.Duration); err != nil {
+				return err
+			}
 			w, closeOut, err := reportOutput(cmd, out)
 			if err != nil {
 				return err

@@ -201,6 +201,7 @@ func (a *app) setup(cmd *cobra.Command) error {
 		DueSoon:             time.Duration(cfg.Notifications.DueSoonDays) * 24 * time.Hour,
 		AuditVerifyInterval: cfg.Health.AuditVerifyInterval.Duration,
 		Enrichers:           enrichers,
+		BaseMaxAge:          cfg.Bases.MaxAge.Duration,
 		Log:                 a.log,
 	}
 	return nil

@@ -30,7 +30,13 @@ type fakeInventory struct {
 	observed  []store.BaseObservation
 }
 
-func (f fakeInventory) TargetBases(context.Context) (map[int64]string, error) { return f.bases, nil }
+func (f fakeInventory) TargetBaseHistory(context.Context) ([]store.TargetBaseChange, error) {
+	var out []store.TargetBaseChange
+	for id, ref := range f.bases {
+		out = append(out, store.TargetBaseChange{TargetID: id, BaseRef: ref, Actor: "ops", At: invNow.AddDate(0, -1, 0)})
+	}
+	return out, nil
+}
 
 func (f fakeInventory) Inspections(context.Context) (map[string]store.ImageInspection, error) {
 	return f.inspected, nil
@@ -126,7 +132,12 @@ func inventoryFixture() fakeInventory {
 			finding("sha256:dddd", model.SeverityCritical), // on the retired image only: not counted
 		},
 		history: []store.DigestChange{
-			{TargetID: 1, Digest: "sha256:old"}, {TargetID: 1, Digest: a, Previous: "sha256:old"}, {TargetID: 2, Digest: b}, {TargetID: 3, Digest: c},
+			{TargetID: 1, Digest: "sha256:old"},
+			{TargetID: 1, Digest: a, Previous: "sha256:old"},
+			{TargetID: 2, Digest: b},
+			{TargetID: 3, Digest: c},
+			{TargetID: 5, Digest: a},
+			{TargetID: 6, Digest: "sha256:dddd"},
 		},
 		// app:prod amd64 is configured on base:1 and built on its older digest, which has not
 		// moved for 100 days; app:latest (same digest) names it by annotation; app:prod arm64

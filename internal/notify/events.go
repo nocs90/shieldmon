@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"time"
+
+	"github.com/nocs90/shieldmon/internal/lineage"
 )
 
 // Input is the monitoring state events are computed from. Computing them is pure: the
@@ -20,6 +22,8 @@ type Input struct {
 	Health []Health
 	// Fixed are findings closed as fixed, with the targets of the scan that gave the evidence.
 	Fixed []Fixed
+	// Bases are the base lineages of the monitored image digests with a known base.
+	Bases []Base
 }
 
 // Fixed is a finding closed as fixed by scan evidence.
@@ -82,7 +86,23 @@ func Collect(in Input) []Event {
 	for _, h := range in.Health {
 		out = append(out, Event{Key: healthKey(h), Kind: HealthOpened, Health: &h})
 	}
+	out = append(out, baseEvents(in.Bases)...)
 	Sort(out)
+	return out
+}
+
+// baseEvents are base_rebuild_available and base_unmaintained, once per image digest and
+// newest base digest: a later base move or rebuild is new news.
+func baseEvents(bases []Base) []Event {
+	var out []Event
+	for _, b := range bases {
+		if b.Status == string(lineage.RebuildAvailable) {
+			out = append(out, Event{Key: "base_rebuild_available:" + b.Digest + ":" + b.Newest, Kind: BaseRebuildAvailable, Base: &b})
+		}
+		if b.Unmaintained {
+			out = append(out, Event{Key: "base_unmaintained:" + b.Digest + ":" + b.Newest, Kind: BaseUnmaintained, Base: &b})
+		}
+	}
 	return out
 }
 
@@ -104,7 +124,8 @@ func remaining(f Finding, active []Active) int {
 // Current keeps the pending events that still describe the state, with their finding
 // refreshed (targets, state, fix versions may have changed since the event was recorded):
 // a finding event while its lineage is active, a health event while that health finding is
-// still open since the same time. The rest would be stale news.
+// still open since the same time, a base event while it still holds. The rest would be stale
+// news.
 func Current(pending []Event, in Input) []Event {
 	lineages := map[int64]Finding{}
 	for _, a := range in.Active {
@@ -115,6 +136,10 @@ func Current(pending []Event, in Input) []Event {
 	open := map[string]bool{}
 	for _, h := range in.Health {
 		open[healthKey(h)] = true
+	}
+	bases := map[string]*Base{}
+	for _, e := range baseEvents(in.Bases) {
+		bases[e.Key] = e.Base
 	}
 	var out []Event
 	for _, e := range pending {
@@ -137,6 +162,12 @@ func Current(pending []Event, in Input) []Event {
 			if !open[e.Key] {
 				continue
 			}
+		case e.Base != nil:
+			b, ok := bases[e.Key]
+			if !ok {
+				continue
+			}
+			e.Base = b // the images on the digest may have changed
 		default:
 			continue
 		}
