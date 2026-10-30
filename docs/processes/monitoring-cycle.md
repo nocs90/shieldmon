@@ -44,3 +44,14 @@ alerting fires as well as ShieldMon's health findings.
 shieldmon monitor --log-level info
 shieldmon health            # anything open needs attention, see health-findings.md
 ```
+
+## Logs
+
+Logs go to stderr; reports and command output to stdout. `--log-format json` writes one JSON
+object per line (`time`, `level`, `msg` and attributes) for log pipelines (Loki, Elasticsearch,
+CloudWatch); `text` (the default) is logfmt-like. In both formats every message and attribute
+passes through the credential redaction, whatever the code that logged it.
+
+```sh
+shieldmon monitor --log-level info --log-format json 2>>/var/log/shieldmon.jsonl
+```

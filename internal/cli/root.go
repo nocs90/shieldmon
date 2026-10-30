@@ -35,9 +35,10 @@ import (
 var Version = "dev"
 
 type app struct {
-	cfgPath  string
-	dataDir  string
-	logLevel string
+	cfgPath   string
+	dataDir   string
+	logLevel  string
+	logFormat string
 
 	cfg        config.Config
 	owners     owners.Ownership
@@ -85,6 +86,7 @@ when a later scan provides evidence.`,
 	root.PersistentFlags().StringVar(&a.cfgPath, "config", "", "config file (default "+config.DefaultPath()+")")
 	root.PersistentFlags().StringVar(&a.dataDir, "data-dir", "", "data directory (overrides config)")
 	root.PersistentFlags().StringVar(&a.logLevel, "log-level", "warn", "log level: debug, info, warn, error")
+	root.PersistentFlags().StringVar(&a.logFormat, "log-format", "text", "log format: text, json (one object per line, for log pipelines)")
 
 	root.AddGroup(
 		&cobra.Group{ID: "monitor", Title: "Monitoring:"},
@@ -139,11 +141,9 @@ func (a *app) setup(cmd *cobra.Command) error {
 		return err
 	}
 
-	var lvl slog.Level
-	if err := lvl.UnmarshalText([]byte(a.logLevel)); err != nil {
-		return fmt.Errorf("--log-level: %w", err)
+	if a.log, err = newLogger(cmd.ErrOrStderr(), a.logFormat, a.logLevel); err != nil {
+		return err
 	}
-	a.log = slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: lvl}))
 
 	// tmp holds scanner scratch space and, in the container image (TMPDIR=<data_dir>/tmp), the
 	// only temporary files a read-only root filesystem allows.
