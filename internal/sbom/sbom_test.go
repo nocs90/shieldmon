@@ -75,9 +75,47 @@ func TestParseRejectsHostileSBOMs(t *testing.T) {
 	}
 }
 
+// layeredSBOM has the layer properties of image SBOMs: syft writes "syft:location:N:layerID"
+// (the cyclonedx tag of its FileSystemID), trivy "aquasecurity:trivy:LayerDiffID".
+const layeredSBOM = `{"bomFormat":"CycloneDX","specVersion":"1.6","components":[
+ {"type":"library","name":"zlib","version":"1.3-r0","purl":"pkg:apk/alpine/zlib@1.3-r0","properties":[
+  {"name":"syft:location:0:layerID","value":"sha256:` + layerA + `"},
+  {"name":"syft:location:0:path","value":"/lib/apk/db/installed"},
+  {"name":"syft:location:1:layerID","value":"sha256:` + layerB + `"}]},
+ {"type":"library","name":"zlib","version":"1.3-r0","purl":"pkg:apk/alpine/zlib@1.3-r0","properties":[
+  {"name":"aquasecurity:trivy:LayerDiffID","value":"sha256:` + layerC + `"}]},
+ {"type":"library","name":"evil","version":"1","properties":[
+  {"name":"syft:location:0:layerID","value":"sha256:../../etc/passwd"},
+  {"name":"aquasecurity:trivy:LayerDiffID","value":"sha256:` + layerA + `\n"},
+  {"name":"other:layerID","value":"sha256:` + layerA + `"}]}]}`
+
+const (
+	layerA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	layerB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	layerC = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+)
+
+func TestParseLayers(t *testing.T) {
+	comps, _, err := ParseCycloneDX([]byte(layeredSBOM))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comps) != 2 {
+		t.Fatalf("components = %+v", comps)
+	}
+	want := []string{"sha256:" + layerA, "sha256:" + layerB, "sha256:" + layerC}
+	if !reflect.DeepEqual(comps[0].Layers, want) {
+		t.Errorf("layers = %v: every location, merged across duplicates", comps[0].Layers)
+	}
+	if comps[1].Layers != nil {
+		t.Errorf("malformed or foreign layer properties are ignored: %v", comps[1].Layers)
+	}
+}
+
 func FuzzParseCycloneDX(f *testing.F) {
 	f.Add(fixture(f, "syft-dir.cdx.json"))
 	f.Add(fixture(f, "trivy-fs.cdx.json"))
+	f.Add([]byte(layeredSBOM))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		comps, _, err := ParseCycloneDX(data)
 		if err != nil {
@@ -87,6 +125,14 @@ func FuzzParseCycloneDX(f *testing.F) {
 		for _, c := range comps {
 			if c.Name == "" || len(c.Name) > maxField || seen[c.Key()] {
 				t.Fatalf("invalid or duplicate component accepted: %+v", c)
+			}
+			if len(c.Layers) > maxLayers {
+				t.Fatalf("unbounded layers: %d", len(c.Layers))
+			}
+			for _, l := range c.Layers {
+				if !isLayerDigest(l) {
+					t.Fatalf("invalid layer accepted: %q", l)
+				}
 			}
 			seen[c.Key()] = true
 		}

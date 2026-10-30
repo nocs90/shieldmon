@@ -31,6 +31,7 @@ func planFixture() Monthly {
 				Version: "3.3.1-r0", PURL: "pkg:apk/alpine/libcrypto3@3.3.1-r0", FixVersions: []string{"3.3.2-r0"}, FixState: "fixed",
 				Title: "openssl: possible denial of service\nin X.509 name checks", Targets: []string{"registry.test/app:prod (linux/amd64)"},
 				Digest: "sha256:aaaa", FirstDetected: day("2026-09-01"), AgeDays: 58, SLADue: day("2026-10-01"), SLABreached: true,
+				Remedy: "rebuild",
 			},
 			{
 				ID: 9, Priority: 46, State: "triaged", VulnID: "CVE-2026-0001", Severity: "critical", Package: `=HYPERLINK("http://evil","x")`,

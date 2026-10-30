@@ -46,7 +46,7 @@ func TestImageInspectionOncePerDigest(t *testing.T) {
 	ctx := context.Background()
 	in := ImageInspection{
 		Digest: "sha256:a", DiffIDs: []string{"sha256:l1", "sha256:l2"}, AnnotatedBase: "registry.test/base:1",
-		AnnotatedRepository: "registry.test/base", AnnotatedDigest: "sha256:b", AnnotatedVerified: true,
+		AnnotatedRepository: "registry.test/base", AnnotatedDigest: "sha256:b", AnnotatedVerified: true, AnnotatedBaseLayers: 1,
 		Problems: []string{"x"}, InspectedAt: now,
 	}
 	if _, err := s.Inspection(ctx, "sha256:a"); !errors.Is(err, ErrNotFound) {
@@ -65,7 +65,8 @@ func TestImageInspectionOncePerDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 	g := got["sha256:a"]
-	if !slices.Equal(g.DiffIDs, in.DiffIDs) || !g.AnnotatedVerified || g.AnnotatedDigest != "sha256:b" || !g.Created.IsZero() || !g.InspectedAt.Equal(now) {
+	if !slices.Equal(g.DiffIDs, in.DiffIDs) || !g.AnnotatedVerified || g.AnnotatedDigest != "sha256:b" || g.AnnotatedBaseLayers != 1 ||
+		!g.Created.IsZero() || !g.InspectedAt.Equal(now) {
 		t.Errorf("inspection = %+v: the first one is kept", g)
 	}
 	if one, err := s.Inspection(ctx, "sha256:a"); err != nil || one.AnnotatedBase != in.AnnotatedBase {

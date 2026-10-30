@@ -38,6 +38,7 @@ risk-accepted item as of the end of the month, soonest scheduled completion firs
 | `fix_available`, `fixed_versions` | `yes`, `no` or `wont_fix` (the vendor says it will not fix) |
 | `priority` | remediation priority 0–100 as of the report ([ADR 0020](../adr/0020-priority-score.md)); `priority_reasons` in JSON |
 | `deviation` | why it may outlive its deadline: `risk_acceptance`, `vendor_dependency`, `operational_requirement`; empty for open items |
+| `remedy` | for images with a known base: `rebuild` (the newest base ships another version of the package), `base` (the newest base has the same version), `application` (the image's own layers), `unknown` ([base-images.md](base-images.md#what-a-rebuild-fixes)) |
 | `decision`, `decision_author`, `decision_justification`, `decision_expires` | the latest decision on the finding |
 
 Cells that a spreadsheet would read as formulas (`=`, `+`, `-`, `@`) are prefixed with `'`,

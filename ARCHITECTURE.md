@@ -69,7 +69,8 @@ scan REF / monitor
   │     ├─ normalize.Merge         canonical PURL, CVE-preferred IDs, cross-scanner dedupe
   │     └─ store.ReconcileScan     lifecycle.Reconcile (pure) + apply in one transaction
   ├─ engine.trackLineage      manifest + config only: layers and base annotations once per
-  │                           digest; base tag resolved once per cycle (ADR 0022)
+  │                           digest; base tag resolved once per cycle (ADR 0022); SBOMs of
+  │                           the newest base digest once, never matched (ADR 0023)
   └─ health checks: DB age, auth, fetch, generator/matcher, checksum, schedule
 ```
 
@@ -89,7 +90,7 @@ matcher runs: SBOM-first is a property of the pipeline, not a separate mode.
 | `internal/normalize` | canonical PURL / vuln IDs, alias mapping, merge | packageurl-go |
 | `internal/lifecycle` | **pure** state machine + reconciliation planner | model |
 | `internal/priority` | **pure** remediation priority score with reasons (ADR 0020) | model |
-| `internal/lineage` | **pure** base image status from recorded layers and observations (ADR 0022) | — |
+| `internal/lineage` | **pure** base image status from recorded layers and observations (ADR 0022); remedy per package from SBOM layers and the newest base's SBOM (ADR 0023) | normalize, sbom |
 | `internal/gate` | **pure** policy gate: rules, exemptions by decision, fail-closed verdict, SARIF (ADR 0021) | config, report |
 | `internal/vex` | **pure** OpenVEX / CycloneDX VEX parsing (bounded, fuzzed), OpenVEX export, statement matching | normalize, go-containerregistry |
 | `internal/enrich` | enricher registry, CISA KEV catalog (bounded, validated, fuzzed, cached outside the scanners' reach); `enrichtest` conformance kit | model, redact |

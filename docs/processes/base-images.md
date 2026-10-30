@@ -71,6 +71,28 @@ bases:
 A base that cannot be resolved opens a `base_resolve_failed` health finding: the statuses then
 rest on older observations.
 
+## What a rebuild fixes
+
+For images with a proven base, every open finding of the monthly report gets a **remedy**
+([ADR 0023](../adr/0023-fixable-by-rebuild.md)): `remedy` in JSON and in the remediation plan,
+counts in the "Base images" section.
+
+| Remedy | Meaning | Who acts |
+|---|---|---|
+| `rebuild` | the package comes from the base, and the newest base ships another version of it (or none) | the image's owners: rebuild; the next scan proves whether the new version fixes it |
+| `base` | the package comes from the base, and the newest base has the same version | nobody can fix it by rebuilding: a maintained base, or the base vendor; a risk acceptance with `vendor-dependency` fits while waiting |
+| `application` | the package is only in the image's own layers | the application's owners: upgrade the dependency |
+| `unknown` | the SBOM records no layer for the package, or the newest base has no SBOM yet | — |
+
+How it is known: syft and trivy record in their SBOMs the layer each package was found in
+(trivy: the layer that added it; syft: the layer holding the package database it read);
+ShieldMon merges them per package, compares them with the base's layers, and the package
+versions with the SBOM of the newest base digest. That SBOM is generated once per base digest,
+as for images (limits,
+sandbox, SHA-256), when the base tag moves; the base is never matched and has no findings.
+"Rebuild" is an expectation: a newer version can still be vulnerable, and only the scan of the
+rebuilt image closes the finding.
+
 ## Monthly report and notifications
 
 - The monthly report (section "Base images", a Base column in HTML, `bases` and

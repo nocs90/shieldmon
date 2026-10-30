@@ -91,6 +91,9 @@ type Row struct {
 	// Priority is the remediation priority as of the report (docs/adr/0020-priority-score.md).
 	Priority        int      `json:"priority"`
 	PriorityReasons []string `json:"priority_reasons,omitempty"`
+	// Remedy is what removes it, for images with a known base: rebuild, base, application,
+	// unknown (docs/adr/0023-fixable-by-rebuild.md).
+	Remedy string `json:"remedy,omitempty"`
 }
 
 // DecisionInfo summarizes a decision for reports.

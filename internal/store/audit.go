@@ -55,6 +55,9 @@ var auditTables = []auditTable{
 	{name: "image_inspections", key: []string{"digest"}, cols: [][]string{{
 		"digest", "diff_ids", "created", "annotated_base", "annotated_repository", "annotated_digest", "annotated_verified",
 		"problems", "inspected_at",
+	}, {
+		"digest", "diff_ids", "created", "annotated_base", "annotated_repository", "annotated_digest", "annotated_verified",
+		"problems", "inspected_at", "annotated_base_layers",
 	}}},
 	{name: "base_observations", key: []string{"id"}, cols: [][]string{{"id", "base_ref", "platform", "digest", "diff_ids", "created", "observed_at"}}},
 }

@@ -36,8 +36,9 @@ type Image struct {
 	BaseRef string
 	Source  string
 	// VerifiedDigest is the annotated base digest when its layers were verified as a prefix of
-	// the image's and it is in the repository of BaseRef.
+	// the image's and it is in the repository of BaseRef; VerifiedLayers how many (0: unknown).
 	VerifiedDigest string
+	VerifiedLayers int
 }
 
 // Observation is a digest the base reference pointed to, from ObservedAt on.
@@ -53,8 +54,10 @@ type Result struct {
 	BaseRef string `json:"base_ref,omitempty"`
 	Source  string `json:"base_source,omitempty"`
 	Status  Status `json:"status"`
-	// BaseDigest is the digest proven to be the image's base by its layers.
+	// BaseDigest is the digest proven to be the image's base by its layers, BaseLayers how many
+	// of the image's first layers it provides (0: unknown).
 	BaseDigest string `json:"base_digest,omitempty"`
+	BaseLayers int    `json:"base_layers,omitempty"`
 	// Newest is the digest the base reference points to now, and Since since when it does:
 	// observed by ShieldMon, or the base's creation time when it was never seen moving.
 	Newest       string    `json:"newest_base_digest,omitempty"`
@@ -88,15 +91,15 @@ func Evaluate(img Image, obs []Observation, maxAge time.Duration, now time.Time)
 
 	switch {
 	case IsPrefix(newest.DiffIDs, img.DiffIDs):
-		r.Status, r.BaseDigest = Current, newest.Digest
+		r.Status, r.BaseDigest, r.BaseLayers = Current, newest.Digest, len(newest.DiffIDs)
 		return r
 	case img.VerifiedDigest != "" && img.VerifiedDigest != newest.Digest:
-		r.Status, r.BaseDigest = RebuildAvailable, img.VerifiedDigest
+		r.Status, r.BaseDigest, r.BaseLayers = RebuildAvailable, img.VerifiedDigest, img.VerifiedLayers
 		return r
 	}
 	for i := len(obs) - 2; i >= 0; i-- {
 		if IsPrefix(obs[i].DiffIDs, img.DiffIDs) {
-			r.Status, r.BaseDigest = RebuildAvailable, obs[i].Digest
+			r.Status, r.BaseDigest, r.BaseLayers = RebuildAvailable, obs[i].Digest, len(obs[i].DiffIDs)
 			return r
 		}
 	}

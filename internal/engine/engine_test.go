@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -25,6 +26,7 @@ import (
 	"github.com/nocs90/shieldmon/internal/notify"
 	"github.com/nocs90/shieldmon/internal/oci"
 	"github.com/nocs90/shieldmon/internal/report"
+	"github.com/nocs90/shieldmon/internal/sbom"
 	"github.com/nocs90/shieldmon/internal/scanner"
 	"github.com/nocs90/shieldmon/internal/store"
 	"github.com/nocs90/shieldmon/internal/vex"
@@ -84,6 +86,8 @@ type fakeGenerator struct {
 	name  string
 	calls int
 	pad   int64
+	// components are the SBOM components per digest, as CycloneDX JSON objects.
+	components map[string][]map[string]any
 }
 
 func (g *fakeGenerator) Name() string { return g.name }
@@ -94,7 +98,10 @@ func (g *fakeGenerator) Tool(context.Context) (model.Tool, error) {
 func (g *fakeGenerator) Generate(_ context.Context, src scanner.Source, out string) ([]scanner.SBOMFile, error) {
 	g.calls++
 	p := filepath.Join(out, "bom.json")
-	doc := map[string]any{"bomFormat": "CycloneDX", "specVersion": "1.6", "metadata": map[string]any{"component": map[string]string{"version": src.Version}}}
+	doc := map[string]any{
+		"bomFormat": "CycloneDX", "specVersion": "1.6", "metadata": map[string]any{"component": map[string]string{"version": src.Version}},
+		"components": g.components[src.Version],
+	}
 	b, _ := json.Marshal(doc)
 	if err := os.WriteFile(p, b, 0o600); err != nil {
 		return nil, err
@@ -1489,7 +1496,7 @@ func TestBaseLineage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := report.AddBaseLineage(h.ctx, h.store, &oct, h.eng.BaseMaxAge); err != nil {
+	if err := report.AddBaseLineage(h.ctx, h.store, &oct, h.eng.BaseMaxAge, nil); err != nil {
 		t.Fatal(err)
 	}
 	for _, ts := range oct.TargetSummaries {
@@ -1523,5 +1530,77 @@ func TestBaseLineage(t *testing.T) {
 		if hf.Check != engine.CheckUnsandboxed { // the harness runs no sandbox
 			t.Errorf("no other health finding: %+v", hf)
 		}
+	}
+}
+
+// TestRemedies tells, per finding, whether a rebuild on the newest base removes it
+// (docs/adr/0023-fixable-by-rebuild.md): from the layers the image's SBOM records and the
+// newest base's SBOM, generated once when the base moves.
+func TestRemedies(t *testing.T) {
+	h := newHarness(t)
+	const base = "registry.test/base:1"
+	const base1, base2 = "sha256:ba5e100000000000000000000000000000000000000000000000000000000000", "sha256:ba5e200000000000000000000000000000000000000000000000000000000000"
+	const l1, l2, appLayer = "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+		"sha256:2222222222222222222222222222222222222222222222222222222222222222",
+		"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	h.fetch.infos = map[string]oci.ImageInfo{
+		base1: {DiffIDs: []string{l1}}, base2: {DiffIDs: []string{l2}}, digestA: {DiffIDs: []string{l1, appLayer}},
+	}
+	h.fetch.tags[base] = base1
+	pkg := func(purl, layer string) map[string]any {
+		return map[string]any{"type": "library", "name": "p", "purl": purl, "properties": []map[string]string{{"name": "syft:location:0:layerID", "value": layer}}}
+	}
+	h.syft.components = map[string][]map[string]any{
+		digestA: {
+			pkg("pkg:apk/alpine/zlib@1.2.13-r0?arch=x86_64", l1),
+			pkg("pkg:apk/alpine/busybox@1.36.1-r29?arch=x86_64", l1),
+			pkg("pkg:pypi/requests@2.31.0", appLayer),
+		},
+		base2: {pkg("pkg:apk/alpine/zlib@1.3.1-r1?arch=x86_64", l2), pkg("pkg:apk/alpine/busybox@1.36.1-r29?arch=x86_64", l2)},
+	}
+	h.image(ref, digestA,
+		vuln("zlib", "1.2.13-r0", "CVE-2023-45853", model.SeverityCritical, "1.3.1-r1"),
+		vuln("busybox", "1.36.1-r29", "CVE-2023-42366", model.SeverityMedium),
+		model.RawMatch{VulnID: "CVE-2024-35195", PURL: "pkg:pypi/requests@2.31.0", PkgName: "requests", PkgVersion: "2.31.0", Severity: model.SeverityMedium})
+	h.scan(ref)
+	app, _ := h.store.TargetsByRef(h.ctx, ref)
+	if err := h.store.SetTargetBase(h.ctx, app[0].ID, base, "platform-team", h.clock); err != nil {
+		t.Fatal(err)
+	}
+	h.monitor()
+	h.advance(24 * time.Hour)
+	h.fetch.tags[base] = base2
+	h.monitor()
+	if sboms, _ := h.store.SBOMs(h.ctx, base2); len(sboms) != 2 {
+		t.Fatalf("the newest base gets its SBOMs once: %+v", sboms)
+	}
+	generated := h.syft.calls
+	h.monitor()
+	if h.syft.calls != generated {
+		t.Error("base SBOMs are generated once per base digest")
+	}
+	if fs, _ := h.store.ListFindings(h.ctx, store.FindingFilter{Digest: base2}); len(fs) != 0 {
+		t.Errorf("a base is never matched: %d findings", len(fs))
+	}
+
+	sla, _ := config.SLAProfile("standard", nil)
+	rep, err := report.BuildMonthly(h.ctx, h.store, report.MonthPeriod(h.clock), "standard", sla, h.clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func(b store.SBOM) ([]byte, error) { return h.eng.ReadSBOM(b, sbom.MaxBytes) }
+	if err := report.AddBaseLineage(h.ctx, h.store, &rep, 90*24*time.Hour, read); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, r := range rep.Open {
+		got[r.VulnID] = r.Remedy
+	}
+	want := map[string]string{"CVE-2023-45853": "rebuild", "CVE-2023-42366": "base", "CVE-2024-35195": "application"}
+	if !maps.Equal(got, want) {
+		t.Fatalf("remedies = %v, want %v", got, want)
+	}
+	if rep.Bases.Remedies["rebuild"] != 1 || rep.Targets != 1 {
+		t.Errorf("summary: %+v (the base is not a target)", rep.Bases)
 	}
 }

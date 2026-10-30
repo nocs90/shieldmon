@@ -131,6 +131,10 @@ func writeMonthlyBases(b *strings.Builder, r Monthly) {
 	s := r.Bases.Status
 	fmt.Fprintf(b, "## Base images\n\nOn the newest base: %d · Rebuild available: %d · Base not verified: %d · No known base: %d · Unmaintained base: %d\n\n",
 		s[string(lineage.Current)], s[string(lineage.RebuildAvailable)], s[string(lineage.Unknown)], s[string(lineage.None)], r.Bases.Unmaintained)
+	if rm := r.Bases.Remedies; len(rm) > 0 {
+		fmt.Fprintf(b, "Open findings on images with a known base: a rebuild replaces the package: %d · the newest base has the same version: %d · in the application's layers: %d · unknown: %d\n\n",
+			rm[string(lineage.RemedyRebuild)], rm[string(lineage.RemedyBase)], rm[string(lineage.RemedyApplication)], rm[string(lineage.RemedyUnknown)])
+	}
 	var rows []TargetSummary
 	for _, t := range r.TargetSummaries {
 		if x := t.Base; x != nil && (x.Status == lineage.RebuildAvailable || x.Status == lineage.Unknown || x.Unmaintained) {

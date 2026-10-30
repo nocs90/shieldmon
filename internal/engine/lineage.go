@@ -66,7 +66,7 @@ func (e *Engine) inspectImage(ctx context.Context, r oci.Resolved, p model.Platf
 		case err != nil:
 			ins.Problems = append(ins.Problems, "annotated base digest could not be read: "+redact.Error(err))
 		case lineage.IsPrefix(base.DiffIDs, info.DiffIDs):
-			ins.AnnotatedVerified = true
+			ins.AnnotatedVerified, ins.AnnotatedBaseLayers = true, len(base.DiffIDs)
 		default:
 			ins.Problems = append(ins.Problems, "annotated base digest does not share the image's first layers")
 		}
@@ -129,24 +129,39 @@ func (e *Engine) observeBase(ctx context.Context, ref string, p model.Platform) 
 		return
 	}
 	last, err := e.Store.LatestBaseObservation(ctx, ref, p.String())
-	if err == nil && last.Digest == res.Digest {
-		e.healthy(ctx, CheckBaseResolve, ref)
-		return
-	}
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		e.log().Error("base observation", "err", err)
 		return
 	}
-	info, err := e.Fetcher.Inspect(ctx, res.DigestRef(), p)
-	if err != nil {
-		e.health(ctx, CheckBaseResolve, ref, "medium", err)
-		return
-	}
-	if _, err := e.Store.RecordBaseObservation(ctx, store.BaseObservation{
-		BaseRef: ref, Platform: p.String(), Digest: info.Digest, DiffIDs: info.DiffIDs, Created: info.Created, ObservedAt: e.now(),
-	}); err != nil {
-		e.log().Error("record base observation", "err", err)
-		return
+	if err != nil || last.Digest != res.Digest {
+		info, err := e.Fetcher.Inspect(ctx, res.DigestRef(), p)
+		if err != nil {
+			e.health(ctx, CheckBaseResolve, ref, "medium", err)
+			return
+		}
+		if _, err := e.Store.RecordBaseObservation(ctx, store.BaseObservation{
+			BaseRef: ref, Platform: p.String(), Digest: info.Digest, DiffIDs: info.DiffIDs, Created: info.Created, ObservedAt: e.now(),
+		}); err != nil {
+			e.log().Error("record base observation", "err", err)
+			return
+		}
 	}
 	e.healthy(ctx, CheckBaseResolve, ref)
+	e.baseSBOMs(ctx, res)
+}
+
+// baseSBOMs makes sure the newest digest of a base has SBOMs, to tell which findings a
+// rebuild can fix (docs/adr/0023-fixable-by-rebuild.md): the SBOM-first path of images, once
+// per digest; the digest is an artifact without a target, never matched. Failures open the
+// same health findings as for images, and are retried next cycle.
+func (e *Engine) baseSBOMs(ctx context.Context, r oci.Resolved) {
+	if err := e.Store.UpsertArtifact(ctx, store.Artifact{
+		Digest: r.Digest, Repository: r.Repository, IndexDigest: r.IndexDigest, MediaType: r.MediaType, Platform: r.Platform.String(),
+	}, e.now()); err != nil {
+		e.log().Error("record base artifact", "err", err)
+		return
+	}
+	if _, errs := e.ensureSBOMs(ctx, r); len(errs) > 0 {
+		e.log().Warn("base image SBOMs", "base", r.DigestRef(), "errors", errs)
+	}
 }

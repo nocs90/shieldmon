@@ -101,6 +101,9 @@ type ImageInspection struct {
 	AnnotatedRepository string
 	AnnotatedDigest     string
 	AnnotatedVerified   bool
+	// AnnotatedBaseLayers is how many of the image's layers the verified annotated base
+	// provides (0: unknown).
+	AnnotatedBaseLayers int
 	// Problems are annotation values that were ignored.
 	Problems    []string
 	InspectedAt time.Time
@@ -119,9 +122,10 @@ func (s *Store) RecordInspection(ctx context.Context, in ImageInspection) error 
 	}
 	return s.tx(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO image_inspections (digest, diff_ids, created, annotated_base,
-			annotated_repository, annotated_digest, annotated_verified, problems, inspected_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			annotated_repository, annotated_digest, annotated_verified, problems, inspected_at, annotated_base_layers)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			in.Digest, string(diff), nullTS(in.Created), in.AnnotatedBase, in.AnnotatedRepository, in.AnnotatedDigest,
-			in.AnnotatedVerified, string(problems), ts(in.InspectedAt))
+			in.AnnotatedVerified, string(problems), ts(in.InspectedAt), in.AnnotatedBaseLayers)
 		return err
 	})
 }
@@ -147,7 +151,7 @@ func (s *Store) Inspections(ctx context.Context) (map[string]ImageInspection, er
 // inspections reads inspections; where is trusted (built here).
 func (s *Store) inspections(ctx context.Context, where string, args ...any) (map[string]ImageInspection, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT digest, diff_ids, created, annotated_base, annotated_repository,
-		annotated_digest, annotated_verified, problems, inspected_at FROM image_inspections `+where, args...)
+		annotated_digest, annotated_verified, problems, inspected_at, annotated_base_layers FROM image_inspections `+where, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +162,7 @@ func (s *Store) inspections(ctx context.Context, where string, args ...any) (map
 		var diff, problems, at string
 		var created sql.NullString
 		if err := rows.Scan(&in.Digest, &diff, &created, &in.AnnotatedBase, &in.AnnotatedRepository, &in.AnnotatedDigest,
-			&in.AnnotatedVerified, &problems, &at); err != nil {
+			&in.AnnotatedVerified, &problems, &at, &in.AnnotatedBaseLayers); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(diff), &in.DiffIDs)

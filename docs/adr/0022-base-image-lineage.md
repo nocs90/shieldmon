@@ -70,5 +70,4 @@ notification events; they are not health findings and change no finding state.
   watched a reference change, the age can be unknown.
 - One manifest request per base reference and platform per cycle, and a config read when it
   moves: bases shared by many images cost one lookup.
-- Fixable-by-rebuild per finding needs the newest base's own findings (#41 follow-up); it
-  builds on these records.
+- Fixable-by-rebuild per finding builds on these records (ADR 0023).

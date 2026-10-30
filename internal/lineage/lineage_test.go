@@ -37,6 +37,14 @@ func TestEvaluate(t *testing.T) {
 			t.Errorf("%s: %s %q, want %s %q", c.name, r.Status, r.BaseDigest, c.status, c.base)
 		}
 	}
+	// How many of the image's layers come from the proven base.
+	if r := Evaluate(onOld, []Observation{old, newer}, 0, now); r.BaseLayers != 2 {
+		t.Errorf("base layers from the matching observation: %d", r.BaseLayers)
+	}
+	annotated := Image{DiffIDs: []string{"x1", "x2", "app"}, BaseRef: "b", VerifiedDigest: "sha256:b0", VerifiedLayers: 2}
+	if r := Evaluate(annotated, []Observation{newer}, 0, now); r.BaseLayers != 2 {
+		t.Errorf("base layers from the verified annotation: %d", r.BaseLayers)
+	}
 }
 
 func TestUnmaintained(t *testing.T) {

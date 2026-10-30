@@ -595,7 +595,8 @@ func (a *app) reportCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := report.AddBaseLineage(cmd.Context(), a.store, &r, a.cfg.Bases.MaxAge.Duration); err != nil {
+			read := func(b store.SBOM) ([]byte, error) { return a.engine.ReadSBOM(b, sbom.MaxBytes) }
+			if err := report.AddBaseLineage(cmd.Context(), a.store, &r, a.cfg.Bases.MaxAge.Duration, read); err != nil {
 				return err
 			}
 			w, closeOut, err := reportOutput(cmd, out)
