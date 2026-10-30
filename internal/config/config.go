@@ -48,11 +48,20 @@ type Registry struct {
 // Channel is one notification channel (docs/adr/0015-notifications.md). Options are validated
 // by the notifier and never hold a credential: they name environment variables.
 type Channel struct {
-	Name     string         `yaml:"name"`
-	Notifier string         `yaml:"notifier"`
-	Events   []string       `yaml:"events,omitempty"`
-	Digest   bool           `yaml:"digest,omitempty"`
-	Options  map[string]any `yaml:"options,omitempty"`
+	Name     string   `yaml:"name"`
+	Notifier string   `yaml:"notifier"`
+	Events   []string `yaml:"events,omitempty"`
+	Digest   bool     `yaml:"digest,omitempty"`
+	// Owners, when set, limit the channel to the events of these teams' targets.
+	Owners  []string       `yaml:"owners,omitempty"`
+	Options map[string]any `yaml:"options,omitempty"`
+}
+
+// Owner is a team owning the targets its patterns match (docs/adr/0024-ownership.md).
+type Owner struct {
+	Team    string   `yaml:"team"`
+	Contact string   `yaml:"contact,omitempty"`
+	Targets []string `yaml:"targets"`
 }
 
 // Enricher configures one enricher (docs/adr/0019-enrichers.md). Options never hold a
@@ -128,6 +137,10 @@ type Config struct {
 
 	// Gate is the policy of 'shieldmon gate' (docs/adr/0021-policy-gate.md).
 	Gate Gate `yaml:"gate"`
+
+	// Owners are the teams owning targets, first match wins (docs/adr/0024-ownership.md);
+	// validated by owners.New.
+	Owners []Owner `yaml:"owners,omitempty"`
 
 	// Bases are the base images targets are built on (docs/adr/0022-base-image-lineage.md).
 	Bases struct {
@@ -440,6 +453,14 @@ gate:
   # max_db_age: 72h       # default: health.db_max_age
   max_evidence_age: 24h   # with --no-scan, the latest scan may be this old
   exit_codes: { warn: 0, fail: 2, indeterminate: 3 }   # errors exit 1
+
+# Teams owning targets (docs/processes/ownership.md): the first team with a pattern matching
+# a target's reference or repository owns it ('*' stays within a path segment). Reports and
+# the remediation plan show owners; a channel with 'owners: [team]' hears only their images.
+owners: []
+# - team: payments
+#   contact: payments-security@example.com
+#   targets: ["registry.example.com/payments/*"]
 
 # Base images (docs/processes/base-images.md): each target's base comes from
 # 'targets set-base' or the org.opencontainers.image.base.name annotation, and is proven by

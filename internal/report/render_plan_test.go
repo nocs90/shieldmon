@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nocs90/shieldmon/internal/config"
+	"github.com/nocs90/shieldmon/internal/owners"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -66,8 +69,14 @@ func planFixture() Monthly {
 }
 
 func TestRemediationPlanGolden(t *testing.T) {
+	r := planFixture()
+	o, err := owners.New([]config.Owner{{Team: "payments", Contact: "pay-sec@example.com", Targets: []string{"registry.test/app"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	AddOwners(&r, o)
 	var buf bytes.Buffer
-	if err := Render(&buf, planFixture(), "remediation-plan"); err != nil {
+	if err := Render(&buf, r, "remediation-plan"); err != nil {
 		t.Fatal(err)
 	}
 	const golden = "testdata/remediation-plan.golden.csv"

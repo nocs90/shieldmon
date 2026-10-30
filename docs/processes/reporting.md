@@ -38,6 +38,7 @@ risk-accepted item as of the end of the month, soonest scheduled completion firs
 | `fix_available`, `fixed_versions` | `yes`, `no` or `wont_fix` (the vendor says it will not fix) |
 | `priority` | remediation priority 0–100 as of the report ([ADR 0020](../adr/0020-priority-score.md)); `priority_reasons` in JSON |
 | `deviation` | why it may outlive its deadline: `risk_acceptance`, `vendor_dependency`, `operational_requirement`; empty for open items |
+| `owner` | the teams owning the item's images, with their contact; `unowned` when none ([ownership.md](ownership.md)) |
 | `remedy` | for images with a known base: `rebuild` (the newest base ships another version of the package), `base` (the newest base has the same version), `application` (the image's own layers), `unknown` ([base-images.md](base-images.md#what-a-rebuild-fixes)) |
 | `decision`, `decision_author`, `decision_justification`, `decision_expires` | the latest decision on the finding |
 
@@ -61,6 +62,7 @@ weaknesses).
 | Monitoring health | open health findings: gaps in the evidence itself |
 | Inventory changes | images added, rebuilt (new digest, with its scan), retired and restored in the period ([inventory.md](inventory.md#changes-over-a-period)) |
 | Retired with the image | findings still open whose images were all retired (`targets retire`): not open, not fixed ([inventory.md](inventory.md#retiring-an-image)) |
+| Open by owner | open findings per team (by severity, past deadline, KEV), unowned last; with the owners configured when the report is generated ([ownership.md](ownership.md)) |
 | Base images | monitored targets on the newest base, with a rebuild available, with an unverified base, without a known base, and on an unmaintained base, at the end of the period; the targets needing action are listed ([base-images.md](base-images.md)) |
 
 The current month is reported "as of now". Deadlines come from `sla.profile` and

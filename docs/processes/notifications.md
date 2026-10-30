@@ -30,6 +30,7 @@ notifications:
       notifier: <name>             # 'shieldmon plugins' lists the notifiers
       events: [finding_new_kev, finding_new_critical, sla_breached, health_opened]  # default: all but the opt-in ones
       digest: false                # true: one summary per cycle
+      # owners: [payments]         # only these teams' images, no health events (ownership.md)
       options: { … }               # per notifier; credentials only through *_env options
 ```
 

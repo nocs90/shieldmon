@@ -25,6 +25,7 @@ import (
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/notify"
 	"github.com/nocs90/shieldmon/internal/oci"
+	"github.com/nocs90/shieldmon/internal/owners"
 	"github.com/nocs90/shieldmon/internal/report"
 	"github.com/nocs90/shieldmon/internal/sbom"
 	"github.com/nocs90/shieldmon/internal/scanner"
@@ -1602,5 +1603,42 @@ func TestRemedies(t *testing.T) {
 	}
 	if rep.Bases.Remedies["rebuild"] != 1 || rep.Targets != 1 {
 		t.Errorf("summary: %+v (the base is not a target)", rep.Bases)
+	}
+}
+
+// TestNotificationsByOwner routes events to team channels (docs/adr/0024-ownership.md): a
+// team hears about its images only, the security channel about everything.
+func TestNotificationsByOwner(t *testing.T) {
+	h := newHarness(t)
+	const pay, other = "registry.test/payments/api:1", "registry.test/tools/cli:1"
+	own, err := owners.New([]config.Owner{{Team: "payments", Targets: []string{"registry.test/payments/*"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.eng.Owners = own
+	team, secops := &recordingNotifier{}, &recordingNotifier{}
+	h.eng.Channels = []notify.Channel{
+		{Name: "payments", Kinds: notify.DefaultKinds, Owners: []string{"payments"}, Sender: team},
+		{Name: "secops", Kinds: notify.DefaultKinds, Sender: secops},
+	}
+	h.monitor() // first cycle: nothing is new yet
+	h.image(pay, digestA, vuln("xz-libs", "5.6.0-r0", "CVE-2024-3094", model.SeverityCritical))
+	h.image(other, digestB, vuln("zlib", "1.2.13-r0", "CVE-2023-45853", model.SeverityCritical))
+	h.scan(pay)
+	h.scan(other)
+	h.grype.fail = true // a health finding: about the monitoring, for no team
+	h.monitor()
+	h.grype.fail = false
+
+	if got := team.sent(); !slices.Equal(got, []string{"finding_new_critical CVE-2024-3094"}) {
+		t.Errorf("the team channel heard %q", got)
+	}
+	got := secops.sent() // and scanner_unsandboxed: the harness runs no sandbox
+	if len(got) != 4 || !slices.Contains(got, "finding_new_critical CVE-2023-45853") || !slices.Contains(got, "finding_new_critical CVE-2024-3094") ||
+		!slices.Contains(got, "health_opened matcher_failed/grype") {
+		t.Errorf("the security channel heard %q", got)
+	}
+	if pending, _ := h.eng.PendingNotifications(h.ctx); len(pending["payments"]) != 0 {
+		t.Errorf("other teams' events are never sent to the team channel: %+v", pending["payments"])
 	}
 }

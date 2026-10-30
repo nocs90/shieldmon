@@ -197,6 +197,17 @@ func renderMarkdown(w io.Writer, r Monthly) error {
 			fmt.Fprintf(b, "| %s | %d |\n", sev, n)
 		}
 	}
+	if len(r.Owners) > 0 {
+		b.WriteString("\n## Open findings by owner\n\n| Team | Contact | Targets | Open | Critical | High | Past SLA | KEV |\n|---|---|---:|---:|---:|---:|---:|---:|\n")
+		for _, o := range r.Owners {
+			team := o.Team
+			if team == "-" {
+				team = "_unowned_"
+			}
+			fmt.Fprintf(b, "| %s | %s | %d | %d | %d | %d | %d | %d |\n", team, mdEscape(o.Contact), o.Targets, o.Open,
+				o.BySev["critical"], o.BySev["high"], o.Breached, o.KEV)
+		}
+	}
 	b.WriteString("\n## Aging of open findings\n\n| Age (days) | Open |\n|---|---:|\n")
 	for _, bk := range AgingBuckets {
 		fmt.Fprintf(b, "| %s | %d |\n", bk.Label, r.Aging[bk.Label])

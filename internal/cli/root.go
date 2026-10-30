@@ -24,6 +24,7 @@ import (
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/notify"
 	"github.com/nocs90/shieldmon/internal/oci"
+	"github.com/nocs90/shieldmon/internal/owners"
 	"github.com/nocs90/shieldmon/internal/report"
 	"github.com/nocs90/shieldmon/internal/scanner"
 	"github.com/nocs90/shieldmon/internal/store"
@@ -38,6 +39,7 @@ type app struct {
 	logLevel string
 
 	cfg        config.Config
+	owners     owners.Ownership
 	registries *oci.Registries
 	store      *store.Store
 	engine     *engine.Engine
@@ -161,9 +163,19 @@ func (a *app) setup(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
+	own, err := owners.New(cfg.Owners)
+	if err != nil {
+		return err
+	}
+	a.owners = own
 	chans := make([]notify.ChannelConfig, 0, len(cfg.Notifications.Channels))
 	for _, c := range cfg.Notifications.Channels {
-		chans = append(chans, notify.ChannelConfig{Name: c.Name, Notifier: c.Notifier, Events: c.Events, Digest: c.Digest, Options: c.Options})
+		for _, team := range c.Owners {
+			if !own.Has(team) {
+				return fmt.Errorf("notifications.channels %s: owners: %q is not a team in owners", c.Name, team)
+			}
+		}
+		chans = append(chans, notify.ChannelConfig{Name: c.Name, Notifier: c.Notifier, Events: c.Events, Digest: c.Digest, Owners: c.Owners, Options: c.Options})
 	}
 	channels, err := notify.NewChannels(chans, notify.Spec{})
 	if err != nil {
@@ -202,6 +214,7 @@ func (a *app) setup(cmd *cobra.Command) error {
 		AuditVerifyInterval: cfg.Health.AuditVerifyInterval.Duration,
 		Enrichers:           enrichers,
 		BaseMaxAge:          cfg.Bases.MaxAge.Duration,
+		Owners:              own,
 		Log:                 a.log,
 	}
 	return nil

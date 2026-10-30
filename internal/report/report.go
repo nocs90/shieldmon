@@ -94,6 +94,8 @@ type Row struct {
 	// Remedy is what removes it, for images with a known base: rebuild, base, application,
 	// unknown (docs/adr/0023-fixable-by-rebuild.md).
 	Remedy string `json:"remedy,omitempty"`
+	// Owners are the teams owning its targets, "-" for none (docs/adr/0024-ownership.md).
+	Owners []string `json:"owners,omitempty"`
 }
 
 // DecisionInfo summarizes a decision for reports.
@@ -117,6 +119,8 @@ type TargetSummary struct {
 	RetiredAt time.Time `json:"retired_at,omitzero"`
 	// Base is the target's base lineage at the end of the period (AddBaseLineage).
 	Base *lineage.Result `json:"base,omitempty"`
+	// Owner is the team owning the target, empty for none (AddOwners).
+	Owner string `json:"owner,omitempty"`
 }
 
 // DayCount is one point of the burndown series.
@@ -148,6 +152,9 @@ type Monthly struct {
 	AuditDigest store.AuditDigest `json:"audit_digest"`
 	// Bases summarizes the base images of the monitored targets (AddBaseLineage).
 	Bases *BaseSummary `json:"bases,omitempty"`
+	// Owners sums open findings per team, as configured when the report was generated
+	// (AddOwners).
+	Owners []OwnerSummary `json:"owners,omitempty"`
 }
 
 // AgingBuckets are the age buckets for open findings, in days.

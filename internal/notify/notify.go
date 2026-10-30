@@ -427,8 +427,11 @@ type ChannelConfig struct {
 	Name     string
 	Notifier string
 	// Events the channel receives; every kind when empty.
-	Events  []string
-	Digest  bool
+	Events []string
+	Digest bool
+	// Owners, when set, limit the channel to the finding and base events of these teams'
+	// targets (docs/adr/0024-ownership.md); the engine applies it.
+	Owners  []string
 	Options map[string]any
 }
 
@@ -438,6 +441,7 @@ type Channel struct {
 	Notifier string
 	Kinds    []Kind
 	Digest   bool
+	Owners   []string
 	Sender   Notifier
 }
 
@@ -496,7 +500,7 @@ func NewChannels(cfgs []ChannelConfig, base Spec) ([]Channel, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: notifier %s: %s", where, c.Notifier, redact.Error(err))
 		}
-		out = append(out, Channel{Name: c.Name, Notifier: c.Notifier, Kinds: kinds, Digest: c.Digest, Sender: n})
+		out = append(out, Channel{Name: c.Name, Notifier: c.Notifier, Kinds: kinds, Digest: c.Digest, Owners: c.Owners, Sender: n})
 	}
 	return out, nil
 }

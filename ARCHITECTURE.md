@@ -91,6 +91,7 @@ matcher runs: SBOM-first is a property of the pipeline, not a separate mode.
 | `internal/lifecycle` | **pure** state machine + reconciliation planner | model |
 | `internal/priority` | **pure** remediation priority score with reasons (ADR 0020) | model |
 | `internal/lineage` | **pure** base image status from recorded layers and observations (ADR 0022); remedy per package from SBOM layers and the newest base's SBOM (ADR 0023) | normalize, sbom |
+| `internal/owners` | which team owns a target, from reference patterns in the configuration (ADR 0024) | config, oci |
 | `internal/gate` | **pure** policy gate: rules, exemptions by decision, fail-closed verdict, SARIF (ADR 0021) | config, report |
 | `internal/vex` | **pure** OpenVEX / CycloneDX VEX parsing (bounded, fuzzed), OpenVEX export, statement matching | normalize, go-containerregistry |
 | `internal/enrich` | enricher registry, CISA KEV catalog (bounded, validated, fuzzed, cached outside the scanners' reach); `enrichtest` conformance kit | model, redact |

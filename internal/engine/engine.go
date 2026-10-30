@@ -25,6 +25,7 @@ import (
 	"github.com/nocs90/shieldmon/internal/normalize"
 	"github.com/nocs90/shieldmon/internal/notify"
 	"github.com/nocs90/shieldmon/internal/oci"
+	"github.com/nocs90/shieldmon/internal/owners"
 	"github.com/nocs90/shieldmon/internal/redact"
 	"github.com/nocs90/shieldmon/internal/scanner"
 	"github.com/nocs90/shieldmon/internal/store"
@@ -110,8 +111,11 @@ type Engine struct {
 	// BaseMaxAge is how long a base may stay unchanged before it is unmaintained (0: never;
 	// docs/adr/0022-base-image-lineage.md).
 	BaseMaxAge time.Duration
-	Now        func() time.Time
-	Log        *slog.Logger
+	// Owners says which team owns a target, for channels limited to teams
+	// (docs/adr/0024-ownership.md).
+	Owners owners.Ownership
+	Now    func() time.Time
+	Log    *slog.Logger
 
 	// observedBases are the base references observed in the running monitor cycle: each is
 	// resolved once per cycle, however many targets share it.
@@ -727,7 +731,7 @@ func (e *Engine) Notify(ctx context.Context, since time.Time) (map[string]int, m
 		if err != nil {
 			return sent, failed, err
 		}
-		pending = notify.Current(pending, in)
+		pending = e.forOwners(ch, notify.Current(pending, in))
 		if len(pending) == 0 {
 			continue
 		}
@@ -778,11 +782,37 @@ func (e *Engine) PendingNotifications(ctx context.Context) (map[string][]notify.
 				pending = append(pending, ev)
 			}
 		}
-		pending = notify.Current(pending, in)
+		pending = e.forOwners(ch, notify.Current(pending, in))
 		notify.Sort(pending)
 		out[ch.Name] = pending
 	}
 	return out, nil
+}
+
+// forOwners keeps, for a channel limited to teams, the finding and base events of targets
+// those teams own, by the ownership configured now (docs/adr/0024-ownership.md). The others
+// stay unsent for that channel.
+func (e *Engine) forOwners(ch notify.Channel, events []notify.Event) []notify.Event {
+	if len(ch.Owners) == 0 {
+		return events
+	}
+	return slices.DeleteFunc(events, func(ev notify.Event) bool {
+		var targets []string
+		switch {
+		case ev.Finding != nil:
+			targets = ev.Finding.Targets
+		case ev.Base != nil:
+			targets = ev.Base.Images
+		default:
+			return true // health events are about the monitoring, not a team's images
+		}
+		for _, team := range e.Owners.Teams(targets) {
+			if slices.Contains(ch.Owners, team) {
+				return false
+			}
+		}
+		return true
+	})
 }
 
 func (e *Engine) notifyInput(ctx context.Context, since, now time.Time) (notify.Input, error) {
