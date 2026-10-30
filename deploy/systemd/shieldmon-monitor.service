@@ -1,0 +1,65 @@
+# One ShieldMon monitoring cycle (docs/processes/deployment.md), started by
+# shieldmon-monitor.timer. Install: /etc/systemd/system/, then
+#   systemctl daemon-reload && systemctl enable --now shieldmon-monitor.timer
+[Unit]
+Description=ShieldMon continuous vulnerability monitoring cycle
+Documentation=https://github.com/nocs90/shieldmon/blob/main/docs/processes/deployment.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=shieldmon
+Group=shieldmon
+# /var/lib/shieldmon (0700): database, SBOMs, vulnerability DBs, scratch space.
+StateDirectory=shieldmon
+StateDirectoryMode=0700
+# /etc/shieldmon: config.yaml and targets.txt (one image reference per line).
+ConfigurationDirectory=shieldmon
+Environment=XDG_CONFIG_HOME=/etc
+# Registry credentials: a docker config readable by the service only, or the cloud's own
+# identity (instance role, Workload Identity). Never put a credential in config.yaml.
+# Environment=DOCKER_CONFIG=/etc/shieldmon/docker
+# Notification credentials, by the variable names config.yaml gives (*_env options):
+# EnvironmentFile=/etc/shieldmon/secrets.env
+ExecStartPre=/usr/local/bin/shieldmon --data-dir /var/lib/shieldmon targets add -f /etc/shieldmon/targets.txt
+ExecStart=/usr/local/bin/shieldmon --data-dir /var/lib/shieldmon monitor --log-format json --log-level info
+# A cycle pulls each new image once and re-matches the others; a first run with many images
+# takes longest.
+TimeoutStartSec=6h
+Nice=10
+IOSchedulingClass=idle
+UMask=0077
+
+# Hardening of ShieldMon itself. Scanners run in their own sandbox inside this one
+# (scanners.sandbox.backend, ADR 0011).
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RemoveIPC=yes
+SystemCallArchitectures=native
+# AF_NETLINK: bwrap brings up the loopback interface of the scanners' network namespace.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+# Deliberately not set, because the bwrap sandbox needs what they forbid:
+#   RestrictNamespaces=        (user, mount, pid, net, ipc and uts namespaces)
+#   SystemCallFilter=@system-service   (mount, pivot_root, unshare)
+#   MemoryDenyWriteExecute=    (inherited by the scanners)
+#   PrivateUsers=              (not verified with bwrap's own user namespace)
+# With scanners.sandbox.backend: landlock they could be set; 'shieldmon plugins' tells which
+# backend runs here, and Ubuntu >= 23.10 needs deploy/apparmor for bwrap.
+
+[Install]
+WantedBy=multi-user.target

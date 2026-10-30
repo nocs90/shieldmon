@@ -50,8 +50,13 @@ with # are ignored. Every reference is checked before any is added.
 				}
 				refs = append(refs, fromFile...)
 			}
-			if len(refs) == 0 {
+			switch {
+			case len(refs) == 0 && file == "":
 				return errors.New("give image references or -f FILE")
+			case len(refs) == 0:
+				// A declarative list may be empty for a while (a deployment's targets file).
+				fmt.Fprintf(cmd.OutOrStdout(), "%s: no image references, nothing to add\n", file)
+				return nil
 			}
 			for _, r := range refs {
 				if _, err := oci.ParseReference(r, false); err != nil {

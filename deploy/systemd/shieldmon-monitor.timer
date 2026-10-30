@@ -1,0 +1,14 @@
+# Daily ShieldMon monitoring cycle (docs/processes/deployment.md). Keep health.monitor_interval
+# at 24h: a gap longer than 1.5 times it opens a monitor_missed health finding.
+[Unit]
+Description=Daily ShieldMon monitoring cycle
+Documentation=https://github.com/nocs90/shieldmon/blob/main/docs/processes/deployment.md
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+RandomizedDelaySec=30m
+# A cycle missed while the host was down runs at boot.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

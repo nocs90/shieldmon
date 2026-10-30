@@ -1,0 +1,15 @@
+# The data dir: database, SBOMs, vulnerability DBs, scratch space. It must survive pods: the
+# audit trail and the SBOMs are the evidence. Size: limits.max_total_bytes +
+# limits.max_scratch_bytes + limits.min_free_disk_bytes (50 GiB with the defaults) plus the
+# vulnerability DBs (~5 GiB) and SBOMs (a few MB per image digest); see deploy/scratch.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shieldmon-data
+  labels:
+    app.kubernetes.io/name: shieldmon
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 64Gi

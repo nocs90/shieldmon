@@ -229,6 +229,18 @@ func TestTargetsAdd(t *testing.T) {
 	if _, errOut, code := run(t, append([]string{"targets", "add", "-f", file}, common...)...); code == 0 || !strings.Contains(errOut, "images.txt:2:") {
 		t.Errorf("a malformed line must be refused with its line number: code=%d err=%s", code, errOut)
 	}
+
+	// A deployment's declarative list may hold no image yet: not an error, or monitoring
+	// would never start.
+	if err := os.WriteFile(file, []byte("# no image yet\n\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, errOut, code := run(t, append([]string{"targets", "add", "-f", file}, common...)...); code != 0 || !strings.Contains(out, "no image references") {
+		t.Errorf("empty list: code=%d out=%s err=%s", code, out, errOut)
+	}
+	if _, errOut, code := run(t, append([]string{"targets", "add"}, common...)...); code == 0 || !strings.Contains(errOut, "give image references") {
+		t.Errorf("no argument and no file is still an error: %s", errOut)
+	}
 }
 
 func TestTargetsAddRepo(t *testing.T) {

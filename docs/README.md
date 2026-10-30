@@ -18,6 +18,7 @@ not described, describe it (that is part of the change).
 
 | Process | Document |
 |---|---|
+| Deployment: systemd timer, Kubernetes CronJob | [processes/deployment.md](processes/deployment.md) |
 | The monitoring cycle, step by step | [processes/monitoring-cycle.md](processes/monitoring-cycle.md) |
 | Triage, decisions and the finding lifecycle | [processes/triage-and-decisions.md](processes/triage-and-decisions.md) |
 | Remediation: how fixes are made and tracked (rebuilds, Renovate) | [processes/remediation.md](processes/remediation.md) |
