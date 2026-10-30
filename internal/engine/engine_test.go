@@ -1404,7 +1404,15 @@ func TestBaseLineage(t *testing.T) {
 	h.image(api, digestC)
 	h.scan(ref)
 	h.scan(api)
-	h.eng.BaseMaxAge = 90 * 24 * time.Hour
+	h.eng.Bases.MaxAge = 90 * 24 * time.Hour
+	// base:2 succeeds base:1: followed, never fetched.
+	const next, nextDigest = "registry.test/base:2", "sha256:ba5e900000000000000000000000000000000000000000000000000000000000"
+	h.fetch.tags[next] = nextDigest
+	h.fetch.infos[nextDigest] = oci.ImageInfo{DiffIDs: []string{"sha256:b9"}}
+	var err error
+	if h.eng.Bases.Successors, err = lineage.NewSuccessors([]config.Successor{{From: base, To: next}}); err != nil {
+		t.Fatal(err)
+	}
 	bases := &recordingNotifier{}
 	h.eng.Channels = []notify.Channel{{Name: "platform", Kinds: []notify.Kind{notify.BaseRebuildAvailable, notify.BaseUnmaintained}, Sender: bases}}
 	app, err := h.store.TargetsByRef(h.ctx, ref)
@@ -1416,7 +1424,7 @@ func TestBaseLineage(t *testing.T) {
 	}
 	lineages := func() map[string]lineage.Result {
 		t.Helper()
-		inv, err := report.BuildInventory(h.ctx, h.store, report.InventoryOptions{Now: h.clock, BaseMaxAge: 90 * 24 * time.Hour})
+		inv, err := report.BuildInventory(h.ctx, h.store, report.InventoryOptions{Now: h.clock, Bases: h.eng.Bases})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1489,7 +1497,24 @@ func TestBaseLineage(t *testing.T) {
 	if a := lineages()[ref]; !a.Unmaintained || a.SinceSource != "observed" {
 		t.Fatalf("unmaintained: %+v", a)
 	}
+	if a := lineages()[ref]; a.Successor != next || a.SuccessorSince.IsZero() {
+		t.Fatalf("the successor and its freshness: %+v", a)
+	}
+	if sboms, _ := h.store.SBOMs(h.ctx, nextDigest); len(sboms) != 0 {
+		t.Errorf("a successor is followed, never fetched: %+v", sboms)
+	}
 	h.monitor()
+	var lines []string
+	for _, m := range bases.msgs {
+		for _, e := range m.Events {
+			if e.Kind == notify.BaseUnmaintained {
+				lines = append(lines, e.Lines()...)
+			}
+		}
+	}
+	if !slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, "Successor: "+next+", current digest since ") }) {
+		t.Errorf("base_unmaintained names the successor: %q", lines)
+	}
 	// The October report, generated now, says what was true at the end of October: app on the
 	// newest base, which had moved a month before.
 	sla, _ := config.SLAProfile("standard", nil)
@@ -1497,7 +1522,7 @@ func TestBaseLineage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := report.AddBaseLineage(h.ctx, h.store, &oct, h.eng.BaseMaxAge, nil); err != nil {
+	if err := report.AddBaseLineage(h.ctx, h.store, &oct, h.eng.Bases, nil); err != nil {
 		t.Fatal(err)
 	}
 	for _, ts := range oct.TargetSummaries {
@@ -1590,7 +1615,7 @@ func TestRemedies(t *testing.T) {
 		t.Fatal(err)
 	}
 	read := func(b store.SBOM) ([]byte, error) { return h.eng.ReadSBOM(b, sbom.MaxBytes) }
-	if err := report.AddBaseLineage(h.ctx, h.store, &rep, 90*24*time.Hour, read); err != nil {
+	if err := report.AddBaseLineage(h.ctx, h.store, &rep, lineage.Policy{MaxAge: 90 * 24 * time.Hour}, read); err != nil {
 		t.Fatal(err)
 	}
 	got := map[string]string{}

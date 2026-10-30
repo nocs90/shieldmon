@@ -23,7 +23,7 @@ func RefPattern(p string) (string, error) {
 		return "", err
 	}
 	if strings.ContainsAny(p, `*?[\`) {
-		return p, nil
+		return dockerHub(p), nil
 	}
 	ref, err := ParseReference(p, false)
 	if err != nil {
@@ -33,6 +33,22 @@ func RefPattern(p string) (string, error) {
 		return ref.Name(), nil
 	}
 	return ref.Context().Name(), nil
+}
+
+// dockerHub writes a wildcard pattern for Docker Hub as references are stored: docker.io and
+// host-less patterns become index.docker.io, official images library/NAME.
+func dockerHub(p string) string {
+	host, rest, found := strings.Cut(p, "/")
+	switch {
+	case found && host == "docker.io":
+		p = rest
+	case found && (strings.ContainsAny(host, `.:*?[\`) || host == "localhost"):
+		return p // another registry, or any
+	}
+	if !strings.Contains(p, "/") {
+		p = "library/" + p
+	}
+	return "index.docker.io/" + p
 }
 
 // MatchRef reports whether a normalized reference, or its repository, matches a pattern

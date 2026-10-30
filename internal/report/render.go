@@ -145,15 +145,15 @@ func writeMonthlyBases(b *strings.Builder, r Monthly) {
 		b.WriteString("_No image needs a rebuild or a new base._\n\n")
 		return
 	}
-	b.WriteString("| Target | Base | Status | Newest base since | Unmaintained | Open |\n|---|---|---|---|---|---:|\n")
+	b.WriteString("| Target | Base | Status | Newest base since | Unmaintained | Successor | Open |\n|---|---|---|---|---|---|---:|\n")
 	for _, t := range rows {
 		x := t.Base
 		unmaintained := ""
 		if x.Unmaintained {
 			unmaintained = "yes"
 		}
-		fmt.Fprintf(b, "| %s (%s) | %s | %s | %s | %s | %d |\n", mdEscape(t.Ref), mdEscape(t.Platform), mdEscape(x.BaseRef),
-			strings.ReplaceAll(string(x.Status), "_", " "), dateOrEmpty(x.Since), unmaintained, t.Open)
+		fmt.Fprintf(b, "| %s (%s) | %s | %s | %s | %s | %s | %d |\n", mdEscape(t.Ref), mdEscape(t.Platform), mdEscape(x.BaseRef),
+			strings.ReplaceAll(string(x.Status), "_", " "), dateOrEmpty(x.Since), unmaintained, successorCell(*x), t.Open)
 	}
 	b.WriteString("\n")
 }

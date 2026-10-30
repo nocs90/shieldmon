@@ -52,8 +52,8 @@ type InventoryOptions struct {
 	ReadSBOM SBOMReader
 	// Tool names the producer ("shieldmon 1.2.3") in formats that record it.
 	Tool string
-	// BaseMaxAge is how long a base may stay unchanged before it is unmaintained (0: never).
-	BaseMaxAge time.Duration
+	// Bases judges base lineages: unmaintained after MaxAge (0: never), successors.
+	Bases lineage.Policy
 }
 
 // Inventory is what ShieldMon monitors and how fresh its evidence is.
@@ -130,7 +130,7 @@ func BuildInventory(ctx context.Context, src InventorySource, opts InventoryOpti
 	if err != nil {
 		return inv, err
 	}
-	bases, err := Lineages(ctx, src, targets, opts.BaseMaxAge, opts.Now)
+	bases, err := Lineages(ctx, src, targets, opts.Bases, opts.Now)
 	if err != nil {
 		return inv, err
 	}

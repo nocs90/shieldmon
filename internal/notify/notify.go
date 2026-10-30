@@ -123,6 +123,10 @@ type Base struct {
 	Since        time.Time `json:"newest_base_since"`
 	Status       string    `json:"status"`
 	Unmaintained bool      `json:"unmaintained"`
+	// Successor is the configured maintained base to move to, and since when it points to
+	// its newest digest (docs/adr/0025-base-successors.md).
+	Successor      string    `json:"successor,omitempty"`
+	SuccessorSince time.Time `json:"successor_since,omitzero"`
 }
 
 // Event is something to tell people about. Key identifies it across cycles: an event is
@@ -205,6 +209,13 @@ func (e Event) Lines() []string {
 			out = append(out, "Rebuild the image on the newest base: the next cycle closes what it fixed, with scan evidence")
 		case BaseUnmaintained:
 			out = append(out, "The base has not changed for longer than bases.max_age: rebuilding on it fixes nothing; plan a maintained base")
+			if b.Successor != "" {
+				s := "Successor: " + b.Successor
+				if !b.SuccessorSince.IsZero() {
+					s += ", current digest since " + day(b.SuccessorSince)
+				}
+				out = append(out, s)
+			}
 		}
 		out = append(out, "See: shieldmon report inventory")
 	}

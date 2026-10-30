@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nocs90/shieldmon/internal/config"
+	"github.com/nocs90/shieldmon/internal/lineage"
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/store"
 )
@@ -150,16 +152,27 @@ func inventoryFixture() fakeInventory {
 		observed: []store.BaseObservation{
 			{BaseRef: "registry.test/base:1", Platform: "linux/amd64", Digest: "sha256:b1", DiffIDs: []string{"sha256:l1"}, ObservedAt: invNow.AddDate(0, 0, -200)},
 			{BaseRef: "registry.test/base:1", Platform: "linux/amd64", Digest: "sha256:b2", DiffIDs: []string{"sha256:l2"}, ObservedAt: invNow.AddDate(0, 0, -100)},
+			// base:2 succeeds base:1 and was rebuilt 5 days ago.
+			{BaseRef: "registry.test/base:2", Platform: "linux/amd64", Digest: "sha256:c1", DiffIDs: []string{"sha256:l9"}, ObservedAt: invNow.AddDate(0, 0, -30)},
+			{BaseRef: "registry.test/base:2", Platform: "linux/amd64", Digest: "sha256:c2", DiffIDs: []string{"sha256:l10"}, ObservedAt: invNow.AddDate(0, 0, -5)},
 		},
 	}
 }
 
 func TestInventory(t *testing.T) {
+	successors, err := lineage.NewSuccessors([]config.Successor{{From: "registry.test/base:1", To: "registry.test/base:2"}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	inv, err := BuildInventory(context.Background(), inventoryFixture(), InventoryOptions{
-		Now: invNow, StaleAfter: 36 * time.Hour, Generators: []string{"syft", "trivy"}, BaseMaxAge: 90 * 24 * time.Hour,
+		Now: invNow, StaleAfter: 36 * time.Hour, Generators: []string{"syft", "trivy"},
+		Bases: lineage.Policy{MaxAge: 90 * 24 * time.Hour, Successors: successors},
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if b := inv.Images[2].Base; b.Successor != "registry.test/base:2" || !b.SuccessorSince.Equal(invNow.AddDate(0, 0, -5)) {
+		t.Errorf("app:prod successor: %+v", b)
 	}
 	bases := map[string]string{}
 	for _, img := range inv.Images {

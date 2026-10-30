@@ -146,7 +146,16 @@ type Config struct {
 	Bases struct {
 		// MaxAge is how long a base may stay unchanged before it is unmaintained (0: never).
 		MaxAge Duration `yaml:"max_age"`
+		// Successors name the maintained base to move to (docs/adr/0025-base-successors.md);
+		// validated by lineage.NewSuccessors.
+		Successors []Successor `yaml:"successors,omitempty"`
 	} `yaml:"bases"`
+}
+
+// Successor names the base that succeeds the bases matching From.
+type Successor struct {
+	From string `yaml:"from"`
+	To   string `yaml:"to"`
 }
 
 // TemplateWithSandbox is Template with scanners.sandbox.backend set to backend.
@@ -468,6 +477,10 @@ owners: []
 # unmaintained, and rebuilding on it fixes nothing.
 bases:
   max_age: 2160h   # 90 days; 0 disables
+  # The maintained base to move to when one is unmaintained, followed but never fetched
+  # (first match wins; 'from' is a reference pattern like owners' targets).
+  successors: []
+  # - { from: "registry.access.redhat.com/ubi9/nodejs-20-minimal", to: "registry.access.redhat.com/ubi9/nodejs-22-minimal:latest" }
 `
 
 // Policy builds the decision policy from configuration.

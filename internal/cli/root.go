@@ -21,6 +21,7 @@ import (
 	"github.com/nocs90/shieldmon/internal/config"
 	"github.com/nocs90/shieldmon/internal/engine"
 	"github.com/nocs90/shieldmon/internal/enrich"
+	"github.com/nocs90/shieldmon/internal/lineage"
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/notify"
 	"github.com/nocs90/shieldmon/internal/oci"
@@ -167,6 +168,10 @@ func (a *app) setup(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
+	successors, err := lineage.NewSuccessors(cfg.Bases.Successors)
+	if err != nil {
+		return err
+	}
 	a.owners = own
 	chans := make([]notify.ChannelConfig, 0, len(cfg.Notifications.Channels))
 	for _, c := range cfg.Notifications.Channels {
@@ -213,7 +218,7 @@ func (a *app) setup(cmd *cobra.Command) error {
 		DueSoon:             time.Duration(cfg.Notifications.DueSoonDays) * 24 * time.Hour,
 		AuditVerifyInterval: cfg.Health.AuditVerifyInterval.Duration,
 		Enrichers:           enrichers,
-		BaseMaxAge:          cfg.Bases.MaxAge.Duration,
+		Bases:               lineage.Policy{MaxAge: cfg.Bases.MaxAge.Duration, Successors: successors},
 		Owners:              own,
 		Log:                 a.log,
 	}

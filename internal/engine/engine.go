@@ -21,6 +21,7 @@ import (
 
 	"github.com/nocs90/shieldmon/internal/enrich"
 	"github.com/nocs90/shieldmon/internal/lifecycle"
+	"github.com/nocs90/shieldmon/internal/lineage"
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/normalize"
 	"github.com/nocs90/shieldmon/internal/notify"
@@ -108,9 +109,9 @@ type Engine struct {
 	AuditVerifyInterval time.Duration
 	// Enrichers add facts (CISA KEV) to every scan's matches (docs/adr/0019-enrichers.md).
 	Enrichers []enrich.Instance
-	// BaseMaxAge is how long a base may stay unchanged before it is unmaintained (0: never;
-	// docs/adr/0022-base-image-lineage.md).
-	BaseMaxAge time.Duration
+	// Bases judges base lineages: how long a base may stay unchanged before it is
+	// unmaintained, and successors (docs/adr/0022-base-image-lineage.md, 0025).
+	Bases lineage.Policy
 	// Owners says which team owns a target, for channels limited to teams
 	// (docs/adr/0024-ownership.md).
 	Owners owners.Ownership

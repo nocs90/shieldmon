@@ -28,6 +28,7 @@ var inventoryHeader = []string{
 	"last_scan", "last_scan_kind", "last_scan_status", "last_complete_scan", "scanners", "sboms",
 	"open_critical", "open_high", "open_medium", "open_low", "open_other", "gaps", "retired_at",
 	"base", "base_source", "base_status", "base_digest", "newest_base_digest", "newest_base_since", "base_unmaintained",
+	"successor", "successor_since",
 }
 
 // openSeverities are the columns of open findings; the rest is "other".
@@ -56,7 +57,8 @@ func renderInventoryCSV(w io.Writer, inv Inventory) error {
 		if img.RetiredAt.IsZero() {
 			baseStatus, unmaintained = string(b.Status), strconv.FormatBool(b.Unmaintained)
 		}
-		rec = append(rec, b.BaseRef, b.Source, baseStatus, b.BaseDigest, b.Newest, timeOrEmpty(b.Since), unmaintained)
+		rec = append(rec, b.BaseRef, b.Source, baseStatus, b.BaseDigest, b.Newest, timeOrEmpty(b.Since), unmaintained,
+			b.Successor, timeOrEmpty(b.SuccessorSince))
 		for i, v := range rec {
 			rec[i] = CSVSafe(oneLine(v))
 		}
@@ -111,6 +113,18 @@ func renderInventoryMarkdown(w io.Writer, inv Inventory) error {
 	return err
 }
 
+// successorCell names the configured successor and since when it points to its newest digest.
+func successorCell(x lineage.Result) string {
+	if x.Successor == "" {
+		return ""
+	}
+	s := mdEscape(x.Successor)
+	if !x.SuccessorSince.IsZero() {
+		s += " (since " + x.SuccessorSince.UTC().Format(time.DateOnly) + ")"
+	}
+	return s
+}
+
 // writeBasesMarkdown lists the monitored images whose base is known
 // (docs/adr/0022-base-image-lineage.md).
 func writeBasesMarkdown(b *strings.Builder, inv Inventory) {
@@ -122,7 +136,7 @@ func writeBasesMarkdown(b *strings.Builder, inv Inventory) {
 		b.WriteString("_No base configured (`targets set-base`) or annotated (`org.opencontainers.image.base.name`)._\n")
 		return
 	}
-	b.WriteString("| Image | Base | Source | Status | Newest base since | Unmaintained |\n|---|---|---|---|---|---|\n")
+	b.WriteString("| Image | Base | Source | Status | Newest base since | Unmaintained | Successor |\n|---|---|---|---|---|---|---|\n")
 	for _, img := range inv.Images {
 		x := img.Base
 		if x.BaseRef == "" || !img.RetiredAt.IsZero() {
@@ -136,8 +150,8 @@ func writeBasesMarkdown(b *strings.Builder, inv Inventory) {
 		if x.Unmaintained {
 			unmaintained = "yes"
 		}
-		fmt.Fprintf(b, "| %s (%s) | %s | %s | %s | %s | %s |\n", mdEscape(img.Ref), mdEscape(img.Platform), mdEscape(x.BaseRef),
-			x.Source, strings.ReplaceAll(string(x.Status), "_", " "), since, unmaintained)
+		fmt.Fprintf(b, "| %s (%s) | %s | %s | %s | %s | %s | %s |\n", mdEscape(img.Ref), mdEscape(img.Platform), mdEscape(x.BaseRef),
+			x.Source, strings.ReplaceAll(string(x.Status), "_", " "), since, unmaintained, successorCell(x))
 	}
 }
 

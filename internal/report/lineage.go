@@ -21,9 +21,9 @@ type LineageSource interface {
 
 // Lineages gives the base lineage of each target at asOf (docs/adr/0022-base-image-lineage.md):
 // the digest it resolved to then, the base configured then, what the base had been seen
-// pointing to by then. A base unchanged for longer than maxAge is unmaintained.
-func Lineages(ctx context.Context, src LineageSource, targets []store.Target, maxAge time.Duration, asOf time.Time) (map[int64]lineage.Result, error) {
-	all, err := lineagesAt(ctx, src, targets, maxAge, asOf)
+// pointing to by then, and the successor configured for it (docs/adr/0025-base-successors.md).
+func Lineages(ctx context.Context, src LineageSource, targets []store.Target, pol lineage.Policy, asOf time.Time) (map[int64]lineage.Result, error) {
+	all, err := lineagesAt(ctx, src, targets, pol, asOf)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +41,7 @@ type targetLineage struct {
 	diffIDs []string
 }
 
-func lineagesAt(ctx context.Context, src LineageSource, targets []store.Target, maxAge time.Duration, asOf time.Time) (map[int64]targetLineage, error) {
+func lineagesAt(ctx context.Context, src LineageSource, targets []store.Target, pol lineage.Policy, asOf time.Time) (map[int64]targetLineage, error) {
 	configured := map[int64]string{}
 	bases, err := src.TargetBaseHistory(ctx)
 	if err != nil {
@@ -92,10 +92,11 @@ func lineagesAt(ctx context.Context, src LineageSource, targets []store.Target, 
 		if ins.AnnotatedVerified && ins.AnnotatedRepository == repositoryOf(img.BaseRef) {
 			img.VerifiedDigest, img.VerifiedLayers = ins.AnnotatedDigest, ins.AnnotatedBaseLayers
 		}
-		out[t.ID] = targetLineage{
-			Result: lineage.Evaluate(img, obs[img.BaseRef+" "+t.Platform], maxAge, asOf),
-			digest: digests[t.ID], diffIDs: ins.DiffIDs,
+		res := lineage.Evaluate(img, obs[img.BaseRef+" "+t.Platform], pol.MaxAge, asOf)
+		if res.Successor = pol.Successors.For(img.BaseRef); res.Successor != "" {
+			res.SuccessorSince, _ = lineage.Freshness(obs[res.Successor+" "+t.Platform], asOf)
 		}
+		out[t.ID] = targetLineage{Result: res, digest: digests[t.ID], diffIDs: ins.DiffIDs}
 	}
 	return out, nil
 }
@@ -119,7 +120,7 @@ type BaseSource interface {
 // period (or its generation, for the current month): from append-only history, so a past
 // month gives the same answer again. With read, each open or risk-accepted row also gets its
 // remedy, from the stored SBOMs of its image and of the newest base.
-func AddBaseLineage(ctx context.Context, src BaseSource, r *Monthly, maxAge time.Duration, read SBOMReader) error {
+func AddBaseLineage(ctx context.Context, src BaseSource, r *Monthly, pol lineage.Policy, read SBOMReader) error {
 	targets, err := src.ListTargets(ctx)
 	if err != nil {
 		return err
@@ -128,7 +129,7 @@ func AddBaseLineage(ctx context.Context, src BaseSource, r *Monthly, maxAge time
 	if r.GeneratedAt.Before(asOf) {
 		asOf = r.GeneratedAt
 	}
-	bases, err := lineagesAt(ctx, src, targets, maxAge, asOf)
+	bases, err := lineagesAt(ctx, src, targets, pol, asOf)
 	if err != nil {
 		return err
 	}

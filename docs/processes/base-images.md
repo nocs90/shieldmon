@@ -71,6 +71,23 @@ bases:
 A base that cannot be resolved opens a `base_resolve_failed` health finding: the statuses then
 rest on older observations.
 
+## Successor bases
+
+When a base is unmaintained, the image needs another lineage. ShieldMon does not guess it from
+names ([ADR 0025](../adr/0025-base-successors.md)); the platform team configures it:
+
+```yaml
+bases:
+  successors:
+    - { from: "registry.access.redhat.com/ubi9/nodejs-20-minimal", to: "registry.access.redhat.com/ubi9/nodejs-22-minimal:latest" }
+    - { from: "docker.io/library/python:3.11*", to: "docker.io/library/python:3.13-slim" }
+```
+
+`from` is a reference pattern over base references (as for [owners](ownership.md)); the first
+match wins. The successor tag is followed every cycle like a base (never fetched, no SBOM): the
+inventory, the monthly report and `base_unmaintained` notifications name it with the date it last
+moved, so a successor that is itself stale shows.
+
 ## What a rebuild fixes
 
 For images with a proven base, every open finding of the monthly report gets a **remedy**

@@ -64,6 +64,10 @@ type Result struct {
 	Since        time.Time `json:"newest_base_since,omitzero"`
 	SinceSource  string    `json:"newest_base_since_source,omitempty"`
 	Unmaintained bool      `json:"base_unmaintained"`
+	// Successor is the configured successor of the base, and since when it points to its
+	// newest digest (docs/adr/0025-base-successors.md).
+	Successor      string    `json:"successor,omitempty"`
+	SuccessorSince time.Time `json:"successor_since,omitzero"`
 }
 
 // plausibleFrom is the earliest creation time taken at face value: reproducible builds set
@@ -83,10 +87,7 @@ func Evaluate(img Image, obs []Observation, maxAge time.Duration, now time.Time)
 	}
 	newest := obs[len(obs)-1]
 	r.Newest = newest.Digest
-	r.Since, r.SinceSource = newest.ObservedAt, "observed"
-	if len(obs) == 1 && newest.Created.After(plausibleFrom) && !newest.Created.After(now) {
-		r.Since, r.SinceSource = newest.Created, "created"
-	}
+	r.Since, r.SinceSource = Freshness(obs, now)
 	r.Unmaintained = maxAge > 0 && now.Sub(r.Since) > maxAge
 
 	switch {

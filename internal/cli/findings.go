@@ -614,7 +614,7 @@ func (a *app) reportCmd() *cobra.Command {
 				return err
 			}
 			read := func(b store.SBOM) ([]byte, error) { return a.engine.ReadSBOM(b, sbom.MaxBytes) }
-			if err := report.AddBaseLineage(cmd.Context(), a.store, &r, a.cfg.Bases.MaxAge.Duration, read); err != nil {
+			if err := report.AddBaseLineage(cmd.Context(), a.store, &r, a.engine.Bases, read); err != nil {
 				return err
 			}
 			report.AddOwners(&r, a.owners)
@@ -665,7 +665,7 @@ health.monitor_interval, a required SBOM generator missing.`,
 			slices.Sort(gens)
 			opts := report.InventoryOptions{
 				Now: time.Now().UTC(), StaleAfter: a.cfg.Health.MonitorInterval.Duration * 3 / 2, Generators: gens,
-				Tool: "shieldmon " + Version, BaseMaxAge: a.cfg.Bases.MaxAge.Duration,
+				Tool: "shieldmon " + Version, Bases: a.engine.Bases,
 			}
 			if f, ok := report.LookupInventoryFormat(format); ok && f.Components {
 				opts.ReadSBOM = func(b store.SBOM) ([]byte, error) { return a.engine.ReadSBOM(b, sbom.MaxBytes) }

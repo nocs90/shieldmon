@@ -36,8 +36,13 @@ func (e *Engine) trackLineage(ctx context.Context, t store.Target, r oci.Resolve
 	if ref == "" {
 		ref = ins.AnnotatedBase
 	}
-	if ref != "" {
-		e.observeBase(ctx, ref, p)
+	if ref == "" {
+		return
+	}
+	e.observeBase(ctx, ref, p, true)
+	// The successor is followed like a base, to say how maintained it is; never fetched.
+	if succ := e.Bases.Successors.For(ref); succ != "" {
+		e.observeBase(ctx, succ, p, false)
 	}
 }
 
@@ -88,7 +93,7 @@ func (e *Engine) baseStates(ctx context.Context, now time.Time) ([]notify.Base, 
 		return nil, err
 	}
 	targets = slices.DeleteFunc(targets, func(t store.Target) bool { return !t.RetiredAt.IsZero() || t.CurrentDigest == "" })
-	lineages, err := report.Lineages(ctx, e.Store, targets, e.BaseMaxAge, now)
+	lineages, err := report.Lineages(ctx, e.Store, targets, e.Bases, now)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +110,7 @@ func (e *Engine) baseStates(ctx context.Context, now time.Time) ([]notify.Base, 
 			i, index[k] = len(out), len(out)
 			out = append(out, notify.Base{
 				Digest: t.CurrentDigest, BaseRef: l.BaseRef, BaseDigest: l.BaseDigest, Newest: l.Newest, Since: l.Since,
-				Status: string(l.Status), Unmaintained: l.Unmaintained,
+				Status: string(l.Status), Unmaintained: l.Unmaintained, Successor: l.Successor, SuccessorSince: l.SuccessorSince,
 			})
 		}
 		out[i].Images = append(out[i].Images, t.Ref+" ("+t.Platform+")")
@@ -114,8 +119,8 @@ func (e *Engine) baseStates(ctx context.Context, now time.Time) ([]notify.Base, 
 }
 
 // observeBase records what a base reference points to on a platform when it moved; once per
-// monitor cycle.
-func (e *Engine) observeBase(ctx context.Context, ref string, p model.Platform) {
+// monitor cycle. With sboms, the digest it points to gets SBOMs (ADR 0023).
+func (e *Engine) observeBase(ctx context.Context, ref string, p model.Platform, sboms bool) {
 	key := ref + " " + p.String()
 	if e.observedBases != nil {
 		if e.observedBases[key] {
@@ -147,7 +152,9 @@ func (e *Engine) observeBase(ctx context.Context, ref string, p model.Platform) 
 		}
 	}
 	e.healthy(ctx, CheckBaseResolve, ref)
-	e.baseSBOMs(ctx, res)
+	if sboms {
+		e.baseSBOMs(ctx, res)
+	}
 }
 
 // baseSBOMs makes sure the newest digest of a base has SBOMs, to tell which findings a
