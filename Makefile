@@ -54,10 +54,12 @@ fuzz:
 		$(GO) test -run '^$$' -fuzz "^$$name\$$" -fuzztime $(FUZZTIME) -fuzzminimizetime $(FUZZMINIMIZE) $$pkg || exit 1; \
 	done
 
-# Coverage gate: the floor only goes up (raise COVER_MIN as coverage grows).
-COVER_MIN ?= 50
+# Coverage gate: the floor only goes up (raise COVER_MIN as coverage grows). Statements run by
+# any test count (-coverpkg): the end-to-end scenarios of internal/engine exercise store and
+# report code that per-package numbers would miss.
+COVER_MIN ?= 70
 cover:
-	$(GO) test -covermode=atomic -coverprofile=coverage.out ./...
+	$(GO) test -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
 	@total=$$($(GO) tool cover -func=coverage.out | awk '/^total:/ {sub("%","",$$3); print $$3}'); \
 	echo "total coverage: $$total% (minimum $(COVER_MIN)%)"; \
 	awk -v t="$$total" -v m="$(COVER_MIN)" 'BEGIN { exit (t+0 < m+0) }' || { echo "coverage below $(COVER_MIN)%"; exit 1; }

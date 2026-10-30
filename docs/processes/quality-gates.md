@@ -9,7 +9,7 @@ Every gate runs in CI and can be run locally. Required checks on `main` are mark
 | ✱ golangci-lint (errcheck, gosec, revive, staticcheck, errorlint, bodyclose, nolintlint…) | `make golangci` | ci/lint | any issue; every `//nolint` must name a linter and a reason |
 | ✱ go.mod tidy | `make tidy-check` | ci/lint | go.mod/go.sum drift |
 | ✱ Unit tests with race detector | `make test-race` | ci/test | any failure |
-| ✱ Coverage floor | `make cover` | ci/test | total < `COVER_MIN` (only ever raised) |
+| ✱ Coverage floor | `make cover` | ci/test | total < `COVER_MIN` (70%, only ever raised); statements run by any test count (`-coverpkg=./...`), so end-to-end scenarios count for the packages they exercise |
 | ✱ govulncheck | `make vuln` | ci/test | reachable known vulnerability in our deps |
 | ✱ Fuzzing of hostile-input parsers | `make fuzz` | ci/fuzz (20s/target on PR, 5m nightly) | crash or invariant violation; failing inputs are committed under `testdata/fuzz` as regressions. Minimization is bounded (`FUZZMINIMIZE=100x`): with realistic seeds the default 60s per new input left targets almost no executions |
 | Integration (real syft/grype/trivy, pinned digest) and hostile fixture suite, in the default sandbox | `make test-integration` (`SHIELDMON_TEST_SANDBOX=bwrap` to fail where no sandbox runs) | ci/integration (main, nightly, PRs labelled `run/integration`) | pipeline regression; a 10,000-layer manifest, a layer over the size limit, a decompression bomb, a path or symlink escape, or a hanging scanner that does not end bounded with its health finding, or leaves files outside the image or in the scratch space |

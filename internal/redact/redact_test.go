@@ -1,6 +1,8 @@
 package redact
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -44,5 +46,16 @@ func TestStringKeepsOrdinaryText(t *testing.T) {
 	in := "GET https://index.docker.io/v2/library/alpine/manifests/3.18.0: 404 Not Found"
 	if out := String(in); out != in {
 		t.Errorf("ordinary text changed: %q", out)
+	}
+}
+
+func TestError(t *testing.T) {
+	if Error(nil) != "" {
+		t.Error("nil is no message")
+	}
+	inner := errors.New("GET https://ci:glcbt-64_abcdefghij0123456789@gitlab.example.com/v2/: 401")
+	got := Error(fmt.Errorf("resolve registry.example.com/app:1: %w", inner))
+	if strings.Contains(got, "glcbt-64_abcdefghij") || !strings.HasPrefix(got, "resolve registry.example.com/app:1: GET https://") {
+		t.Errorf("wrapped errors are redacted whole, the rest kept: %q", got)
 	}
 }
