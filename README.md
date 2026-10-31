@@ -91,7 +91,8 @@ statements, never by an ignore list ([docs/processes/ci-gate.md](docs/processes/
 
 ### Container image
 
-`make image` builds it; the release pipeline will publish it pinned by digest. It is
+`make image` builds it; releases publish it as `ghcr.io/nocs90/shieldmon`, signed with cosign
+and with SLSA provenance (verify and deploy it by digest: docs/processes/release.md). It is
 distroless and non-root (65532), and writes only under `/data`, so the root filesystem can be
 read-only. Scanners run in the `landlock` sandbox, which needs Linux ≥ 5.19 on the host or
 node ([ADR 0012](docs/adr/0012-container-image.md)).

@@ -48,7 +48,9 @@ kubectl logs -n shieldmon job/first-cycle -c monitor -f
 ```
 
 - **Image**: ShieldMon's own, pinned by digest (the `images:` entry of `kustomization.yaml`);
-  until the release pipeline publishes it (#8), build it with `make image` and push it to
+  releases publish it as `ghcr.io/nocs90/shieldmon`, signed and with provenance: verify it by
+  digest as [release.md](release.md#verifying-a-release) shows. Before the first release, build
+  it with `make image` and push it to
   your registry. It runs as 65532 with a read-only root file system, no capabilities and the
   runtime's default seccomp profile; the nodes need Linux ≥ 5.19 for Landlock.
 - **CronJob**: `concurrencyPolicy: Forbid` (the data dir is locked), no retries
