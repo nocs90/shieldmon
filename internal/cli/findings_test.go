@@ -58,10 +58,22 @@ func TestFindingsListAndShow(t *testing.T) {
 		}
 	}
 
-	// store.Finding has no JSON tags of its own: "ID" beside the match's "vuln_id".
-	id := int(list[0]["ID"].(float64))
+	// snake_case keys throughout, as in the reports (#79).
+	for _, row := range list {
+		for k := range row {
+			if k != strings.ToLower(k) {
+				t.Errorf("JSON key %q is not snake_case", k)
+			}
+		}
+		for _, k := range []string{"id", "digest", "state", "first_detected", "vuln_id", "severity", "priority"} {
+			if _, ok := row[k]; !ok {
+				t.Errorf("JSON row lacks %q: %v", k, row)
+			}
+		}
+	}
+	id := int(list[0]["id"].(float64))
 	if list[0]["vuln_id"] != "CVE-2023-45853" {
-		id = int(list[1]["ID"].(float64))
+		id = int(list[1]["id"].(float64))
 	}
 	out, errOut, code = runc("findings", "show", strconv.Itoa(id))
 	if code != 0 || !strings.Contains(out, "CVE-2023-45853") || !strings.Contains(out, "1.2.13-r1") || !strings.Contains(out, "sla due") {
