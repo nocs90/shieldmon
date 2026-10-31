@@ -21,6 +21,7 @@ import (
 	"github.com/nocs90/shieldmon/internal/config"
 	"github.com/nocs90/shieldmon/internal/engine"
 	"github.com/nocs90/shieldmon/internal/enrich"
+	"github.com/nocs90/shieldmon/internal/export"
 	"github.com/nocs90/shieldmon/internal/lineage"
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/notify"
@@ -43,6 +44,7 @@ type app struct {
 	cfg        config.Config
 	owners     owners.Ownership
 	registries *oci.Registries
+	exports    []export.Instance
 	store      *store.Store
 	engine     *engine.Engine
 	log        *slog.Logger
@@ -95,7 +97,7 @@ when a later scan provides evidence.`,
 	)
 	for group, cmds := range map[string][]*cobra.Command{
 		"monitor": {a.scanCmd(), a.gateCmd(), a.monitorCmd(), a.rematchCmd(), a.targetsCmd()},
-		"triage":  {a.findingsCmd(), a.vexCmd(), a.healthCmd(), a.reportCmd(), a.sbomCmd(), a.componentsCmd(), a.notifyCmd(), a.auditCmd()},
+		"triage":  {a.findingsCmd(), a.vexCmd(), a.healthCmd(), a.reportCmd(), a.sbomCmd(), a.componentsCmd(), a.notifyCmd(), a.exportCmd(), a.auditCmd()},
 		"setup":   {a.initCmd(), a.doctorCmd(), a.dbCmd(), a.pluginsCmd(), a.versionCmd()},
 	} {
 		for _, c := range cmds {
@@ -184,6 +186,13 @@ func (a *app) setup(cmd *cobra.Command) error {
 	}
 	channels, err := notify.NewChannels(chans, notify.Spec{})
 	if err != nil {
+		return err
+	}
+	exps := make([]export.Config, 0, len(cfg.Exports))
+	for _, x := range cfg.Exports {
+		exps = append(exps, export.Config{Name: x.Name, Exporter: x.Exporter, Options: x.Options})
+	}
+	if a.exports, err = export.New(exps, export.Spec{}); err != nil {
 		return err
 	}
 	enrichCfg := map[string]enrich.Config{}
@@ -728,6 +737,10 @@ func (a *app) pluginsCmd() *cobra.Command {
 					opts = " (options: " + strings.Join(n.Options, ", ") + ")"
 				}
 				fmt.Fprintf(w, "  %-14s %s%s\n", n.Name, n.Description, opts)
+			}
+			fmt.Fprintln(w, "Exporters:")
+			for _, x := range export.Plugins() {
+				fmt.Fprintf(w, "  %-16s %s (options: %s)\n", x.Name, x.Description, strings.Join(x.Options, ", "))
 			}
 			fmt.Fprintln(w, "Enrichers:")
 			for _, p := range enrich.Plugins() {

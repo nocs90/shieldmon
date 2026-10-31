@@ -20,6 +20,7 @@ import (
 	"github.com/nocs90/shieldmon/internal/config"
 	"github.com/nocs90/shieldmon/internal/engine"
 	"github.com/nocs90/shieldmon/internal/enrich"
+	"github.com/nocs90/shieldmon/internal/export"
 	"github.com/nocs90/shieldmon/internal/gate"
 	"github.com/nocs90/shieldmon/internal/lifecycle"
 	"github.com/nocs90/shieldmon/internal/lineage"
@@ -1738,5 +1739,72 @@ func TestMonitorConcurrently(t *testing.T) {
 	}
 	if got, want := findings(par), findings(seq); !slices.Equal(got, want) || len(got) != len(digests) {
 		t.Errorf("findings concurrently %v, one after the other %v", got, want)
+	}
+}
+
+// fakeExporter records the batches it is given and fails while err is set.
+type fakeExporter struct {
+	batches []export.Batch
+	err     error
+	failed  map[string]string
+}
+
+func (f *fakeExporter) Export(_ context.Context, b export.Batch) (export.Result, error) {
+	f.batches = append(f.batches, b)
+	return export.Result{Sent: len(b.Targets) - len(f.failed), Failed: f.failed}, f.err
+}
+
+// TestExportBatchAndHealth builds what exporters get from the store (docs/adr/0027-exporters.md)
+// and records failing exports as health findings.
+func TestExportBatchAndHealth(t *testing.T) {
+	h := newHarness(t)
+	sla, _ := config.SLAProfile("standard", nil)
+	h.eng.Decisions = lifecycle.Policy{Profile: "standard", SLADays: sla}
+	h.image(ref, digestA,
+		vuln("zlib", "1.2.13-r0", "CVE-2023-45853", model.SeverityCritical, "1.2.13-r1"),
+		vuln("busybox", "1.36.1-r29", "CVE-2023-42366", model.SeverityMedium))
+	h.scan(ref)
+	if _, err := h.eng.Scan(h.ctx, ref, model.Platform{OS: "linux", Architecture: "arm64"}); err != nil {
+		t.Fatal(err)
+	}
+	busybox := h.finding("CVE-2023-42366", digestA)
+	if _, err := h.store.ApplyDecision(h.ctx, busybox.ID, lifecycle.Decision{
+		State: model.StateNotAffected, Author: "vendor", Justification: "vulnerable_code_not_present",
+	}, h.eng.Decisions, h.clock); err != nil {
+		t.Fatal(err)
+	}
+
+	b, err := h.eng.ExportBatch(h.ctx, "shieldmon test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.Targets) != 2 || b.Tool != "shieldmon test" {
+		t.Fatalf("batch: %+v", b)
+	}
+	tg := b.Targets[0]
+	if tg.Repository != "registry.test/app" || tg.Tag != "prod" || !tg.MultiPlatform || len(tg.SBOM) == 0 {
+		t.Errorf("target: %+v (SBOM %d bytes)", tg, len(tg.SBOM))
+	}
+	if len(tg.Findings) != 1 || tg.Findings[0].VulnID != "CVE-2023-45853" || tg.Findings[0].SLADue.IsZero() {
+		t.Errorf("open findings with their deadline, not_affected left out: %+v", tg.Findings)
+	}
+
+	ok, bad := &fakeExporter{}, &fakeExporter{failed: map[string]string{ref: "POST dojo.test: answered 500"}}
+	exps := []export.Instance{{Name: "dtrack", Sender: ok}, {Name: "dojo", Sender: bad}}
+	if _, err := h.eng.Export(h.ctx, exps, b); err != nil {
+		t.Fatal(err)
+	}
+	if hf := h.health(engine.CheckExport, "dojo"); hf == nil || !hf.ResolvedAt.IsZero() {
+		t.Errorf("a failing export opens export_failed: %+v", hf)
+	}
+	if hf := h.health(engine.CheckExport, "dtrack"); hf != nil {
+		t.Errorf("a working export opens nothing: %+v", hf)
+	}
+	bad.failed = nil
+	if _, err := h.eng.Export(h.ctx, exps, b); err != nil {
+		t.Fatal(err)
+	}
+	if hf := h.health(engine.CheckExport, "dojo"); hf == nil || hf.ResolvedAt.IsZero() {
+		t.Errorf("the next success resolves it: %+v", hf)
 	}
 }

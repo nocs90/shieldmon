@@ -57,6 +57,14 @@ type Channel struct {
 	Options map[string]any `yaml:"options,omitempty"`
 }
 
+// Export configures one exporter (docs/adr/0027-exporters.md). Options never hold a
+// credential: they name environment variables (*_env).
+type Export struct {
+	Name     string         `yaml:"name"`
+	Exporter string         `yaml:"exporter"`
+	Options  map[string]any `yaml:"options,omitempty"`
+}
+
 // Owner is a team owning the targets its patterns match (docs/adr/0024-ownership.md).
 type Owner struct {
 	Team    string   `yaml:"team"`
@@ -143,6 +151,10 @@ type Config struct {
 
 	// Gate is the policy of 'shieldmon gate' (docs/adr/0021-policy-gate.md).
 	Gate Gate `yaml:"gate"`
+
+	// Exports hand results to portfolio tools (docs/adr/0027-exporters.md); validated by
+	// export.New.
+	Exports []Export `yaml:"exports,omitempty"`
 
 	// Owners are the teams owning targets, first match wins (docs/adr/0024-ownership.md);
 	// validated by owners.New.
@@ -483,6 +495,12 @@ gate:
   # max_db_age: 72h       # default: health.db_max_age
   max_evidence_age: 24h   # with --no-scan, the latest scan may be this old
   exit_codes: { warn: 0, fail: 2, indeterminate: 3 }   # errors exit 1
+
+# Exports to portfolio tools, sent by 'shieldmon export' (docs/processes/exports.md). Options
+# never hold a credential: they name environment variables (*_env).
+exports: []
+# - { name: dtrack, exporter: dependency-track, options: { url: https://dtrack.example.com, api_key_env: SHIELDMON_DTRACK_KEY } }
+# - { name: dojo, exporter: defectdojo, options: { url: https://defectdojo.example.com, api_key_env: SHIELDMON_DOJO_KEY } }
 
 # Teams owning targets (docs/processes/ownership.md): the first team with a pattern matching
 # a target's reference or repository owns it ('*' stays within a path segment). Reports and
