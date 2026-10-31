@@ -45,6 +45,20 @@ shieldmon monitor --log-level info
 shieldmon health            # anything open needs attention, see health-findings.md
 ```
 
+## Many targets at once
+
+`monitor` scans one target at a time unless `scanners.concurrency` (or `--concurrency N`)
+says more ([ADR 0026](../adr/0026-concurrent-monitoring.md)). Targets on the same digest
+never generate or match it at the same time, and each base tag is still resolved once per
+cycle. Size the host for N scans: memory for N matchers' vulnerability DBs (a few GB each),
+disk for N × (`limits.max_total_bytes` + `limits.max_scratch_bytes`) in the data dir.
+Registry requests of the cycle are limited per host by `limits.registry_rps` (default 10 per
+second).
+
+```sh
+shieldmon monitor --concurrency 4
+```
+
 ## Logs
 
 Logs go to stderr; reports and command output to stdout. `--log-format json` writes one JSON

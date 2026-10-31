@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nocs90/shieldmon/internal/enrich"
@@ -118,9 +119,16 @@ type Engine struct {
 	Now    func() time.Time
 	Log    *slog.Logger
 
+	// Concurrency is how many targets Monitor scans at once (≤ 1: one after the other;
+	// docs/adr/0026-concurrent-monitoring.md).
+	Concurrency int
+
 	// observedBases are the base references observed in the running monitor cycle: each is
 	// resolved once per cycle, however many targets share it.
+	basesMu       sync.Mutex
 	observedBases map[string]bool
+	// digests serializes SBOM generation and matching per digest.
+	digests keyedLocks
 }
 
 func (e *Engine) now() time.Time {
@@ -215,19 +223,26 @@ func (e *Engine) Scan(ctx context.Context, ref string, platform model.Platform) 
 	target.CurrentDigest = resolved.Digest
 	res.Target, res.DigestChange, res.PrevDigest = target, changed && prev != "", prev
 
-	created, genErrs := e.ensureSBOMs(ctx, resolved)
-	res.SBOMsCreated = created
-	res.Errors = append(res.Errors, genErrs...)
-
-	kind := "rematch"
-	if len(created) > 0 {
-		kind = "initial"
-	}
-	if err := e.match(ctx, resolved.Digest, target.ID, kind, &res); err != nil {
+	if err := e.sbomAndMatch(ctx, resolved, target.ID, &res); err != nil {
 		return res, err
 	}
 	e.trackLineage(ctx, target, resolved, platform)
 	return res, nil
+}
+
+// sbomAndMatch makes sure the digest has SBOMs and matches them, one worker per digest at a
+// time (ADR 0026); no other lock is taken meanwhile.
+func (e *Engine) sbomAndMatch(ctx context.Context, resolved oci.Resolved, targetID int64, res *Result) error {
+	unlock := e.digests.lock(resolved.Digest)
+	defer unlock()
+	created, genErrs := e.ensureSBOMs(ctx, resolved)
+	res.SBOMsCreated = created
+	res.Errors = append(res.Errors, genErrs...)
+	kind := "rematch"
+	if len(created) > 0 {
+		kind = "initial"
+	}
+	return e.match(ctx, resolved.Digest, targetID, kind, res)
 }
 
 // Rematch re-runs matchers on the stored SBOMs of a digest without
@@ -656,29 +671,61 @@ func (e *Engine) Monitor(ctx context.Context) (MonitorSummary, error) {
 			e.log().Warn("vulnerability DB update failed; matching with the DBs on disk", "err", err)
 		}
 	}
-	errCount := 0
+	e.basesMu.Lock()
 	e.observedBases = map[string]bool{}
-	defer func() { e.observedBases = nil }()
-	for _, t := range targets {
+	e.basesMu.Unlock()
+	defer func() {
+		e.basesMu.Lock()
+		e.observedBases = nil
+		e.basesMu.Unlock()
+	}()
+	// Up to Concurrency targets at once (ADR 0026); outcomes keep the targets' order.
+	type outcome struct {
+		res  Result
+		err  error
+		done bool
+	}
+	outcomes := make([]outcome, len(targets))
+	workers := min(max(e.Concurrency, 1), max(len(targets), 1))
+	next := make(chan int)
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range next {
+				t := targets[i]
+				p, err := model.ParsePlatform(t.Platform)
+				if err != nil {
+					outcomes[i] = outcome{err: err, done: true}
+					continue
+				}
+				r, err := e.Scan(ctx, t.Ref, p)
+				outcomes[i] = outcome{res: r, err: err, done: true}
+			}
+		}()
+	}
+	for i := range targets {
 		if ctx.Err() != nil {
 			break
 		}
-		p, err := model.ParsePlatform(t.Platform)
-		if err != nil {
-			sum.Failures[t.Ref] = err.Error()
+		next <- i
+	}
+	close(next)
+	wg.Wait()
+	errCount := 0
+	for i, o := range outcomes {
+		switch {
+		case !o.done: // cancelled before it started
+		case o.err != nil:
+			sum.Failures[targets[i].Ref] = redact.Error(o.err)
 			errCount++
-			continue
+		default:
+			if o.res.Status != store.ScanComplete {
+				errCount++
+			}
+			sum.Results = append(sum.Results, o.res)
 		}
-		r, err := e.Scan(ctx, t.Ref, p)
-		if err != nil {
-			sum.Failures[t.Ref] = redact.Error(err)
-			errCount++
-			continue
-		}
-		if r.Status != store.ScanComplete {
-			errCount++
-		}
-		sum.Results = append(sum.Results, r)
 	}
 	sum.Status = "ok"
 	switch {

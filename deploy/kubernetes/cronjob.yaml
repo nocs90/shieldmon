@@ -66,6 +66,8 @@ spec:
               resources:
                 requests: { cpu: 500m, memory: 2Gi }
                 limits: { memory: 6Gi }   # the scanners' vulnerability DBs live in memory while matching
+              # For one scan at a time (scanners.concurrency: 1). With N, raise the memory limit
+              # and the claim about N times (docs/processes/monitoring-cycle.md).
               # Credentials for notifications come from a Secret, by the variable names the
               # configuration gives (*_env options):
               # env:

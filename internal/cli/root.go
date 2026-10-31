@@ -220,6 +220,7 @@ func (a *app) setup(cmd *cobra.Command) error {
 		Enrichers:           enrichers,
 		Bases:               lineage.Policy{MaxAge: cfg.Bases.MaxAge.Duration, Successors: successors},
 		Owners:              own,
+		Concurrency:         cfg.Scanners.Concurrency,
 		Log:                 a.log,
 	}
 	return nil
@@ -234,6 +235,8 @@ func (a *app) ociOptions() oci.Options {
 			MaxConfigBytes: oci.DefaultLimits.MaxConfigBytes,
 		},
 		UserAgent: "shieldmon/" + Version,
+		// Per registry host (docs/adr/0026-concurrent-monitoring.md).
+		Transport: oci.RegistryRateLimit(l.RegistryRPS),
 	}
 }
 
@@ -543,6 +546,7 @@ becomes a monitoring target that 'shieldmon monitor' re-evaluates.`,
 
 func (a *app) monitorCmd() *cobra.Command {
 	var format string
+	var concurrency int
 	cmd := &cobra.Command{
 		Use:   "monitor",
 		Short: "Run one continuous-monitoring cycle over all targets (for cron/systemd/CronJob)",
@@ -550,6 +554,12 @@ func (a *app) monitorCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := a.setup(cmd); err != nil {
 				return err
+			}
+			switch {
+			case concurrency < 0 || concurrency > 64:
+				return fmt.Errorf("--concurrency %d: want 1 to 64 (0: scanners.concurrency)", concurrency)
+			case concurrency > 0:
+				a.engine.Concurrency = concurrency
 			}
 			unlock, err := a.lock()
 			if err != nil {
@@ -600,6 +610,7 @@ func (a *app) monitorCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&format, "output", "o", "text", "output format: text, json")
+	cmd.Flags().IntVar(&concurrency, "concurrency", 0, "targets scanned at once, 1 to 64 (0: scanners.concurrency; ADR 0026)")
 	return cmd
 }
 
