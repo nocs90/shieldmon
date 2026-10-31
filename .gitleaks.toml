@@ -7,4 +7,10 @@ description = "Synthetic credentials used on purpose to test redaction; never re
 paths = [
   '''internal/redact/.*_test\.go''',
   '''internal/scanner/scanner_test\.go''',
+  # Credential-shaped option values the configuration must refuse, and providers' fake tokens.
+  '''internal/notify/notify_test\.go''',
+  '''internal/oci/provider_test\.go''',
+  '''internal/oci/provider_gitlab_test\.go''',
+  # The Standard Webhooks specification's published test key and message.
+  '''internal/notify/webhook_test\.go''',
 ]
