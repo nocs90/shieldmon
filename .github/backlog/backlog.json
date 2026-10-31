@@ -1023,6 +1023,18 @@
       "milestone": "M4 — Prioritization, VEX, notifications",
       "epic": "stale-base",
       "body": "## Context\n\n`ubi9/nodejs-20-minimal` is succeeded by `ubi9/nodejs-22-minimal`; nothing in the registry says so.\n\n## Acceptance criteria\n\n- [ ] Configured successors (`bases.successors`: reference pattern to successor reference), validated\n- [ ] Report and notification name the successor and its age when a lineage is unmaintained\n- [ ] Evaluate end-of-life data sources (e.g. endoflife.date) as an enricher in an ADR; no guessing from tag names"
+    },
+    {
+      "key": "findings-json-keys",
+      "title": "findings list -o json: consistent snake_case keys",
+      "labels": [
+        "kind/bug",
+        "area/cli",
+        "priority/low"
+      ],
+      "milestone": "M4 — Prioritization, VEX, notifications",
+      "epic": null,
+      "body": "## Context\n\n`findings list -o json` encodes `store.Finding`, whose own fields have no JSON tags: the output mixes `ID`, `Digest`, `State`, `FirstDetected`, `Targets` with the snake_case keys of the embedded match (`vuln_id`, `pkg_name`). Every other JSON output (reports, inventory, gate, notifications) is snake_case. Found while adding CLI tests.\n\n## Acceptance criteria\n\n- [ ] snake_case keys for every field, matching the report rows where they overlap (`id`, `digest`, `state`, `first_detected`, `targets`)\n- [ ] A JSON shape test, and the change noted in the release notes: scripts reading the old keys break"
     }
   ]
 }
