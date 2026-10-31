@@ -26,6 +26,7 @@ Every gate runs in CI and can be run locally. Required checks on `main` are mark
 | ✱ Conventional PR title | — | pr-hygiene | title format |
 | ✱ DCO sign-off | `git log` | pr-hygiene | a commit lacks `Signed-off-by` |
 | Supply chain pinning | review | review | actions not pinned by SHA, scanners not pinned by checksum |
+| ✱ Scanner release signatures | `scripts/install-scanners.sh DIR` | every job that installs scanners (ci/integration, ci/image) | a release's checksums file is not signed by the pinned workflow identity, or does not list the pinned SHA-256 (ADR 0006) |
 
 ## Repository settings (maintainer checklist)
 

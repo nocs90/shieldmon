@@ -47,7 +47,7 @@ These are not features; violating one is a bug.
 |---|---|---|
 | S1 | Never execute image content. Bound sizes, time and output; protect against path traversal / symlink escape. | ✅ manifest/layer/total limits, digest verification, scanner timeouts, output limits, SBOM size/shape validation, scanner sandbox by default with seccomp and W^X — `bwrap` (Linux hosts) or `landlock` (containers) — offline scanning with a separate DB update step, scratch quota and free-disk floor; hostile fixture suite in CI with real scanners |
 | S2 | Credentials never logged, never persisted, redacted from errors. Least-privilege IAM policy shipped and tested. | ✅ redaction, scanners never receive registry credentials, env allowlist; least-privilege IAM policy and pinned trust policies in `deploy/iam`, tested |
-| S3 | Own supply chain: scanners pinned by checksum, CI actions pinned by full SHA, reproducible signed releases. | 🟡 binary SHA-256 pins, pinned CI actions, checksum-verified installer · ⬜ signature verification, signed releases, SBOM of ShieldMon itself |
+| S3 | Own supply chain: scanners pinned by checksum, CI actions pinned by full SHA, reproducible signed releases. | 🟡 binary SHA-256 pins, pinned CI actions, checksum-verified installer; scanner release signatures verified with cosign against pinned workflow identities (ADR 0006) · ⬜ signed releases, SBOM of ShieldMon itself |
 
 > The original requirements prompt was truncated after "S3 Own su…"; S3 above is
 > reconstructed from the surrounding notes (scanner pinning after CVE-2026-33634).
