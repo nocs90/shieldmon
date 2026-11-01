@@ -42,11 +42,17 @@
   `targets add --chart NAME --dry-run`. Images a later release drops stay targets: retiring
   them is an operator's decision with its own record (ADR 0017); `charts history` shows what
   changed.
-- Remote content cannot hold or flood the record: each chart has 10 minutes per cycle
-  (listing, download, every profile's render), a version listed twice by an index keeps its
-  first entry everywhere (so it does not look changed on every read), a render records at
-  most 10,000 images of at most 512 bytes each, and a release time more than a day in the
-  future is recorded as unknown. Only the latest render per profile is read each cycle.
+- Remote content cannot hold or flood the record: each chart has, per cycle, every profile's
+  `helm.timeout` plus 5 minutes (at least 10 minutes) for listing, download and renders; a
+  version listed twice by an index keeps its first entry everywhere (so it does not look
+  changed on every read); at most 3 renders per profile are recorded for a chart in 24 hours
+  (a source releasing or republishing more often opens `chart_failed` and waits for a
+  person); a render records at most 10,000 images of at most 512 bytes each; a release time
+  more than a day in the future is recorded as unknown. Only the latest render per profile is
+  read each cycle. Registry names are judged without a trailing dot, and a name must end in a
+  top-level domain of letters (no numeric shorthand such as `127.1`).
+- Residual: a source that releases a version a day with new images can add up to
+  `max_new_targets` targets a day through `add_targets`; they stay until retired.
 - **Neglected** is a verdict on the newest recorded release, from evidence only
   (`charts.Assess`, pure): an active finding with a fix (a fixed version or a `fixed` state),
   of at least `chart_policy.min_severity` (high), detected more than

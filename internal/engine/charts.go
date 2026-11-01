@@ -54,6 +54,8 @@ const (
 	DefaultChartTimeout = 10 * time.Minute
 	// releaseSkew is how far in the future a release time may be before it is not believed.
 	releaseSkew = 24 * time.Hour
+	// maxRendersPerDay bounds the renders of one chart, per profile, in 24 hours.
+	maxRendersPerDay = 3
 )
 
 // FollowCharts brings the record of every followed chart (only those in ids, when given) up
@@ -129,6 +131,16 @@ func (e *Engine) followChart(ctx context.Context, c FollowedChart) error {
 	}
 	var errs []error
 	if len(need) > 0 {
+		// A source that republishes a version or releases every cycle would grow the
+		// append-only record, and with add_targets the targets, without end.
+		recent, err := e.Store.CountChartRenders(ctx, c.ID, e.now().Add(-24*time.Hour))
+		if err != nil {
+			return err
+		}
+		if limit := maxRendersPerDay * len(c.Profiles); recent+len(need) > limit {
+			return fmt.Errorf("%s %s: %d renders in the last 24 hours, at most %d: a source that releases or republishes this often is left to a person ('shieldmon charts history %s')",
+				c.ID, newest, recent, limit, c.ID)
+		}
 		data, digest, meta, err := charts.FetchChecked(ctx, c.Source, c.Chart, newest)
 		if err != nil {
 			return err

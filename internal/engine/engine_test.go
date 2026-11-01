@@ -2017,6 +2017,15 @@ func TestChartTrackingBoundsRemoteContent(t *testing.T) {
 		t.Errorf("a flood of images is left to a person: %d targets, %q", len(after), sum.ChartFailures["web"])
 	}
 
+	// A source releasing every cycle: at most three renders a day per profile are recorded.
+	for _, v := range []string{"1.2.0", "1.3.0", "1.4.0"} {
+		src.versions = []charts.Version{{Version: v}}
+		sum = h.monitor()
+	}
+	if hist, _ := h.store.ChartRenders(h.ctx, "web"); len(hist) != 4 || !strings.Contains(sum.ChartFailures["web"], "at most 3") {
+		t.Errorf("renders in a day are bounded: %d recorded, %q", len(hist), sum.ChartFailures["web"])
+	}
+
 	// A source that never answers is cut off, and the targets are still scanned.
 	src.hang = true
 	h.eng.ChartTimeout = 50 * time.Millisecond

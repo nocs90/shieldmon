@@ -244,6 +244,8 @@ func TestPublicRegistry(t *testing.T) {
 		"192.168.1.1": false, "[::1]:5000": false, "169.254.169.254": false, "100.64.0.1": false,
 		"registry": false, "kubernetes.default.svc": false, "harbor.svc.cluster.local": false,
 		"nexus.corp": false, "printer.local": false, "Registry.Internal:443": false,
+		"localhost.:5000": false, "metadata.google.internal.": false, "x.svc.cluster.local.": false,
+		"127.1:5000": false, "0x7f.1": false, "10.1": false, "ghcr.io.": true, "registry.xn--p1ai": true,
 	} {
 		if got := charts.PublicRegistry(host); got != want {
 			t.Errorf("PublicRegistry(%q) = %v, want %v", host, got, want)

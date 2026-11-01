@@ -70,6 +70,13 @@ func (s *Store) RecordChartRender(ctx context.Context, r ChartRender) (int64, er
 	return id, err
 }
 
+// CountChartRenders returns how many renders of chart were recorded after since.
+func (s *Store) CountChartRenders(ctx context.Context, chart string, since time.Time) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM chart_renders WHERE chart = ? AND rendered_at > ?`, chart, ts(since)).Scan(&n)
+	return n, err
+}
+
 // ChartRenders returns the renders of chart ("": of every chart), oldest first.
 func (s *Store) ChartRenders(ctx context.Context, chart string) ([]ChartRender, error) {
 	return s.chartRenders(ctx, `(? = '' OR chart = ?)`, chart, chart)

@@ -238,6 +238,10 @@ func (a *app) followCharts(warn io.Writer) {
 			ID: c.ID(), Chart: c.Chart, AddTargets: c.AddTargets, Platform: platform,
 			MaxNewTargets: c.MaxNewTargets, InternalRegistries: internal,
 		}
+		// Each chart's budget leaves every profile its helm.timeout, plus the source's time.
+		if t := time.Duration(len(c.RenderProfiles()))*a.cfg.Helm.Timeout.Duration + 5*time.Minute; t > a.engine.ChartTimeout {
+			a.engine.ChartTimeout = max(t, engine.DefaultChartTimeout)
+		}
 		src, err := a.chartSource(c)
 		if err == nil {
 			f.Source = src
