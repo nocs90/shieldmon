@@ -30,7 +30,7 @@ func TestInitAndEmptyQueries(t *testing.T) {
 	common := []string{"--config", cfg, "--data-dir", filepath.Join(dir, "data")}
 
 	out, errOut, code := run(t, append([]string{"init"}, common...)...)
-	if code != 0 || !strings.Contains(out, "schema v4") {
+	if code != 0 || !strings.Contains(out, "schema v6") {
 		t.Fatalf("init: code=%d out=%s err=%s", code, out, errOut)
 	}
 	// The written template must load cleanly.
@@ -40,11 +40,25 @@ func TestInitAndEmptyQueries(t *testing.T) {
 		{"health"},
 		{"report", "monthly", "--month", "2026-10"},
 		{"notify", "preview"},
+		{"report", "inventory", "-o", "csv"},
+		{"report", "inventory", "-o", "cyclonedx"},
+		{"components", "list"},
 	} {
 		out, errOut, code = run(t, append(args, common...)...)
 		if code != 0 {
 			t.Errorf("%v: code=%d out=%s err=%s", args, code, out, errOut)
 		}
+	}
+	if out, errOut, code := run(t, append([]string{"report", "inventory", "--month", "2026-10"}, common...)...); code != 0 || !strings.Contains(out, "## Inventory changes (2026-10-01 to 2026-10-31)") {
+		t.Errorf("inventory with the month's changes: code=%d out=%s err=%s", code, out, errOut)
+	}
+	if _, errOut, code := run(t, append([]string{"report", "inventory", "--month", "2026-10", "-o", "csv"}, common...)...); code == 0 || !strings.Contains(errOut, "-o md and -o json") {
+		t.Errorf("csv has no room for changes: %s", errOut)
+	}
+	// Scripts rely on the exit status: no image contains it.
+	_, errOut, code = run(t, append([]string{"components", "where", "xz-libs@5.6.0"}, common...)...)
+	if code != 1 || !strings.Contains(errOut, "no monitored image contains xz-libs@5.6.0") {
+		t.Errorf("components where without a match: code=%d err=%s", code, errOut)
 	}
 }
 
@@ -204,7 +218,7 @@ func TestTargetsAdd(t *testing.T) {
 	if !strings.Contains(out, "index.docker.io/library/alpine:3.20") {
 		t.Errorf("targets are stored normalized:\n%s", out)
 	}
-	if out, _, _ := run(t, append([]string{"targets", "add", "docker.io/library/alpine:3.20"}, common...)...); !strings.Contains(out, "added 0 target(s), 1 already monitored") {
+	if out, _, _ := run(t, append([]string{"targets", "add", "docker.io/library/alpine:3.20"}, common...)...); !strings.Contains(out, "added 0 target(s), 1 already targets") {
 		t.Errorf("the same image under another spelling is already a target:\n%s", out)
 	}
 
@@ -361,5 +375,67 @@ func TestNotifyCommands(t *testing.T) {
 	_, errOut, code = run(t, append([]string{"notify", "preview"}, common...)...)
 	if code == 0 || !strings.Contains(errOut, "looks like a credential") || strings.Contains(errOut, "ghp_") {
 		t.Errorf("an inline credential is refused without being repeated: code=%d err=%s", code, errOut)
+	}
+}
+
+func TestTargetsRetireAndRestore(t *testing.T) {
+	dir := t.TempDir()
+	common := []string{"--config", filepath.Join(dir, "config.yaml"), "--data-dir", filepath.Join(dir, "data")}
+	if _, errOut, code := run(t, append([]string{"init", "--sandbox", "none"}, common...)...); code != 0 {
+		t.Fatal(errOut)
+	}
+	if _, errOut, code := run(t, append([]string{"targets", "add", "alpine:3.20"}, common...)...); code != 0 {
+		t.Fatal(errOut)
+	}
+	retire := append([]string{"targets", "retire", "alpine:3.20", "--by", "ops"}, common...)
+	if _, errOut, code := run(t, retire...); code == 0 || !strings.Contains(errOut, "reason") {
+		t.Errorf("a retirement needs a reason: %s", errOut)
+	}
+	retire = append(retire, "--reason", "decommissioned in CHG-2041")
+	if out, errOut, code := run(t, retire...); code != 0 || !strings.Contains(out, "retired target #1 index.docker.io/library/alpine:3.20 (linux/amd64)") {
+		t.Fatalf("retire: code=%d out=%s err=%s", code, out, errOut)
+	}
+	if out, _, _ := run(t, append([]string{"targets", "list"}, common...)...); !strings.Contains(out, "retired 20") {
+		t.Errorf("targets list shows the retirement:\n%s", out)
+	}
+	if _, errOut, code := run(t, retire...); code == 0 || !strings.Contains(errOut, "already in that state") {
+		t.Errorf("retiring twice: %s", errOut)
+	}
+	if out, _, _ := run(t, append([]string{"targets", "add", "alpine:3.20"}, common...)...); !strings.Contains(out, "is retired target #1: 'shieldmon targets restore 1'") {
+		t.Errorf("adding a retired target points to restore:\n%s", out)
+	}
+	if out, errOut, code := run(t, append([]string{"targets", "restore", "#1", "--by", "ops", "--reason", "back in production"}, common...)...); code != 0 || !strings.Contains(out, "restored target #1") {
+		t.Fatalf("restore: code=%d out=%s err=%s", code, out, errOut)
+	}
+	if out, _, _ := run(t, append([]string{"targets", "list"}, common...)...); !strings.Contains(out, "monitored") {
+		t.Errorf("restored:\n%s", out)
+	}
+}
+
+func TestAuditDigestAndVerify(t *testing.T) {
+	dir := t.TempDir()
+	common := []string{"--config", filepath.Join(dir, "config.yaml"), "--data-dir", filepath.Join(dir, "data")}
+	if _, errOut, code := run(t, append([]string{"init", "--sandbox", "none"}, common...)...); code != 0 {
+		t.Fatal(errOut)
+	}
+	if _, errOut, code := run(t, append([]string{"targets", "add", "alpine:3.20"}, common...)...); code != 0 {
+		t.Fatal(errOut)
+	}
+	if _, errOut, code := run(t, append([]string{"targets", "retire", "1", "--by", "ops", "--reason", "decommissioned in CHG-1"}, common...)...); code != 0 {
+		t.Fatal(errOut)
+	}
+	digest := filepath.Join(dir, "digest.json")
+	if _, errOut, code := run(t, append([]string{"audit", "digest", "-o", digest}, common...)...); code != 0 {
+		t.Fatal(errOut)
+	}
+	out, errOut, code := run(t, append([]string{"audit", "verify", "--digest", digest}, common...)...)
+	if code != 0 || !strings.Contains(out, "digests checked: 1") || !strings.HasSuffix(out, "OK\n") {
+		t.Fatalf("verify: code=%d out=%s err=%s", code, out, errOut)
+	}
+	if err := os.WriteFile(digest, []byte(`{"format":"other","seq":1,"hash":"00"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, code := run(t, append([]string{"audit", "verify", "--digest", digest}, common...)...); code == 0 || !strings.Contains(errOut, "not a shieldmon-audit-digest/v1 document") {
+		t.Errorf("a malformed digest is refused: %s", errOut)
 	}
 }

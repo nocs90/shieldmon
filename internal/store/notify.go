@@ -23,9 +23,14 @@ const lineageCTE = `WITH RECURSIVE lineage (id, root) AS (
 // NotifyInput returns what notify.Collect computes events from (docs/adr/0015-
 // notifications.md): the active findings, with their lineage and remediation deadline under
 // policy p; the open health findings; the findings closed as fixed since since, with the
-// targets of the scans that gave the evidence. The caller sets the times.
-func (s *Store) NotifyInput(ctx context.Context, p lifecycle.Policy, since time.Time) (notify.Input, error) {
+// targets of the scans that gave the evidence. Active findings whose images are all retired at
+// now are left out (ADR 0017). The caller sets the times of the input.
+func (s *Store) NotifyInput(ctx context.Context, p lifecycle.Policy, since, now time.Time) (notify.Input, error) {
 	var in notify.Input
+	scope, err := s.LoadScope(ctx)
+	if err != nil {
+		return in, err
+	}
 	rows, err := s.db.QueryContext(ctx, lineageCTE+`SELECT `+findingCols+`, l.root FROM findings f JOIN lineage l ON l.id = f.id
 		WHERE f.state IN (?, ?, ?, ?) ORDER BY f.id`,
 		model.StateOpen, model.StateTriaged, model.StateInRemediation, model.StateReopened)
@@ -38,6 +43,9 @@ func (s *Store) NotifyInput(ctx context.Context, p lifecycle.Policy, since time.
 		f, err := scanFinding(withExtra{rows, []any{&root}})
 		if err != nil {
 			return in, err
+		}
+		if scope.Retired(f.Digest, now) {
+			continue
 		}
 		nf := notifyFinding(f, root)
 		nf.SLADue = p.SLADue(lifecycle.Subject{Severity: f.Severity, FirstDetected: f.FirstDetected})

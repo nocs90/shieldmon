@@ -20,7 +20,7 @@ These are not features; violating one is a bug.
 | I2 | A finding's key is **(digest, canonical PURL, canonical vulnerability ID)**. | `findings` UNIQUE constraint |
 | I3 | SBOMs are generated **once per (digest, generator)** and re-matched afterwards without pulling the image. | `engine.ensureSBOMs` |
 | I4 | A finding is closed **only by scan evidence** (absence in a *complete* scan) or by a **decision** with justification, author and (for risk acceptance) expiry. No click-to-close. | `lifecycle`, `store.Transition` |
-| I5 | Scan history and state changes are **append-only**. | SQLite triggers |
+| I5 | Scan history and state changes are **append-only**, and **tamper-evident**: hash-chained, verified on schedule, anchored by exported digests. | SQLite triggers, `audit_chain` (ADR 0018) |
 | I6 | Failures of the monitoring process itself are **findings** (self-health). | `health_findings` |
 | I7 | Image content, SBOMs, scanner output and registry responses are **hostile input**. | see [THREAT_MODEL.md](THREAT_MODEL.md) |
 
@@ -28,14 +28,14 @@ These are not features; violating one is a bug.
 
 | ID | Requirement | Status |
 |---|---|---|
-| F1 | Input: image ref (tag or digest). Always resolve to digest; multi-arch indexes resolve to the configured platform. | ✅ refs, image list files, registry repositories and paths with tag filters and latest-N (`targets add`, `targets add-repo`) · ⬜ Helm charts |
+| F1 | Input: image ref (tag or digest). Always resolve to digest; multi-arch indexes resolve to the configured platform. | ✅ refs, image list files, registry repositories and paths with tag filters and latest-N (`targets add`, `targets add-repo`); retirement of decommissioned images (`targets retire`/`restore`, ADR 0017) · ⬜ Helm charts |
 | F2 | Pluggable scanner adapters (Grype, Trivy) behind one interface and a plugin registry with a conformance kit; normalize; dedupe across scanners and aliases (CVE/GHSA/distro); record scanner name, version, DB version and DB age on every scan. | ✅ |
 | F3 | SBOM-first: generate once per digest (CycloneDX + SPDX), store, re-match on schedule without re-pulling. | ✅ (syft: CycloneDX + SPDX; trivy: CycloneDX) |
 | F4 | Storage: SQLite (CLI/single node) and PostgreSQL (server), same schema, versioned migrations, append-only history. | ✅ SQLite · ⬜ PostgreSQL |
 | F5 | Lifecycle state machine with evidence-based closure; VEX decisions; OpenVEX / CycloneDX VEX import/export. | ✅ state machine + decisions with policy deviations (ADR 0010); VEX statements scoped by digest/repository/PURL, OpenVEX and CycloneDX VEX import, OpenVEX export (ADR 0014) |
 | F6 | Prioritization: CVSS + EPSS + CISA KEV + fix availability; SLA profiles; aging and SLA-breach tracking. | 🟡 data captured; SLA profiles (`standard` default, configurable) enforced on risk acceptance; vendor fix state (won't fix); aging · ⬜ priority score, KEV feed |
 | F7 | Remediation proposals: fixed-in versions, base-image upgrade candidates, Copacetic patching, MR/PR drafts — never pushed without human approval. | 🟡 fixed-in versions · ⬜ rest |
-| F8 | Reporting: monthly lifecycle (opened, closed, MTTR, burndown, SLA breaches, accepted-risk aging) as JSON, CSV, Markdown/HTML, SARIF; remediation-plan and inventory exports for audits. | ✅ JSON/CSV/Markdown/HTML, remediation-plan export (CSV, spreadsheet CSV), SARIF 2.1.0 · ⬜ inventory export |
+| F8 | Reporting: monthly lifecycle (opened, closed, MTTR, burndown, SLA breaches, accepted-risk aging) as JSON, CSV, Markdown/HTML, SARIF; remediation-plan and inventory exports for audits. | ✅ JSON/CSV/Markdown/HTML, remediation-plan export (CSV, spreadsheet CSV), SARIF 2.1.0, image inventory with evidence gaps, component inventory and `components where` from stored SBOMs , retired images apart, inventory changes per period, aggregated CycloneDX 1.6 inventory BOM |
 | F9 | Notifications: pluggable (SMTP, webhook, Matrix, Mattermost, Slack, GitLab/GitHub issues), deduplicated, digest mode. | ✅ `Notifier` extension point, events after each monitor cycle (new critical/KEV, SLA due soon/breached, health opened, fixed), sent once per channel, digest mode, `notify_failed` health finding (ADR 0015); webhook (Standard Webhooks signatures), SMTP (TLS required), Slack, Mattermost, Matrix; GitHub and GitLab issues per target and vulnerability, closed on scan evidence |
 | F10 | Self-health as findings: scanner failures, stale DBs, missed schedules, auth failures, checksum mismatches. | ✅ |
 | F11 | Helm: ingest charts (HTTP, OCI, Artifact Hub), render, extract every image, flag operator-managed images, track neglected charts, upstream-contribution queue (human-approved). | ⬜ (OCI Helm charts are already *rejected* safely as non-images) |

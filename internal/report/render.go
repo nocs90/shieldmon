@@ -148,6 +148,7 @@ func renderMarkdown(w io.Writer, r Monthly) error {
 		{"MTTR mean / median (days)", fmt.Sprintf("%.1f / %.1f", s.MTTRMeanDays, s.MTTRMedianDays)},
 		{"Open past SLA", strconv.Itoa(s.SLABreaches)},
 		{"Open on CISA KEV", strconv.Itoa(s.KEVOpen)},
+		{"Retired with the image (not counted as open, not fixed)", strconv.Itoa(s.RetiredWithAsset)},
 	} {
 		fmt.Fprintf(b, "| %s | %s |\n", kv[0], kv[1])
 	}
@@ -227,6 +228,11 @@ func renderMarkdown(w io.Writer, r Monthly) error {
 			fmt.Fprintf(b, "| %s | %s | %s | %s | %s |\n", h.Check, mdEscape(h.Subject), h.Severity,
 				h.FirstSeen.Format(time.DateOnly), mdEscape(truncate(h.Detail, 160)))
 		}
+	}
+	b.WriteString("\n")
+	writeChangesMarkdown(b, r.InventoryChanges)
+	if d := r.AuditDigest; d.Seq > 0 {
+		fmt.Fprintf(b, "---\n\nAudit trail anchor: entry %d, `%s` (save it: `shieldmon audit verify --digest` proves the trail was not rewritten since).\n", d.Seq, d.Hash)
 	}
 	_, err := io.WriteString(w, b.String())
 	return err

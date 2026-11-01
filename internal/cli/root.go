@@ -84,7 +84,7 @@ when a later scan provides evidence.`,
 	)
 	for group, cmds := range map[string][]*cobra.Command{
 		"monitor": {a.scanCmd(), a.monitorCmd(), a.rematchCmd(), a.targetsCmd()},
-		"triage":  {a.findingsCmd(), a.vexCmd(), a.healthCmd(), a.reportCmd(), a.sbomCmd(), a.notifyCmd()},
+		"triage":  {a.findingsCmd(), a.vexCmd(), a.healthCmd(), a.reportCmd(), a.sbomCmd(), a.componentsCmd(), a.notifyCmd(), a.auditCmd()},
 		"setup":   {a.initCmd(), a.doctorCmd(), a.dbCmd(), a.pluginsCmd(), a.versionCmd()},
 	} {
 		for _, c := range cmds {
@@ -164,18 +164,19 @@ func (a *app) setup(cmd *cobra.Command) error {
 		return err
 	}
 	a.engine = &engine.Engine{
-		Store:           st,
-		Scanners:        set,
-		Sandboxed:       scanner.Confined(sandbox),
-		SandboxDegraded: scanner.SandboxDegraded(sandbox),
-		Fetcher:         engine.RegistryFetcher{Options: a.ociOptions()},
-		DataDir:         cfg.DataDir,
-		DBMaxAge:        cfg.Health.DBMaxAge.Duration,
-		MonitorInterval: cfg.Health.MonitorInterval.Duration,
-		Decisions:       policy,
-		Channels:        channels,
-		DueSoon:         time.Duration(cfg.Notifications.DueSoonDays) * 24 * time.Hour,
-		Log:             a.log,
+		Store:               st,
+		Scanners:            set,
+		Sandboxed:           scanner.Confined(sandbox),
+		SandboxDegraded:     scanner.SandboxDegraded(sandbox),
+		Fetcher:             engine.RegistryFetcher{Options: a.ociOptions()},
+		DataDir:             cfg.DataDir,
+		DBMaxAge:            cfg.Health.DBMaxAge.Duration,
+		MonitorInterval:     cfg.Health.MonitorInterval.Duration,
+		Decisions:           policy,
+		Channels:            channels,
+		DueSoon:             time.Duration(cfg.Notifications.DueSoonDays) * 24 * time.Hour,
+		AuditVerifyInterval: cfg.Health.AuditVerifyInterval.Duration,
+		Log:                 a.log,
 	}
 	return nil
 }

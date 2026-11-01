@@ -110,6 +110,7 @@ footer{margin-top:28px;color:var(--muted);font-size:12px}
       <span>Reopened <b>{{$s.Reopened}}</b></span><span>Withdrawn <b>{{$s.Withdrawn}}</b></span>
       <span>Risk accepted <b>{{$s.RiskAccepted}}</b></span><span>Not affected <b>{{$s.NotAffected}}</b></span>
       <span>Won't fix (open) <b>{{$s.WontFixOpen}}</b></span>
+      {{if $s.RetiredWithAsset}}<span>Retired with the image <b>{{$s.RetiredWithAsset}}</b></span>{{end}}
     </div>
   </div>
 </div>
@@ -186,7 +187,18 @@ footer{margin-top:28px;color:var(--muted);font-size:12px}
   {{else}}<p class="empty">No open health findings: every scheduled cycle ran with fresh vulnerability data.</p>{{end}}
 </section>
 
-<footer>Generated {{stamp .GeneratedAt}} by ShieldMon from the append-only audit trail. Findings are closed only by scan evidence; figures can be regenerated for any past period.</footer>
+<section class="card">
+  <h2>Inventory changes</h2>
+  {{with .InventoryChanges}}{{if .Empty}}<p class="empty">No image added, rebuilt, retired or restored in this period.</p>{{else}}<div class="tbl"><table>
+    <tr><th>Change</th><th>Image</th><th>When</th><th>Detail</th></tr>
+    {{range .Added}}<tr><td>Added</td><td class="mono">{{.Ref}} ({{.Platform}})</td><td>{{date .At}}</td><td></td></tr>{{end}}
+    {{range .Rebuilt}}<tr><td>Rebuilt</td><td class="mono">{{.Ref}} ({{.Platform}})</td><td>{{date .At}}</td><td class="mono">{{.From}} → {{.To}}{{with .Scan}} · {{.Kind}} scan {{.Status}}{{end}}</td></tr>{{end}}
+    {{range .Retired}}<tr><td>Retired</td><td class="mono">{{.Ref}} ({{.Platform}})</td><td>{{date .At}}</td><td class="muted">{{.Actor}}: {{.Reason}}</td></tr>{{end}}
+    {{range .Restored}}<tr><td>Restored</td><td class="mono">{{.Ref}} ({{.Platform}})</td><td>{{date .At}}</td><td class="muted">{{.Actor}}: {{.Reason}}</td></tr>{{end}}
+  </table></div>{{end}}{{end}}
+</section>
+
+<footer>Generated {{stamp .GeneratedAt}} by ShieldMon from the append-only audit trail. Findings are closed only by scan evidence; figures can be regenerated for any past period.{{with .AuditDigest}}{{if .Seq}} Audit trail anchor: entry {{.Seq}}, <span class="mono">{{.Hash}}</span>.{{end}}{{end}}</footer>
 </main>
 </body>
 </html>

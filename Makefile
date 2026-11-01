@@ -29,6 +29,11 @@ test-integration:
 	$(GO) test -tags integration -run 'TestRealScanners|TestHostile' -count=1 -timeout 30m ./internal/engine
 
 FUZZTIME ?= 20s
+# Minimizing each new interesting input takes up to 60s by default: with realistic seeds
+# (scanner output, SBOMs, VEX documents) that used the whole FUZZTIME, leaving almost no
+# executions. A bounded number of minimization runs keeps throughput (and still shrinks
+# crashers).
+FUZZMINIMIZE ?= 100x
 FUZZ_TARGETS := \
 	FuzzParseGrype:./internal/scanner \
 	FuzzParseTrivy:./internal/scanner \
@@ -36,14 +41,15 @@ FUZZ_TARGETS := \
 	FuzzCanonicalVulnID:./internal/normalize \
 	FuzzString:./internal/redact \
 	FuzzParseReference:./internal/oci \
-	FuzzParse:./internal/vex
+	FuzzParse:./internal/vex \
+	FuzzParseCycloneDX:./internal/sbom
 
 # Parsers of hostile input: run every fuzz target for FUZZTIME each.
 fuzz:
 	@for t in $(FUZZ_TARGETS); do \
 		name=$${t%%:*}; pkg=$${t#*:}; \
 		echo "fuzz $$name ($$pkg, $(FUZZTIME))"; \
-		$(GO) test -run '^$$' -fuzz "^$$name\$$" -fuzztime $(FUZZTIME) $$pkg || exit 1; \
+		$(GO) test -run '^$$' -fuzz "^$$name\$$" -fuzztime $(FUZZTIME) -fuzzminimizetime $(FUZZMINIMIZE) $$pkg || exit 1; \
 	done
 
 # Coverage gate: the floor only goes up (raise COVER_MIN as coverage grows).

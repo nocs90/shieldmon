@@ -3,10 +3,12 @@ package cli
 import (
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -20,6 +22,7 @@ import (
 	"github.com/nocs90/shieldmon/internal/lifecycle"
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/report"
+	"github.com/nocs90/shieldmon/internal/sbom"
 	"github.com/nocs90/shieldmon/internal/store"
 )
 
@@ -108,7 +111,7 @@ func printResults(w io.Writer, results []engine.Result, format string) error {
 
 func (a *app) targetsCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "targets", Short: "Manage monitoring targets"}
-	cmd.AddCommand(a.targetsAddCmd(), a.targetsAddRepoCmd())
+	cmd.AddCommand(a.targetsAddCmd(), a.targetsAddRepoCmd(), a.targetsRetireCmd(true), a.targetsRetireCmd(false))
 	cmd.AddCommand(&cobra.Command{
 		Use:   "list",
 		Short: "List monitoring targets",
@@ -122,9 +125,13 @@ func (a *app) targetsCmd() *cobra.Command {
 				return err
 			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-			fmt.Fprintln(tw, "ID\tREF\tPLATFORM\tDIGEST\tLAST RESOLVED")
+			fmt.Fprintln(tw, "ID\tREF\tPLATFORM\tDIGEST\tLAST RESOLVED\tSTATUS")
 			for _, t := range targets {
-				fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\n", t.ID, t.Ref, t.Platform, shortDigest(t.CurrentDigest), fmtTime(t.LastResolvedAt))
+				status := "monitored"
+				if !t.RetiredAt.IsZero() {
+					status = "retired " + t.RetiredAt.Format(time.DateOnly)
+				}
+				fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\n", t.ID, t.Ref, t.Platform, shortDigest(t.CurrentDigest), fmtTime(t.LastResolvedAt), status)
 			}
 			return tw.Flush()
 		},
@@ -548,20 +555,15 @@ func (a *app) reportCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			w := cmd.OutOrStdout()
-			if out != "" {
-				if err := os.MkdirAll(filepath.Dir(out), 0o750); err != nil {
-					return err
-				}
-				// Reports are an inventory of weaknesses: owner-only.
-				f, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-				if err != nil {
-					return err
-				}
-				defer f.Close()
-				w = f
+			w, closeOut, err := reportOutput(cmd, out)
+			if err != nil {
+				return err
 			}
-			return report.Render(w, r, format)
+			if err := report.Render(w, r, format); err != nil {
+				_ = closeOut()
+				return err
+			}
+			return closeOut()
 		},
 	}
 	monthly.Flags().StringVar(&month, "month", "", "month YYYY-MM (default: current month)")
@@ -571,8 +573,93 @@ func (a *app) reportCmd() *cobra.Command {
 	}
 	monthly.Flags().StringVarP(&format, "output", "o", "md", "format: "+strings.Join(names, ", ")+" ('shieldmon plugins' describes them)")
 	monthly.Flags().StringVar(&out, "out", "", "write to file instead of stdout")
-	cmd.AddCommand(monthly)
+	cmd.AddCommand(monthly, a.inventoryCmd())
 	return cmd
+}
+
+func (a *app) inventoryCmd() *cobra.Command {
+	var format, out, month string
+	cmd := &cobra.Command{
+		Use:   "inventory",
+		Short: "What is monitored: images, digests, SBOMs, last scan evidence and its gaps",
+		Long: `One row per monitored image (target): the digest it resolves to, its repository, since
+when it is monitored, how often it was rebuilt, the last scan (status, scanners, DB build
+dates), the stored SBOMs with their SHA-256, open findings by severity, and evidence gaps:
+unresolved, never scanned, last scan partial or failed, no complete scan within 1.5 x
+health.monitor_interval, a required SBOM generator missing.`,
+		Example: "  shieldmon report inventory\n  shieldmon report inventory -o csv --out reports/inventory.csv",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := a.setup(cmd); err != nil {
+				return err
+			}
+			var gens []string
+			for _, m := range a.engine.Scanners.Matchers {
+				if !slices.Contains(gens, m.Generator()) {
+					gens = append(gens, m.Generator())
+				}
+			}
+			slices.Sort(gens)
+			opts := report.InventoryOptions{
+				Now: time.Now().UTC(), StaleAfter: a.cfg.Health.MonitorInterval.Duration * 3 / 2, Generators: gens,
+				Tool: "shieldmon " + Version,
+			}
+			if f, ok := report.LookupInventoryFormat(format); ok && f.Components {
+				opts.ReadSBOM = func(b store.SBOM) ([]byte, error) { return a.engine.ReadSBOM(b, sbom.MaxBytes) }
+			}
+			if month != "" {
+				if format == "csv" {
+					return errors.New("--month: the changes of a month are in -o md and -o json (csv has one row per image)")
+				}
+				t, err := time.Parse("2006-01", month)
+				if err != nil {
+					return fmt.Errorf("--month: want YYYY-MM: %w", err)
+				}
+				p := report.MonthPeriod(t)
+				opts.Changes = &p
+			}
+			inv, err := report.BuildInventory(cmd.Context(), a.store, opts)
+			if err != nil {
+				return err
+			}
+			for _, p := range inv.Problems {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s (its components are left out)\n", printable(p))
+			}
+			w, closeOut, err := reportOutput(cmd, out)
+			if err != nil {
+				return err
+			}
+			if err := report.RenderInventory(w, inv, format); err != nil {
+				_ = closeOut()
+				return err
+			}
+			return closeOut()
+		},
+	}
+	var names []string
+	for _, f := range report.InventoryFormats() {
+		names = append(names, f.Name)
+	}
+	cmd.Flags().StringVarP(&format, "output", "o", "md", "format: "+strings.Join(names, ", "))
+	cmd.Flags().StringVar(&out, "out", "", "write to file instead of stdout")
+	cmd.Flags().StringVar(&month, "month", "", "also list the images added, rebuilt, retired and restored in month YYYY-MM")
+	return cmd
+}
+
+// reportOutput is stdout, or the file out: reports are an inventory of weaknesses, so the
+// file is owner-only. closeOut reports a failed write that only shows on close.
+func reportOutput(cmd *cobra.Command, out string) (w io.Writer, closeOut func() error, err error) {
+	if out == "" {
+		return cmd.OutOrStdout(), func() error { return nil }, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(out), 0o750); err != nil {
+		return nil, nil, err
+	}
+	f, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return nil, nil, err
+	}
+	return f, f.Close, nil
 }
 
 func (a *app) sbomCmd() *cobra.Command {

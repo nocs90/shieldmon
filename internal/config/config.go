@@ -86,6 +86,8 @@ type Config struct {
 	Health struct {
 		DBMaxAge        Duration `yaml:"db_max_age"`
 		MonitorInterval Duration `yaml:"monitor_interval"`
+		// AuditVerifyInterval is how often monitor verifies the audit chain (ADR 0018).
+		AuditVerifyInterval Duration `yaml:"audit_verify_interval"`
 	} `yaml:"health"`
 
 	SLA struct {
@@ -131,6 +133,7 @@ func Default() Config {
 	c.Limits.MinFreeDiskBytes = 2 << 30
 	c.Health.DBMaxAge = Duration{72 * time.Hour}
 	c.Health.MonitorInterval = Duration{24 * time.Hour}
+	c.Health.AuditVerifyInterval = Duration{24 * time.Hour}
 	c.SLA.Profile = "standard"
 	c.Decisions.VendorDependencyMaxDays = 30
 	c.Decisions.OperationalRequirementMaxDays = 365
@@ -185,6 +188,9 @@ func (c Config) Validate() error {
 	}
 	if err := c.validDecisions(); err != nil {
 		return err
+	}
+	if c.Health.AuditVerifyInterval.Duration < 0 {
+		return fmt.Errorf("health.audit_verify_interval must not be negative (0 disables)")
 	}
 	if c.Notifications.DueSoonDays < 0 {
 		return fmt.Errorf("notifications.due_soon_days must not be negative (0 disables sla_due_soon)")
@@ -332,6 +338,9 @@ limits:
 health:
   db_max_age: 72h        # older vulnerability DBs open a db_stale health finding
   monitor_interval: 24h  # a gap > 1.5x opens a monitor_missed health finding
+  # monitor verifies the tamper-evident audit chain this often (0 disables; failures open
+  # audit_chain_broken). Export digests too: 'shieldmon audit digest' (docs/processes/audit.md).
+  audit_verify_interval: 24h
 
 sla:
   # Remediation deadlines in days from first detection (docs/processes/remediation-policy.md).

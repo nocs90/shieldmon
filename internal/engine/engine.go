@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -42,6 +43,7 @@ const (
 	CheckSandboxDegraded = "scanner_sandbox_degraded"
 	CheckDBUpdate        = "db_update_failed"
 	CheckNotify          = "notify_failed"
+	CheckAuditChain      = "audit_chain_broken"
 	maxSBOMBytes         = 256 << 20
 	monitorMissedFactor  = 1.5
 )
@@ -87,8 +89,11 @@ type Engine struct {
 	Channels []notify.Channel
 	// DueSoon is how long before its remediation deadline a finding is due soon.
 	DueSoon time.Duration
-	Now     func() time.Time
-	Log     *slog.Logger
+	// AuditVerifyInterval is how often monitor verifies the audit chain (0 disables;
+	// docs/adr/0018-audit-chain.md).
+	AuditVerifyInterval time.Duration
+	Now                 func() time.Time
+	Log                 *slog.Logger
 }
 
 func (e *Engine) now() time.Time {
@@ -144,6 +149,9 @@ func (e *Engine) healthy(ctx context.Context, check, subject string) {
 // unchanged tag is therefore a cheap re-match: SBOM-first by construction.
 func (e *Engine) Scan(ctx context.Context, ref string, platform model.Platform) (Result, error) {
 	var res Result
+	if err := e.refuseRetired(ctx, ref, platform); err != nil {
+		return res, err
+	}
 	resolved, err := e.Fetcher.Resolve(ctx, ref, platform)
 	if err != nil {
 		subject := ref
@@ -577,6 +585,8 @@ func (e *Engine) Monitor(ctx context.Context) (MonitorSummary, error) {
 	if err != nil {
 		return sum, err
 	}
+	// Retired targets are not monitored (ADR 0017).
+	targets = slices.DeleteFunc(targets, func(t store.Target) bool { return !t.RetiredAt.IsZero() })
 	// Without targets nothing is matched, so the cycle needs no DB and no network.
 	if len(targets) > 0 {
 		if err := e.Preflight(ctx); err != nil {
@@ -611,6 +621,11 @@ func (e *Engine) Monitor(ctx context.Context) (MonitorSummary, error) {
 		sum.Status = "failed"
 	case errCount > 0:
 		sum.Status = "degraded"
+	}
+	if e.AuditVerifyInterval > 0 && ctx.Err() == nil {
+		if err := e.verifyAuditIfDue(ctx); err != nil {
+			return sum, err
+		}
 	}
 	if len(e.Channels) > 0 && ctx.Err() == nil {
 		// Findings created since the previous cycle began are new (none before the first).
@@ -711,9 +726,82 @@ func (e *Engine) PendingNotifications(ctx context.Context) (map[string][]notify.
 }
 
 func (e *Engine) notifyInput(ctx context.Context, since, now time.Time) (notify.Input, error) {
-	in, err := e.Store.NotifyInput(ctx, e.Decisions, since)
+	in, err := e.Store.NotifyInput(ctx, e.Decisions, since, now)
 	in.Now, in.Since, in.DueSoon = now, since, e.DueSoon
 	return in, err
+}
+
+// verifyAuditIfDue verifies the audit chain when the last verification is older than
+// AuditVerifyInterval: a chain nobody verifies proves nothing (ADR 0018).
+func (e *Engine) verifyAuditIfDue(ctx context.Context) error {
+	last, err := e.Store.LastAuditVerification(ctx)
+	if err != nil {
+		return err
+	}
+	if !last.IsZero() && e.now().Sub(last) < e.AuditVerifyInterval {
+		return nil
+	}
+	_, err = e.VerifyAudit(ctx, nil)
+	return err
+}
+
+// VerifyAudit verifies the audit chain against itself and the given digests, records the
+// verification, and keeps the audit_chain_broken health finding in step with the result.
+func (e *Engine) VerifyAudit(ctx context.Context, digests []store.AuditDigest) (store.AuditReport, error) {
+	r, err := e.Store.VerifyAudit(ctx, digests)
+	if err != nil {
+		return r, err
+	}
+	if err := e.Store.RecordAuditVerification(ctx, r, e.now()); err != nil {
+		return r, err
+	}
+	if r.OK() {
+		e.healthy(ctx, CheckAuditChain, "database")
+		return r, nil
+	}
+	first := r.Problems[0]
+	e.health(ctx, CheckAuditChain, "database", "critical", fmt.Errorf(
+		"%d problem(s) in the audit trail, first: %s at entry %d (%s %s); run 'shieldmon audit verify'",
+		r.Count, first.Kind, first.Seq, first.Table, first.Key))
+	return r, nil
+}
+
+// ErrRetiredTarget is returned when scanning a retired target: restore it first.
+var ErrRetiredTarget = errors.New("target is retired")
+
+// refuseRetired fails before any registry access when (ref, platform) is a retired target.
+func (e *Engine) refuseRetired(ctx context.Context, ref string, platform model.Platform) error {
+	r, err := oci.ParseReference(ref, false)
+	if err != nil {
+		return nil // Resolve reports the invalid reference
+	}
+	targets, err := e.Store.TargetsByRef(ctx, r.Name())
+	if err != nil {
+		return err
+	}
+	for _, t := range targets {
+		if t.Platform == platform.String() && !t.RetiredAt.IsZero() {
+			return fmt.Errorf("%w: %s (%s) since %s; 'shieldmon targets restore %d' to monitor it again",
+				ErrRetiredTarget, t.Ref, t.Platform, t.RetiredAt.Format(time.DateOnly), t.ID)
+		}
+	}
+	return nil
+}
+
+// RetireTarget stops monitoring a target (ADR 0017): recorded with actor and reason, findings
+// unchanged. Health findings about resolving its reference are resolved, since no cycle will
+// check them again.
+func (e *Engine) RetireTarget(ctx context.Context, t store.Target, actor, reason string) error {
+	if err := e.Store.RetireTarget(ctx, t.ID, actor, reason, e.now()); err != nil {
+		return err
+	}
+	e.healthy(ctx, CheckResolve, t.Ref)
+	return nil
+}
+
+// RestoreTarget monitors a retired target again; the next cycle resolves and rescans it.
+func (e *Engine) RestoreTarget(ctx context.Context, t store.Target, actor, reason string) error {
+	return e.Store.RestoreTarget(ctx, t.ID, actor, reason, e.now())
 }
 
 // ActorFromEnv returns a default human actor name for manual transitions.

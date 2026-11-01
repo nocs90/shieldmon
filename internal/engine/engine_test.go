@@ -3,11 +3,13 @@ package engine_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -151,8 +153,15 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
+	return newHarnessAt(t, ":memory:")
+}
+
+// newHarnessAt is newHarness with the database at path (a file, for tests that open it
+// again, as an attacker with the file would).
+func newHarnessAt(t *testing.T, path string) *harness {
+	t.Helper()
 	ctx := context.Background()
-	st, err := store.Open(ctx, ":memory:")
+	st, err := store.Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -403,6 +412,45 @@ func TestContinuousMonitoringLifecycle(t *testing.T) {
 	}
 	if f := h.finding("CVE-2024-6119", digestC); f.State != model.StateNotAffected {
 		t.Fatalf("state after the VEX statement = %s", f.State)
+	}
+
+	// Day 10: the image is decommissioned (ADR 0017). Monitoring stops, the busybox regression
+	// keeps its state but leaves the open numbers; restoring brings it back as it was.
+	h.advance(24 * time.Hour)
+	tgs, err := h.store.TargetsByRef(h.ctx, ref)
+	if err != nil || len(tgs) != 1 {
+		t.Fatal(tgs, err)
+	}
+	if err := h.eng.RetireTarget(h.ctx, tgs[0], "platform-team", "decommissioned in CHG-2041"); err != nil {
+		t.Fatal(err)
+	}
+	h.fetch.tags[ref] = digestA // the tag moves, but nobody looks any more
+	if sum, err := h.eng.Monitor(h.ctx); err != nil || len(sum.Results) != 0 || len(sum.Failures) != 0 || sum.Status != "ok" {
+		t.Fatalf("monitor must skip a retired target, not fail on it: %+v %v", sum, err)
+	}
+	if _, err := h.eng.Scan(h.ctx, ref, model.Platform{OS: "linux", Architecture: "amd64"}); !errors.Is(err, engine.ErrRetiredTarget) {
+		t.Fatalf("scanning a retired target: %v", err)
+	}
+	if tg, _ := h.store.GetTarget(h.ctx, tgs[0].ID); tg.CurrentDigest != digestC {
+		t.Fatalf("a retired target is not resolved: %s", tg.CurrentDigest)
+	}
+	if f := h.finding("CVE-2022-48174", digestC); f.State != model.StateReopened {
+		t.Fatalf("retirement must not change findings: %s", f.State)
+	}
+	rep, err = report.BuildMonthly(h.ctx, h.store, report.MonthPeriod(h.clock), "standard", sla, h.clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Summary.OpenAtEnd != 0 || rep.Summary.RetiredWithAsset != 1 || rep.Summary.Fixed != 2 ||
+		rep.Burndown[len(rep.Burndown)-1].Open != 0 || rep.Burndown[len(rep.Burndown)-2].Open != 1 {
+		t.Fatalf("retired with the image: out of the open numbers, not fixed: %+v %v", rep.Summary, rep.Burndown)
+	}
+	if err := h.eng.RestoreTarget(h.ctx, tgs[0], "platform-team", "back in production"); err != nil {
+		t.Fatal(err)
+	}
+	rep, err = report.BuildMonthly(h.ctx, h.store, report.MonthPeriod(h.clock), "standard", sla, h.clock)
+	if err != nil || rep.Summary.OpenAtEnd != 1 || rep.Summary.RetiredWithAsset != 0 {
+		t.Fatalf("a restored image's findings are open again: %+v %v", rep.Summary, err)
 	}
 }
 
@@ -877,5 +925,244 @@ func TestNotificationsAfterMonitor(t *testing.T) {
 		if e.Remaining != 0 || !slices.Equal(e.Finding.Targets, []string{ref + " (linux/amd64)"}) || e.Finding.State != "fixed" {
 			t.Errorf("fixed event %+v %+v", e, e.Finding)
 		}
+	}
+}
+
+// TestInventoryReflectsEvidence builds the inventory from real scans: a fully evidenced
+// image, one whose last scan was partial, one whose evidence went stale, a rebuild counted.
+func TestInventoryReflectsEvidence(t *testing.T) {
+	h := newHarness(t)
+	const app, api, old = "registry.test/app:prod", "registry.test/api:1", "registry.test/old:1"
+	h.image(app, digestA, vuln("zlib", "1.2.13-r0", "CVE-2023-45853", model.SeverityCritical))
+	h.image(old, digestC)
+	h.scan(app)
+	h.scan(old)
+
+	h.advance(3 * 24 * time.Hour)
+	h.image(app, digestB, vuln("zlib", "1.2.13-r0", "CVE-2023-45853", model.SeverityCritical))
+	h.scan(app)
+	h.image(api, digestC) // the same digest as old: one digest, two images
+	h.trivy.fail = true
+	h.scan(api)
+	h.trivy.fail = false
+
+	inv, err := report.BuildInventory(h.ctx, h.store, report.InventoryOptions{
+		Now: h.clock, StaleAfter: 36 * time.Hour, Generators: []string{"syft", "trivy"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byRef := map[string]report.Image{}
+	for _, img := range inv.Images {
+		byRef[img.Ref] = img
+	}
+	if a := byRef[app]; a.Digest != digestB || a.DigestChanges != 1 || len(a.Gaps) != 0 || a.Open["critical"] != 1 ||
+		len(a.SBOMs) != 2 || a.LastScan == nil || a.LastScan.Status != "complete" || len(a.LastScan.Tools) != 2 {
+		t.Errorf("app: %+v", a)
+	}
+	// api and old share digest C: its last scan (api's) was partial, and its last complete
+	// scan (old's, three days ago) is stale for both.
+	for _, ref := range []string{api, old} {
+		if got := strings.Join(byRef[ref].Gaps, ","); got != "last_scan_partial,stale_evidence" {
+			t.Errorf("%s gaps = %q", ref, got)
+		}
+	}
+	if inv.Summary.Targets != 3 || inv.Summary.Digests != 2 || inv.Summary.WithGaps != 2 || inv.Summary.Open["critical"] != 1 {
+		t.Errorf("summary %+v", inv.Summary)
+	}
+}
+
+// TestReadSBOMChecksIntegrity: a stored SBOM is read back only if it is the file the scan
+// recorded.
+func TestReadSBOMChecksIntegrity(t *testing.T) {
+	h := newHarness(t)
+	h.image(ref, digestA)
+	h.scan(ref)
+	list, err := h.store.SBOMs(h.ctx, digestA)
+	if err != nil || len(list) == 0 {
+		t.Fatal(list, err)
+	}
+	b := list[0]
+	if data, err := h.eng.ReadSBOM(b, 1<<20); err != nil || !strings.Contains(string(data), "CycloneDX") {
+		t.Fatalf("intact SBOM: %v", err)
+	}
+	if _, err := h.eng.ReadSBOM(b, 10); err == nil {
+		t.Error("the size limit applies")
+	}
+	path := filepath.Join(h.eng.DataDir, b.Path)
+	orig, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := bytes.Replace(orig, []byte("CycloneDX"), []byte("CycloneDY"), 1)
+	if err := os.WriteFile(path, tampered, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.eng.ReadSBOM(b, 1<<20); err == nil || !strings.Contains(err.Error(), "changed after the scan") {
+		t.Errorf("same size, other content: %v", err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc/hosts", path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.eng.ReadSBOM(b, 1<<20); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Errorf("symlink: %v", err)
+	}
+	b.Path = "../outside.json"
+	if _, err := h.eng.ReadSBOM(b, 1<<20); err == nil || !strings.Contains(err.Error(), "outside the data directory") {
+		t.Errorf("path outside: %v", err)
+	}
+}
+
+// TestRetiredImagesAreNotNotified: a decommissioned image's open findings raise no deadline
+// events (ADR 0017); restored, they do again.
+func TestRetiredImagesAreNotNotified(t *testing.T) {
+	h := newHarness(t)
+	sla, err := config.SLAProfile("standard", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.eng.Decisions = lifecycle.Policy{Profile: "standard", SLADays: sla}
+	h.eng.DueSoon = 7 * 24 * time.Hour
+	h.eng.Channels = []notify.Channel{{Name: "all", Kinds: notify.DefaultKinds, Sender: &recordingNotifier{}}}
+	h.image(ref, digestA, vuln("zlib", "1.2.13-r0", "CVE-2023-45853", model.SeverityHigh, "1.2.13-r1"))
+	h.scan(ref)
+	h.advance(40 * 24 * time.Hour) // past the 30-day deadline
+	tgs, _ := h.store.TargetsByRef(h.ctx, ref)
+	if err := h.eng.RetireTarget(h.ctx, tgs[0], "ops", "decommissioned in CHG-7"); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := h.eng.PendingNotifications(h.ctx)
+	if err != nil || len(pending["all"]) != 0 {
+		t.Fatalf("no deadline events for a retired image: %+v %v", pending, err)
+	}
+	if err := h.eng.RestoreTarget(h.ctx, tgs[0], "ops", "back in production"); err != nil {
+		t.Fatal(err)
+	}
+	pending, err = h.eng.PendingNotifications(h.ctx)
+	if err != nil || len(pending["all"]) != 1 || pending["all"][0].Kind != notify.SLABreached {
+		t.Fatalf("restored, the breach is news again: %+v %v", pending, err)
+	}
+}
+
+// TestInventoryChanges: images added, rebuilt (with the scan of the new digest), retired and
+// restored in a month, from append-only history: the same answer later.
+func TestInventoryChanges(t *testing.T) {
+	h := newHarness(t) // 2026-10-01
+	const api = "registry.test/api:1"
+	h.image(ref, digestA)
+	h.scan(ref)
+	h.advance(5 * 24 * time.Hour)
+	h.image(api, digestC)
+	h.scan(api)
+	h.advance(5 * 24 * time.Hour)
+	h.image(ref, digestB)
+	h.scan(ref)
+	h.advance(5 * 24 * time.Hour)
+	tgs, _ := h.store.TargetsByRef(h.ctx, api)
+	if err := h.eng.RetireTarget(h.ctx, tgs[0], "ops", "decommissioned in CHG-9"); err != nil {
+		t.Fatal(err)
+	}
+	october := report.MonthPeriod(h.clock)
+	before, err := report.BuildChanges(h.ctx, h.store, october)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before.Added) != 2 || len(before.Retired) != 1 || before.Retired[0].Actor != "ops" || len(before.Restored) != 0 {
+		t.Fatalf("october changes: %+v", before)
+	}
+	if len(before.Rebuilt) != 1 {
+		t.Fatalf("one rebuild: %+v", before.Rebuilt)
+	}
+	rb := before.Rebuilt[0]
+	if rb.From != digestA || rb.To != digestB || rb.Scan == nil || rb.Scan.Kind != "initial" || rb.Scan.Status != "complete" {
+		t.Errorf("rebuild with the scan of the new digest: %+v %+v", rb, rb.Scan)
+	}
+
+	// November: restored. October's changes do not move.
+	h.advance(20 * 24 * time.Hour)
+	if err := h.eng.RestoreTarget(h.ctx, tgs[0], "ops", "back in production"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := report.BuildChanges(h.ctx, h.store, october)
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Errorf("past changes are reproducible:\n before %+v\n after  %+v", before, after)
+	}
+	november, err := report.BuildChanges(h.ctx, h.store, report.MonthPeriod(h.clock))
+	if err != nil || len(november.Restored) != 1 || len(november.Added)+len(november.Rebuilt)+len(november.Retired) != 0 {
+		t.Errorf("november changes: %+v", november)
+	}
+	rep, err := report.BuildMonthly(h.ctx, h.store, october, "standard", nil, h.clock)
+	if err != nil || len(rep.InventoryChanges.Rebuilt) != 1 {
+		t.Fatalf("the monthly report carries the changes: %v", err)
+	}
+	var md bytes.Buffer
+	if err := report.Render(&md, rep, "md"); err != nil || !strings.Contains(md.String(), "## Inventory changes (2026-10-01 to 2026-10-31)") ||
+		!strings.Contains(md.String(), "decommissioned in CHG-9") {
+		t.Errorf("markdown section: %v\n%s", err, md.String())
+	}
+}
+
+// TestAuditChainIsVerifiedByMonitor covers docs/adr/0018-audit-chain.md: monitor verifies
+// the chain on schedule; a decision edited behind ShieldMon's back opens audit_chain_broken;
+// an exported digest survives normal operation.
+func TestAuditChainIsVerifiedByMonitor(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "shieldmon.db")
+	h := newHarnessAt(t, path)
+	h.eng.AuditVerifyInterval = 24 * time.Hour
+	h.image(ref, digestA, vuln("zlib", "1.2.13-r0", "CVE-2023-45853", model.SeverityCritical))
+	h.scan(ref)
+	f := h.finding("CVE-2023-45853", digestA)
+	if _, err := h.store.ApplyDecision(h.ctx, f.ID, lifecycleDecision(h.clock.AddDate(0, 0, 10)), lifecycle.Policy{}, h.clock); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.store.SealAudit(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	exported, err := h.store.AuditHead(h.ctx)
+	if err != nil || exported.Seq == 0 {
+		t.Fatal(exported, err)
+	}
+	if _, err := h.eng.Monitor(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if hf := h.health(engine.CheckAuditChain, "database"); hf != nil && hf.State == "open" {
+		t.Fatalf("an untouched trail verifies: %+v", hf)
+	}
+
+	// Someone with the database file rewrites the justification.
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(10000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, q := range []string{
+		`DROP TRIGGER decisions_no_update`,
+		`UPDATE decisions SET justification = 'accepted long ago, nothing to see here'`,
+	} {
+		if _, err := db.ExecContext(h.ctx, q); err != nil {
+			t.Fatal(q, err)
+		}
+	}
+	h.advance(time.Hour) // within the interval: not verified again yet
+	if _, err := h.eng.Monitor(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if hf := h.health(engine.CheckAuditChain, "database"); hf != nil && hf.State == "open" {
+		t.Fatal("verification follows audit_verify_interval")
+	}
+	h.advance(24 * time.Hour)
+	if _, err := h.eng.Monitor(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	hf := h.health(engine.CheckAuditChain, "database")
+	if hf == nil || hf.State != "open" || hf.Severity != "critical" || !strings.Contains(hf.Detail, "row_changed") {
+		t.Fatalf("tampering opens audit_chain_broken: %+v", hf)
+	}
+	r, err := h.eng.VerifyAudit(h.ctx, []store.AuditDigest{exported})
+	if err != nil || r.OK() || r.Digests != 1 {
+		t.Fatalf("verify: %+v %v", r, err)
 	}
 }
