@@ -31,6 +31,7 @@ var planHeader = []string{
 	"asset", "digest", "package", "installed_version", "purl", "detected", "age_days",
 	"sla_due", "sla_breached", "scheduled_completion", "milestones", "fix_available", "fixed_versions",
 	"deviation", "decision", "decision_author", "decision_justification", "decision_expires", "priority", "remedy", "owner",
+	"runtime",
 }
 
 // renderPlan writes the plan. excel adds a UTF-8 BOM and CRLF line endings, so that
@@ -75,7 +76,7 @@ func renderPlan(w io.Writer, r Monthly, excel bool) error {
 			dateOrEmpty(x.SLADue), strconv.FormatBool(x.SLABreached), dateOrEmpty(scheduledCompletion(x)), milestones(x),
 			fixAvailable(x), strings.Join(x.FixVersions, " "),
 			deviation(x), d.State, oneLine(d.Author), oneLine(d.Justification), dateOrEmpty(d.ExpiresAt),
-			strconv.Itoa(x.Priority), x.Remedy, oneLine(ownerCell(x, r)),
+			strconv.Itoa(x.Priority), x.Remedy, oneLine(ownerCell(x, r)), oneLine(runtimeCell(x, r)),
 		}
 		for i, v := range rec {
 			rec[i] = CSVSafe(v)

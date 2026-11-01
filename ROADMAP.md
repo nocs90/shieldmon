@@ -86,7 +86,7 @@ GitLab project pass; no long-lived credentials anywhere in config or CI.
 
 - Base-image upgrade candidates (same lineage, newer tag) with finding diff (as in Snyk).
 - Runtime context for prioritization: is the image running, is it exposed (as in
-  Wiz / Prisma), from a read-only cluster inventory.
+  Wiz / Prisma), from a read-only cluster inventory (ADR 0029).
 - Copacetic patch proposals for OS packages.
 - Helm: ingest charts (HTTP repo, OCI, Artifact Hub), render with values profiles,
   extract every image (containers, initContainers, ephemeral, hook Jobs), flag

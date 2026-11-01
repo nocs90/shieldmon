@@ -37,5 +37,6 @@ the same finding ranks higher under a stricter profile.
   and state are unchanged, the score only orders.
 - EPSS points depend on the EPSS value scanners report (grype today); an EPSS enricher would
   make it scanner-independent like KEV.
+- ADR 0029 adds runtime context (running: 5, and exposed: 10 more), under the same cap.
 - Changing a weight is a design change: a new ADR, and reports state nothing about past
   scores (they are recomputed).
