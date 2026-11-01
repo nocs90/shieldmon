@@ -26,7 +26,7 @@ Every gate runs in CI and can be run locally. Required checks on `main` are mark
 | ✱ Conventional PR title | — | pr-hygiene | title format |
 | ✱ DCO sign-off | `git log` | pr-hygiene | a commit lacks `Signed-off-by` |
 | Supply chain pinning | review | review | actions not pinned by SHA, scanners not pinned by checksum |
-| Dogfooding: ShieldMon's own image | — | ci/image (main, nightly, PRs labelled `run/integration`) | `shieldmon gate` with the built-in policy finds a CISA KEV or critical finding in the image just built (scanner binaries included), or cannot prove a pass; the Markdown report, inventory, gate output and SARIF are uploaded as `dogfood-report`. A finding that does not apply gets a reviewed VEX statement, never an ignore list ([ci-gate.md](ci-gate.md)) |
+| Dogfooding: ShieldMon's own image | — | ci/image (main, nightly, PRs labelled `run/integration`) | `shieldmon gate` with the built-in policy finds a CISA KEV or critical finding in the image just built (scanner binaries included), or cannot prove a pass; the Markdown report, inventory, gate output and SARIF are uploaded as `dogfood-report`. A finding that does not apply gets a reviewed VEX statement in `security/vex/shieldmon-image.openvex.json` (scoped to the exact package version, with an expiry), imported before the gate; never an ignore list ([ci-gate.md](ci-gate.md)) |
 | ✱ Scanner release signatures | `scripts/install-scanners.sh DIR` | every job that installs scanners (ci/integration, ci/image) | a release's checksums file is not signed by the pinned workflow identity, or does not list the pinned SHA-256 (ADR 0006) |
 
 ## Repository settings (maintainer checklist)

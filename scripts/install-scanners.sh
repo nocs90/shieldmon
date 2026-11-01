@@ -30,11 +30,11 @@ fi
 # platform|name|version|url|sha256
 PINS=(
   "linux/amd64|syft|1.55.0|https://github.com/anchore/syft/releases/download/v1.55.0/syft_1.55.0_linux_amd64.tar.gz|bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d"
-  "linux/amd64|grype|0.119.0|https://github.com/anchore/grype/releases/download/v0.119.0/grype_0.119.0_linux_amd64.tar.gz|3fa2dc4b924621ab65404cf08d0b8438d896d80ab949c9d5a4ca283c36004c9b"
-  "linux/amd64|trivy|0.74.0|https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.tar.gz|2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a"
+  "linux/amd64|grype|0.121.0|https://github.com/anchore/grype/releases/download/v0.121.0/grype_0.121.0_linux_amd64.tar.gz|64e07133d3486115de647a66581461dccf5c732748a0a3119077395565f15519"
+  "linux/amd64|trivy|0.76.1|https://github.com/aquasecurity/trivy/releases/download/v0.76.1/trivy_0.76.1_Linux-64bit.tar.gz|c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0"
   "linux/arm64|syft|1.55.0|https://github.com/anchore/syft/releases/download/v1.55.0/syft_1.55.0_linux_arm64.tar.gz|929bd163db2d7cd2255d3bcb8967208079813d7b46b0c952f7b794d8e2c7d304"
-  "linux/arm64|grype|0.119.0|https://github.com/anchore/grype/releases/download/v0.119.0/grype_0.119.0_linux_arm64.tar.gz|29f0ec7c549ddb0e2b6a0ca714851f7399438afc399b80c12808e065edc9a8f8"
-  "linux/arm64|trivy|0.74.0|https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-ARM64.tar.gz|b94ce1976bbf3c15b514b605ee88be7c6d94a29be2302847ff01cb794d47aad5"
+  "linux/arm64|grype|0.121.0|https://github.com/anchore/grype/releases/download/v0.121.0/grype_0.121.0_linux_arm64.tar.gz|86f570f75ca947ea3dd6486309232bcff6d78e44ba081ae75ab14eab72be3dae"
+  "linux/arm64|trivy|0.76.1|https://github.com/aquasecurity/trivy/releases/download/v0.76.1/trivy_0.76.1_Linux-ARM64.tar.gz|e174dff2a6dba5e3ae41f8d0537a6324405bd08132497340304c6b20e0f16a1f"
 )
 
 if [[ "$(printf '%s\n' "${PINS[@]}" | grep -c "^$PLATFORM|")" -ne 3 ]]; then
@@ -50,7 +50,7 @@ OIDC_ISSUER=https://token.actions.githubusercontent.com
 # name|certificate identity ({v}: the version)|signature material: bundle or sig+pem
 SIGNERS=(
   "syft|https://github.com/anchore/syft/.github/workflows/release.yaml@refs/heads/main|bundle"
-  "grype|https://github.com/anchore/grype/.github/workflows/release.yaml@refs/heads/main|sig+pem"
+  "grype|https://github.com/anchore/grype/.github/workflows/release.yaml@refs/heads/main|bundle"
   "trivy|https://github.com/aquasecurity/trivy/.github/workflows/reusable-release.yaml@refs/tags/v{v}|bundle"
 )
 # cosign itself, pinned like the scanners (it runs on this host, whatever PLATFORM is).

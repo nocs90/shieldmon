@@ -1,0 +1,32 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/nocs90/shieldmon/blob/main/security/vex/shieldmon-image.openvex.json",
+  "author": "ShieldMon maintainers",
+  "role": "Document Creator",
+  "timestamp": "2026-11-01T13:30:00Z",
+  "version": 1,
+  "statements": [
+    {
+      "vulnerability": { "name": "CVE-2026-56857" },
+      "products": [
+        { "@id": "pkg:oci/shieldmon?repository_url=ghcr.io/nocs90/shieldmon", "subcomponents": [ { "@id": "pkg:golang/stdlib@go1.26.8" } ] },
+        { "@id": "pkg:oci/shieldmon?repository_url=localhost:5000/shieldmon", "subcomponents": [ { "@id": "pkg:golang/stdlib@go1.26.8" } ] }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "os.Root on Windows junctions: the image ships linux/amd64 and linux/arm64 builds only (syft 1.55.0 and grype 0.121.0, built with go1.26.8), which do not contain the Windows code path.",
+      "status_notes": "Reviewed for v0.2.0; re-review when syft or grype ship with go >= 1.26.9.\nexpires: 2027-01-31T00:00:00Z"
+    },
+    {
+      "vulnerability": { "name": "CVE-2026-78663" },
+      "products": [
+        { "@id": "pkg:oci/shieldmon?repository_url=ghcr.io/nocs90/shieldmon", "subcomponents": [ { "@id": "pkg:golang/stdlib@go1.26.8" } ] },
+        { "@id": "pkg:oci/shieldmon?repository_url=localhost:5000/shieldmon", "subcomponents": [ { "@id": "pkg:golang/stdlib@go1.26.8" } ] }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "HTTP/2 server connection-level flow control: syft and grype (go1.26.8) run as command-line clients and start no HTTP server. ShieldMon itself, whose 'serve' command is an HTTP server, is built with go1.27.3 and is not covered by this statement.",
+      "status_notes": "Reviewed for v0.2.0; re-review when syft or grype ship with go >= 1.26.9.\nexpires: 2027-01-31T00:00:00Z"
+    }
+  ]
+}
