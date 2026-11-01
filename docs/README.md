@@ -21,8 +21,10 @@ not described, describe it (that is part of the change).
 | The monitoring cycle, step by step | [processes/monitoring-cycle.md](processes/monitoring-cycle.md) |
 | Triage, decisions and the finding lifecycle | [processes/triage-and-decisions.md](processes/triage-and-decisions.md) |
 | Remediation: how fixes are made and tracked (rebuilds, Renovate) | [processes/remediation.md](processes/remediation.md) |
+| Expressing your remediation policy (deadlines, decision limits) | [processes/remediation-policy.md](processes/remediation-policy.md) |
+| Notifications (webhook, e-mail, chat, issue trackers) | [processes/notifications.md](processes/notifications.md) |
 | Registries and credentials (Docker Hub, ECR, GCR/Artifact Registry, …) | [processes/registries.md](processes/registries.md) |
-| Monthly reporting (HTML, Markdown, CSV, JSON) | [processes/reporting.md](processes/reporting.md) |
+| Monthly reporting (HTML, Markdown, CSV, JSON, remediation plan, SARIF) | [processes/reporting.md](processes/reporting.md) |
 | Responding to health findings | [processes/health-findings.md](processes/health-findings.md) |
 | Running the container image | [README](../README.md#container-image), [adr/0012-container-image.md](adr/0012-container-image.md), [deploy/scratch](../deploy/scratch/README.md) |
 

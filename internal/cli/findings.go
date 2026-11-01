@@ -565,7 +565,11 @@ func (a *app) reportCmd() *cobra.Command {
 		},
 	}
 	monthly.Flags().StringVar(&month, "month", "", "month YYYY-MM (default: current month)")
-	monthly.Flags().StringVarP(&format, "output", "o", "md", "format: md, json, csv")
+	var names []string
+	for _, f := range report.Formats() {
+		names = append(names, f.Name)
+	}
+	monthly.Flags().StringVarP(&format, "output", "o", "md", "format: "+strings.Join(names, ", ")+" ('shieldmon plugins' describes them)")
 	monthly.Flags().StringVar(&out, "out", "", "write to file instead of stdout")
 	cmd.AddCommand(monthly)
 	return cmd

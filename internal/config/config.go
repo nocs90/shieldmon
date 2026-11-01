@@ -183,8 +183,8 @@ func (c Config) Validate() error {
 	if _, err := SLAProfile(c.SLA.Profile, c.SLA.Days); err != nil {
 		return err
 	}
-	if c.Decisions.VendorDependencyMaxDays <= 0 || c.Decisions.OperationalRequirementMaxDays <= 0 {
-		return fmt.Errorf("decisions: max days must be positive")
+	if err := c.validDecisions(); err != nil {
+		return err
 	}
 	if c.Notifications.DueSoonDays < 0 {
 		return fmt.Errorf("notifications.due_soon_days must not be negative (0 disables sla_due_soon)")
@@ -216,7 +216,52 @@ var slaProfiles = map[string]SLA{
 	"strict":   {model.SeverityCritical: 15, model.SeverityHigh: 30, model.SeverityMedium: 90, model.SeverityLow: 180},
 }
 
-// SLAProfile returns a named profile with per-severity overrides applied.
+// MaxPolicyDays bounds every deadline and decision limit: ten years is a typo, not a policy.
+const MaxPolicyDays = 3650
+
+// validDecisions checks the decision limits (docs/adr/0010-decision-policy.md): positive,
+// bounded, and a vendor dependency's review period no longer than the longest operational
+// requirement (it is the more frequently reviewed deviation).
+func (c Config) validDecisions() error {
+	v, o := c.Decisions.VendorDependencyMaxDays, c.Decisions.OperationalRequirementMaxDays
+	switch {
+	case v <= 0 || o <= 0:
+		return fmt.Errorf("decisions: max days must be positive")
+	case v > MaxPolicyDays || o > MaxPolicyDays:
+		return fmt.Errorf("decisions: max days must not exceed %d", MaxPolicyDays)
+	case v > o:
+		return fmt.Errorf("decisions: vendor_dependency_max_days (%d) is a review period and must not exceed operational_requirement_max_days (%d)", v, o)
+	}
+	return nil
+}
+
+// severityOrder lists the severities that can have a deadline, most severe first.
+var severityOrder = []model.Severity{model.SeverityCritical, model.SeverityHigh, model.SeverityMedium, model.SeverityLow, model.SeverityNegligible}
+
+// Validate rejects incoherent deadlines (docs/adr/0016-remediation-timeframes.md): each at
+// most MaxPolicyDays, and a more severe finding never gets more time than a less severe one,
+// nor none while a less severe one has a deadline.
+func (s SLA) Validate() error {
+	for _, sev := range severityOrder {
+		if d := s[sev]; d < 0 || d > MaxPolicyDays {
+			return fmt.Errorf("sla: %s deadline %d days: want 0 (none) to %d", sev, d, MaxPolicyDays)
+		}
+	}
+	for i, more := range severityOrder {
+		for _, less := range severityOrder[i+1:] {
+			dm, dl := s[more], s[less]
+			switch {
+			case dl > 0 && dm == 0:
+				return fmt.Errorf("sla: %s has no deadline while %s has %d days: a more severe finding cannot get more time", more, less, dl)
+			case dl > 0 && dm > dl:
+				return fmt.Errorf("sla: %s deadline (%d days) is longer than %s (%d days): a more severe finding cannot get more time", more, dm, less, dl)
+			}
+		}
+	}
+	return nil
+}
+
+// SLAProfile returns a named profile with per-severity overrides applied, validated.
 func SLAProfile(name string, overrides map[string]int) (SLA, error) {
 	base, ok := slaProfiles[name]
 	if !ok {
@@ -232,6 +277,9 @@ func SLAProfile(name string, overrides map[string]int) (SLA, error) {
 			return nil, fmt.Errorf("sla.days: invalid entry %s: %d", k, v)
 		}
 		out[sev] = v
+	}
+	if err := out.Validate(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -286,11 +334,12 @@ health:
   monitor_interval: 24h  # a gap > 1.5x opens a monitor_missed health finding
 
 sla:
-  # Remediation deadlines in days from first detection.
+  # Remediation deadlines in days from first detection (docs/processes/remediation-policy.md).
   #   standard: critical 30, high 30, medium 90, low 180
   #   strict:   critical 15, high 30, medium 90, low 180
+  # A more severe finding never gets more time than a less severe one; 0 is no deadline.
   profile: standard
-  # days: { critical: 30, high: 30, medium: 90, low: 180 }   # per-severity overrides
+  # days: { critical: 30, high: 30, medium: 90, low: 180, negligible: 0 }   # per-severity overrides
 
 decisions:
   # A plain risk acceptance never outlives the SLA deadline. Beyond it you need

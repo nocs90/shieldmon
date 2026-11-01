@@ -48,7 +48,7 @@ func init() {
 		enc.SetIndent("", "  ")
 		return enc.Encode(r)
 	}})
-	RegisterFormat(Format{Name: "csv", Description: "remediation-plan worksheet of open and risk-accepted findings", Render: renderCSV})
+	RegisterFormat(Format{Name: "csv", Description: "flat list of open and risk-accepted findings (see remediation-plan for the worksheet)", Render: renderCSV})
 	RegisterFormat(Format{Name: "md", Description: "human-readable Markdown report", Render: renderMarkdown})
 }
 
