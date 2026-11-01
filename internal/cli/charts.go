@@ -103,7 +103,7 @@ func (a *app) fetchChart(ctx context.Context, c config.Chart, version string) ([
 
 // chartRenderer renders charts with the configured helm, in the scanners' sandbox
 // (docs/adr/0033-chart-rendering.md).
-func (a *app) chartRenderer() (charts.Renderer, error) {
+func (a *app) chartRenderer(warn io.Writer) (charts.Renderer, error) {
 	h := a.cfg.Helm
 	bin, err := scanner.Binary{Name: "helm", Path: h.Path, SHA256: h.SHA256}.Resolve()
 	if err != nil {
@@ -117,6 +117,10 @@ func (a *app) chartRenderer() (charts.Renderer, error) {
 		return charts.Renderer{}, err
 	}
 	r.Timeout = h.Timeout.Duration
+	if !r.Confined() {
+		// The operator's choice (ADR 0011), as for scanners; say it where it happens.
+		fmt.Fprintln(warn, "warning: scanners.sandbox.backend is none: helm renders third-party templates unconfined")
+	}
 	return charts.Renderer{Helm: bin, Runner: r, StageDir: filepath.Join(r.TempDir, "charts")}, nil
 }
 
@@ -132,11 +136,14 @@ func chartProfiles(c config.Chart, only string) ([]charts.Profile, error) {
 			Name: p.Name, Release: p.Release, Namespace: p.Namespace,
 			KubeVersion: p.KubeVersion, APIVersions: p.APIVersions, SkipSchemaValidation: p.SkipSchemaValidation,
 		}
+		// The bounds apply while reading: Render checks them again.
+		left := int64(charts.MaxValuesBytes)
 		for _, f := range p.ValuesFiles {
-			data, err := readBounded(nil, f, charts.MaxValuesBytes)
+			data, err := readBounded(nil, f, left)
 			if err != nil {
-				return nil, fmt.Errorf("%s profile %s: %w", c.ID(), p.Name, err)
+				return nil, fmt.Errorf("%s profile %s: %w (values: at most %d bytes in all)", c.ID(), p.Name, err, charts.MaxValuesBytes)
 			}
+			left -= int64(len(data))
 			cp.Values = append(cp.Values, data)
 		}
 		if len(p.Values) > 0 {
@@ -167,13 +174,13 @@ type renderedProfile struct {
 }
 
 // renderChart downloads, checks and renders one version of c ("": the newest release) with
-// its profiles (only, when set).
-func (a *app) renderChart(ctx context.Context, c config.Chart, version, only string) (renderedChart, error) {
+// its profiles (only, when set); warnings go to warn.
+func (a *app) renderChart(ctx context.Context, warn io.Writer, c config.Chart, version, only string) (renderedChart, error) {
 	profiles, err := chartProfiles(c, only)
 	if err != nil {
 		return renderedChart{}, err
 	}
-	r, err := a.chartRenderer()
+	r, err := a.chartRenderer(warn)
 	if err != nil {
 		return renderedChart{}, err
 	}
@@ -197,6 +204,7 @@ func (a *app) renderChart(ctx context.Context, c config.Chart, version, only str
 // printing what the manifests cannot show.
 func chartImageRefs(cmd *cobra.Command, c config.Chart, rc renderedChart) ([]string, error) {
 	var refs []string
+	seen := map[string]bool{}
 	for _, p := range rc.Profiles {
 		label := fmt.Sprintf("chart %s %s (profile %s)", c.ID(), rc.Meta.Version, p.Name)
 		got, err := manifestRefs(cmd, label, p.Result)
@@ -204,7 +212,8 @@ func chartImageRefs(cmd *cobra.Command, c config.Chart, rc renderedChart) ([]str
 			return nil, err
 		}
 		for _, r := range got {
-			if !slices.Contains(refs, r) {
+			if !seen[r] {
+				seen[r] = true
 				refs = append(refs, r)
 			}
 		}
@@ -225,7 +234,7 @@ func (a *app) chartTargets(cmd *cobra.Command, id, version, profile string) ([]s
 	}
 	ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Minute)
 	defer cancel()
-	rc, err := a.renderChart(ctx, c, version, profile)
+	rc, err := a.renderChart(ctx, cmd.ErrOrStderr(), c, version, profile)
 	if err != nil {
 		return nil, err
 	}
@@ -364,6 +373,8 @@ type chartImagesJSON struct {
 func chartImagesOf(c config.Chart, rc renderedChart) chartImagesJSON {
 	out := chartImagesJSON{Chart: c.ID(), Version: rc.Meta.Version, Digest: rc.Digest, Images: []chartImage{}}
 	byRef := map[string]int{}
+	// A chart can render up to manifests.MaxObjects custom resources per profile.
+	opaque := map[manifests.Opaque]bool{}
 	for _, p := range rc.Profiles {
 		out.Profiles = append(out.Profiles, p.Name)
 		for _, img := range p.Result.Images {
@@ -383,7 +394,8 @@ func chartImagesOf(c config.Chart, rc renderedChart) chartImagesJSON {
 			}
 		}
 		for _, o := range p.Result.Opaque {
-			if !slices.Contains(out.Opaque, o) {
+			if !opaque[o] {
+				opaque[o] = true
 				out.Opaque = append(out.Opaque, o)
 			}
 		}
@@ -418,7 +430,7 @@ rendered manifests do not show (docs/processes/charts.md).`,
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Minute)
 			defer cancel()
-			rc, err := a.renderChart(ctx, c, version, profile)
+			rc, err := a.renderChart(ctx, cmd.ErrOrStderr(), c, version, profile)
 			if err != nil {
 				return err
 			}
@@ -437,11 +449,14 @@ rendered manifests do not show (docs/processes/charts.md).`,
 				if len(img.Where) > 1 {
 					where += fmt.Sprintf(" and %d more", len(img.Where)-1)
 				}
-				note := ""
+				var notes []string
 				if img.Hook {
-					note = "hooks only"
+					notes = append(notes, "hooks only")
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", printable(img.Ref), strings.Join(img.Profiles, ","), printable(where), note)
+				if _, err := oci.ParseReference(img.Ref, false); err != nil {
+					notes = append(notes, "not a valid reference")
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", printable(short(img.Ref, 200)), strings.Join(img.Profiles, ","), printable(short(where, 200)), strings.Join(notes, ", "))
 			}
 			if err := tw.Flush(); err != nil {
 				return err

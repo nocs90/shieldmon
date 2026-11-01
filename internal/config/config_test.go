@@ -92,3 +92,46 @@ func TestTemplateLoads(t *testing.T) {
 		t.Errorf("an incoherent policy fails at startup: %v", err)
 	}
 }
+
+func TestChartProfiles(t *testing.T) {
+	load := func(charts string) (Config, error) {
+		t.Helper()
+		p := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(p, []byte(strings.Replace(Template, "charts: []\n", charts, 1)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return Load(p, true)
+	}
+	long := strings.Repeat("a", 60)
+	c, err := load("charts:\n  - { name: my_chart.v2, chart: web, source: http }\n  - { name: " + long + ", chart: api, source: http }\n")
+	if err != nil {
+		t.Fatalf("chart names a release name cannot be: %v", err)
+	}
+	for i, want := range []string{"my-chart-v2", strings.Repeat("a", 53)} {
+		ps := c.Charts[i].RenderProfiles()
+		if len(ps) != 1 || ps[0].Name != "default" || ps[0].Release != want || ps[0].Namespace != "default" {
+			t.Errorf("default profile of %s: %+v", c.Charts[i].ID(), ps)
+		}
+	}
+	for conf, want := range map[string]string{
+		"charts:\n  - { chart: web, source: http, profiles: [{ name: a }, { name: a }] }\n":                      "listed twice",
+		"charts:\n  - { chart: web, source: http, profiles: [{ name: A }] }\n":                                   "lowercase",
+		"charts:\n  - { chart: web, source: http, profiles: [{ name: a, release: --debug }] }\n":                 "release",
+		"charts:\n  - { chart: web, source: http, profiles: [{ name: a, namespace: Prod }] }\n":                  "namespace",
+		"charts:\n  - { chart: web, source: http, profiles: [{ name: a, kube_version: latest }] }\n":             "kube_version",
+		"charts:\n  - { chart: web, source: http, profiles: [{ name: a, values_files: [\"-\"] }] }\n":            "file paths",
+		"charts:\n  - { chart: web, source: http, profiles: [{ name: a, values_files: [" + many(40) + "] }] }\n": "values_files",
+	} {
+		if _, err := load(conf); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: got %v, want an error about %s", conf, err, want)
+		}
+	}
+}
+
+func many(n int) string {
+	files := make([]string, n)
+	for i := range files {
+		files[i] = "/etc/v.yaml"
+	}
+	return strings.Join(files, ", ")
+}

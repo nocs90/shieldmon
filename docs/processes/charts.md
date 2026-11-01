@@ -54,7 +54,9 @@ charts:
         api_versions: [monitoring.coreos.com/v1]
 ```
 
-- `release` defaults to the chart's name in ShieldMon, `namespace` to `default`.
+- `release` defaults to the chart's name in ShieldMon (`.` and `_` as `-`, at most 53
+  characters), `namespace` to `default`. Templates set namespaces themselves, usually from the
+  release's: objects of a chart that does not are listed in `default`.
 - `values_files` apply in order, then `values`; later ones win, as with `helm -f`. Keep the
   files where you keep the deployment's values (the same review), readable by ShieldMon.
 - `kube_version` and `api_versions` are what templates see as `.Capabilities`: nothing talks

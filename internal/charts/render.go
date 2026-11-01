@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/nocs90/shieldmon/internal/manifests"
 	"github.com/nocs90/shieldmon/internal/scanner"
@@ -82,7 +84,8 @@ func (p Profile) Check() error {
 // Renderer renders chart archives with a pinned helm (`helm template`), confined like the
 // scanners: no network, no files but the archive and the values, a private scratch directory
 // as its home, bounded time and output (docs/adr/0033-chart-rendering.md). Templates of a
-// third-party chart are code: they run nowhere else.
+// third-party chart are code: they run nowhere else. Render never passes --enable-dns,
+// --post-renderer, --dependency-update or --validate.
 type Renderer struct {
 	// Helm is the helm executable, resolved and checksum-verified.
 	Helm string
@@ -116,9 +119,15 @@ func (r Renderer) Render(ctx context.Context, archive []byte, chart, version str
 	if err := p.Check(); err != nil {
 		return manifests.Result{}, fmt.Errorf("profile %s: %w", p.Name, err)
 	}
+	// helm reads --values as a comma-separated list (CSV): a path with a comma or a quote
+	// would name other files.
+	if strings.ContainsAny(r.StageDir, ",\"\n\r") {
+		return manifests.Result{}, fmt.Errorf("charts: staging directory %q: helm cannot take a path with a comma or a quote", r.StageDir)
+	}
 	if err := os.MkdirAll(r.StageDir, 0o700); err != nil {
 		return manifests.Result{}, err
 	}
+	sweepStale(r.StageDir, time.Now().Add(-staleStage))
 	dir, err := os.MkdirTemp(r.StageDir, "chart-")
 	if err != nil {
 		return manifests.Result{}, err
@@ -148,7 +157,7 @@ func (r Renderer) Render(ctx context.Context, archive []byte, chart, version str
 	args = append(args, "--", p.Release, path)
 
 	run := r.Runner
-	run.CacheDir = ""
+	run.CacheDir, run.ScratchHome = "", true
 	run.MaxOutput = manifests.MaxBytes
 	run.ExtraEnv = append(slices.Clone(run.ExtraEnv), helmEnv...)
 	ctx = scanner.WithPolicy(ctx, scanner.Policy{ReadOnly: []string{dir}})
@@ -161,4 +170,24 @@ func (r Renderer) Render(ctx context.Context, archive []byte, chart, version str
 		return manifests.Result{}, fmt.Errorf("rendered %s %s (profile %s): %w", chart, version, p.Name, err)
 	}
 	return res, nil
+}
+
+// staleStage is how old a staging directory must be to be left over from a render that
+// never cleaned up (killed): renders take minutes at most.
+const staleStage = 24 * time.Hour
+
+// sweepStale removes staging directories older than before: they may hold values.
+func sweepStale(stage string, before time.Time) {
+	entries, err := os.ReadDir(stage)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), "chart-") {
+			continue
+		}
+		if fi, err := e.Info(); err == nil && fi.ModTime().Before(before) {
+			_ = os.RemoveAll(filepath.Join(stage, e.Name()))
+		}
+	}
 }

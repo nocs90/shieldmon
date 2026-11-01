@@ -75,8 +75,9 @@ HELM_PINS=(
   "linux/amd64|0403a88ae20913d11b10a2467b50087721fea7581736da6b9d3992f5357fe54b"
   "linux/arm64|8cf8f66ecbc252ac8f7f06cca68aba88508ddfde3a6a34feb1678ad1694b4f88"
 )
-HELM_KEYS_URL=https://raw.githubusercontent.com/helm/helm/e74a4c6c6c2469f6dabab54879d3f53a9ed8bbf3/KEYS
-HELM_KEYS_SHA256=5de12e8dca75f8a72d1ad4e9a05a6f9de0356ee520bf0bd703bd2d37a536e85b
+# Helm's KEYS file (public keys) at a pinned commit, and its SHA-256.
+HELM_PUBRING_URL=https://raw.githubusercontent.com/helm/helm/e74a4c6c6c2469f6dabab54879d3f53a9ed8bbf3/KEYS
+HELM_PUBRING_SHA256=5de12e8dca75f8a72d1ad4e9a05a6f9de0356ee520bf0bd703bd2d37a536e85b
 # Primary key fingerprint of the Helm maintainer who signed the pinned release (Scott Rigby).
 HELM_SIGNER=208DD36ED5BB3745A16743A4C7C6FBB5B91C1155
 
@@ -165,18 +166,27 @@ if [[ "${HELM:-1}" != 0 ]]; then
   fetch "$tmp/helm.tar.gz" "https://get.helm.sh/$asset"
   [[ "$(sha256 "$tmp/helm.tar.gz")" == "$hsha" ]] || { echo "checksum mismatch for helm $HELM_VERSION" >&2; exit 1; }
   fetch "$tmp/helm.tar.gz.asc" "https://github.com/helm/helm/releases/download/v$HELM_VERSION/$asset.asc"
-  fetch "$tmp/KEYS" "$HELM_KEYS_URL"
-  [[ "$(sha256 "$tmp/KEYS")" == "$HELM_KEYS_SHA256" ]] || { echo "install-scanners: helm KEYS file changed (checksum mismatch)" >&2; exit 1; }
+  fetch "$tmp/KEYS" "$HELM_PUBRING_URL"
+  [[ "$(sha256 "$tmp/KEYS")" == "$HELM_PUBRING_SHA256" ]] || { echo "install-scanners: helm KEYS file changed (checksum mismatch)" >&2; exit 1; }
   # A keyring of its own: nothing the user trusts, and nothing left behind.
   gnupg="$tmp/gnupg"
   mkdir -m 0700 "$gnupg"
   gpg --homedir "$gnupg" --batch --quiet --no-autostart --import "$tmp/KEYS" 2>/dev/null \
     || { echo "install-scanners: cannot import helm's KEYS" >&2; exit 1; }
-  # VALIDSIG <signing key> ... <primary key>: a good signature, by a key whose primary is the
-  # pinned one. A good signature by any other key in KEYS is refused.
-  status="$(gpg --homedir "$gnupg" --batch --no-autostart --status-fd 1 --verify "$tmp/helm.tar.gz.asc" "$tmp/helm.tar.gz" 2>/dev/null)" || true
+  # gpg must succeed and report a good signature (GOODSIG) and VALIDSIG <signing key> ...
+  # <primary key> with the pinned primary key; any bad, unverifiable, expired or revoked
+  # signature or key fails, and so does a good signature by any other key in KEYS. A detached
+  # signature writes no signed data to stdout, and status fields are escaped.
+  helm_sig() { echo "install-scanners: signature of helm $HELM_VERSION not verified for key $HELM_SIGNER: $1" >&2; exit 1; }
+  status="$(gpg --homedir "$gnupg" --batch --no-autostart --status-fd 1 --verify "$tmp/helm.tar.gz.asc" "$tmp/helm.tar.gz" 2>/dev/null)" \
+    || helm_sig "gpg failed"
+  # Statuses about a signature, not about other keys of KEYS (which the trustdb check reports).
+  if grep -qE '^\[GNUPG:\] (BADSIG|ERRSIG|REVKEYSIG|EXPKEYSIG|EXPSIG|NO_PUBKEY) ' <<<"$status"; then
+    helm_sig "$(grep -oE '^\[GNUPG:\] [A-Z_]+' <<<"$status" | tr '\n' ' ')"
+  fi
+  grep -qE '^\[GNUPG:\] GOODSIG ' <<<"$status" || helm_sig "no good signature"
   awk '$1 == "[GNUPG:]" && $2 == "VALIDSIG" { print $NF }' <<<"$status" | grep -qxF "$HELM_SIGNER" \
-    || { echo "install-scanners: signature of helm $HELM_VERSION not verified for key $HELM_SIGNER" >&2; exit 1; }
+    || helm_sig "not signed by the pinned key"
   tar -xzf "$tmp/helm.tar.gz" -C "$tmp" "$hdir/helm"
   mv "$tmp/$hdir/helm" "$tmp/helm"
   if [[ -n "${LICENSES:-}" ]]; then

@@ -472,10 +472,15 @@ func doctorBinary(w io.Writer, name, path, pinned, pinKey string) bool {
 		fmt.Fprintf(w, "✗ %-6s %v\n", name, err)
 		return false
 	}
-	sum, _ := scanner.FileSHA256(path)
+	sum, err := scanner.FileSHA256(path)
+	if err != nil {
+		fmt.Fprintf(w, "✗ %-6s %v\n", name, err)
+		return false
+	}
 	pin, ok := "not pinned (set "+pinKey+")", true
 	if pinned != "" {
-		if pinned == sum {
+		// As Binary.Resolve compares.
+		if strings.EqualFold(pinned, sum) {
 			pin = "pin OK"
 		} else {
 			pin, ok = "PIN MISMATCH", false

@@ -164,6 +164,9 @@ func TestChartsImages(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("images: %d %s", code, errOut)
 	}
+	if !strings.Contains(errOut, "unconfined") {
+		t.Errorf("rendering without a sandbox is not said: %s", errOut)
+	}
 	for _, want := range []string{"web 1.2.0", "profiles prod, mirror: 3 image(s)", "ghcr.io/org/prod:1", "mirror.example.com/org/web:2", "Deployment shop/v1"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("images: no %q in\n%s", want, out)

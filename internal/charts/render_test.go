@@ -42,6 +42,13 @@ func fakeHelm(mode string, args []string) error {
 		if !strings.HasPrefix(a, "--") || !strings.Contains(a, "=") && a != "--skip-schema-validation" {
 			return fmt.Errorf("flag %q is not --name=value", a)
 		}
+		name, _, _ := strings.Cut(a, "=")
+		if slices.Contains([]string{"--enable-dns", "--post-renderer", "--dependency-update", "--validate"}, name) {
+			return fmt.Errorf("flag %s must never reach helm", a)
+		}
+	}
+	if home := os.Getenv("HOME"); home == "" || home != os.Getenv("TMPDIR") {
+		return fmt.Errorf("HOME %q is not the scratch directory %q", home, os.Getenv("TMPDIR"))
 	}
 	release, chart := args[sep+1], args[sep+2]
 	if _, err := os.Stat(chart); err != nil {
@@ -126,6 +133,27 @@ func TestRenderImages(t *testing.T) {
 	if entries, err := os.ReadDir(stage); err != nil || len(entries) != 0 {
 		t.Errorf("staging directory left behind: %v %v", entries, err)
 	}
+
+	// A render killed before cleaning up leaves its values behind: the next one removes them.
+	stale, fresh := filepath.Join(stage, "chart-stale"), filepath.Join(stage, "chart-fresh")
+	for _, d := range []string{stale, fresh} {
+		if err := os.Mkdir(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Render(context.Background(), chartstest.Archive(t, "web", "1.2.3"), "web", "1.2.3", profile()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("stale staging directory kept: %v", err)
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Errorf("a recent staging directory (another render) was removed: %v", err)
+	}
 }
 
 func TestRenderRefusesWhatItShouldNotRun(t *testing.T) {
@@ -150,6 +178,7 @@ func TestRenderRefusesWhatItShouldNotRun(t *testing.T) {
 		"no sandbox":         {r: charts.Renderer{Helm: r.Helm, StageDir: r.StageDir, Runner: scanner.Runner{TempDir: r.Runner.TempDir}}, want: "sandbox"},
 		"no scratch":         {r: charts.Renderer{Helm: r.Helm, StageDir: r.StageDir, Runner: scanner.Runner{Sandbox: r.Runner.Sandbox}}, want: "scratch"},
 		"no staging":         {r: charts.Renderer{Helm: r.Helm, Runner: r.Runner}, want: "staging"},
+		"comma in staging":   {r: charts.Renderer{Helm: r.Helm, Runner: r.Runner, StageDir: r.StageDir + ",x"}, want: "comma"},
 		"no helm configured": {r: charts.Renderer{StageDir: r.StageDir, Runner: r.Runner}, want: "helm"},
 	} {
 		t.Run(name, func(t *testing.T) {

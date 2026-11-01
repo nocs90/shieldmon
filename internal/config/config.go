@@ -235,6 +235,18 @@ type ChartProfile struct {
 	SkipSchemaValidation bool           `yaml:"skip_schema_validation,omitempty"`
 }
 
+// defaultRelease makes a chart's name in ShieldMon a Helm release name: '.' and '_' become
+// '-', at most 53 characters, ending in a letter or digit (names start with one).
+func defaultRelease(id string) string {
+	r := []byte(id)
+	for i, b := range r {
+		if b == '.' || b == '_' {
+			r[i] = '-'
+		}
+	}
+	return strings.TrimRight(string(r[:min(len(r), 53)]), "-")
+}
+
 // RenderProfiles returns the chart's profiles with their defaults applied.
 func (c Chart) RenderProfiles() []ChartProfile {
 	ps := c.Profiles
@@ -244,7 +256,7 @@ func (c Chart) RenderProfiles() []ChartProfile {
 	out := make([]ChartProfile, len(ps))
 	for i, p := range ps {
 		if p.Release == "" {
-			p.Release = c.ID()
+			p.Release = defaultRelease(c.ID())
 		}
 		if p.Namespace == "" {
 			p.Namespace = "default"
@@ -392,6 +404,8 @@ func (c Config) Validate() error {
 				return fmt.Errorf("charts[%d]: profile %q is listed twice", i, p.Name)
 			case slices.Contains(p.ValuesFiles, "") || slices.Contains(p.ValuesFiles, "-"):
 				return fmt.Errorf("charts[%d].profiles[%d]: values_files entries are file paths", i, j)
+			case len(p.ValuesFiles) >= charts.MaxValuesFiles:
+				return fmt.Errorf("charts[%d].profiles[%d]: at most %d values_files", i, j, charts.MaxValuesFiles-1)
 			}
 			profiles[p.Name] = true
 			// Values files are read when the chart renders; the rest is checked now.
