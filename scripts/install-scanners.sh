@@ -10,6 +10,8 @@
 #   DEST_DIR  default ./bin/scanners
 #   PLATFORM  linux/amd64 or linux/arm64; default: this host. Give it to install for another
 #             architecture: the container image build downloads for its target platform.
+#   LICENSES  (environment) a directory to also install each scanner's LICENSE into, as
+#             LICENSES/<scanner>/LICENSE: images that redistribute the binaries must carry it.
 # Pins come from each release's checksums file; when bumping, check that the file also
 # lists the hashes already recorded here for the previous version's other platform.
 set -euo pipefail
@@ -129,6 +131,10 @@ for pin in "${PINS[@]}"; do
   fetch "$archive" "$url"
   [[ "$(sha256 "$archive")" == "$sha" ]] || { echo "checksum mismatch for $name $version" >&2; exit 1; }
   tar -xzf "$archive" -C "$tmp" "$name"
+  if [[ -n "${LICENSES:-}" ]]; then
+    mkdir -p "$tmp/licenses/$name"
+    tar -xzf "$archive" -C "$tmp/licenses/$name" LICENSE
+  fi
   verified+=("$name|$version")
 done
 
@@ -136,5 +142,9 @@ done
 for v in "${verified[@]}"; do
   IFS='|' read -r name version <<<"$v"
   install -m 0755 "$tmp/$name" "$DEST/$name"
+  if [[ -n "${LICENSES:-}" ]]; then
+    mkdir -p "$LICENSES/$name"
+    install -m 0644 "$tmp/licenses/$name/LICENSE" "$LICENSES/$name/LICENSE"
+  fi
   echo "installed $name $version ($PLATFORM) -> $DEST/$name (signature verified, sha256 $(sha256 "$DEST/$name"))"
 done

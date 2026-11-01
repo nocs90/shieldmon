@@ -5,10 +5,14 @@ The backlog behind this roadmap (epics and tasks, with acceptance criteria) is i
 **ShieldMon Roadmap** Project by `scripts/github/bootstrap.py`
 (see [docs/processes/issue-management.md](docs/processes/issue-management.md)).
 
+**v0.2.0** (the first public release) contains M1–M5, M3's inputs and providers, and from
+M7 the base-image lineage, runtime context and images of rendered manifests
+([CHANGELOG.md](CHANGELOG.md)). Server mode (M6) and the OSV-Scanner matcher are next.
+
 Each milestone ends with an executable definition of done. A milestone is closed when its
 checks pass in CI and an independent review of the diff (fresh context) finds no blocker.
 
-## M1 — Core ConMon loop ✅ (this version)
+## M1 — Core ConMon loop ✅
 
 Digest identity, SBOM-first pipeline, syft/grype/trivy adapters, normalization and
 dedupe, SQLite with append-only audit, evidence-based lifecycle, decisions with expiry,
