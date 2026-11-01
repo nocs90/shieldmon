@@ -636,7 +636,56 @@ func (a *app) reportCmd() *cobra.Command {
 	}
 	monthly.Flags().StringVarP(&format, "output", "o", "md", "format: "+strings.Join(names, ", ")+" ('shieldmon plugins' describes them)")
 	monthly.Flags().StringVar(&out, "out", "", "write to file instead of stdout")
-	cmd.AddCommand(monthly, a.inventoryCmd())
+	cmd.AddCommand(monthly, a.inventoryCmd(), a.basesReportCmd())
+	return cmd
+}
+
+// basesReportCmd is 'report bases': per target, the base action and the open findings it
+// would replace (docs/processes/base-images.md).
+func (a *app) basesReportCmd() *cobra.Command {
+	var format, out string
+	cmd := &cobra.Command{
+		Use:   "bases",
+		Short: "Base image proposals: rebuild or migrate, with the findings it would replace",
+		Long: `For each monitored target with a known base: rebuild on the newest digest of its base
+tag, migrate to the configured successor of an unmaintained base, or nothing to do; with
+its open findings split by remedy (what a rebuild replaces, what the newest base still
+has, what is the application's). Nothing is changed or pushed.`,
+		Example: "  shieldmon report bases\n  shieldmon report bases -o json --out reports/bases.json",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if format != "md" && format != "json" {
+				return fmt.Errorf("--output %q: want md or json", format)
+			}
+			if err := a.setup(cmd); err != nil {
+				return err
+			}
+			now := time.Now().UTC()
+			sla, err := config.SLAProfile(a.cfg.SLA.Profile, a.cfg.SLA.Days)
+			if err != nil {
+				return err
+			}
+			r, err := report.BuildMonthly(cmd.Context(), a.store, report.MonthPeriod(now), a.cfg.SLA.Profile, sla, now)
+			if err != nil {
+				return err
+			}
+			read := func(b store.SBOM) ([]byte, error) { return a.engine.ReadSBOM(b, sbom.MaxBytes) }
+			if err := report.AddBaseLineage(cmd.Context(), a.store, &r, a.engine.Bases, read); err != nil {
+				return err
+			}
+			w, closeOut, err := reportOutput(cmd, out)
+			if err != nil {
+				return err
+			}
+			if err := report.RenderBaseProposals(w, report.BaseProposals(r), now, format); err != nil {
+				_ = closeOut()
+				return err
+			}
+			return closeOut()
+		},
+	}
+	cmd.Flags().StringVarP(&format, "output", "o", "md", "format: md, json")
+	cmd.Flags().StringVar(&out, "out", "", "write to file instead of stdout")
 	return cmd
 }
 

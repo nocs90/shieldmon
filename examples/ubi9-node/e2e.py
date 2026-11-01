@@ -198,22 +198,22 @@ def main():
         # 3. Triage and decisions under the remediation policy (standard SLA profile).
         step("Triage and decisions (SLA profile standard: critical/high 30 d, medium 90 d, low 180 d)")
         for f in lodash + minimist:
-            sc("findings", "triage", f["ID"], "--note", "bump npm dependency in the next release", "--actor", "dev-team")
+            sc("findings", "triage", f["id"], "--note", "bump npm dependency in the next release", "--actor", "dev-team")
         late = (dt.date.today() + dt.timedelta(days=400)).isoformat()
         if lodash:
-            r = sc("findings", "accept-risk", lodash[0]["ID"], "--author", "secops", "--expires", late,
+            r = sc("findings", "accept-risk", lodash[0]["id"], "--author", "secops", "--expires", late,
                    "--justification", "input never reaches lodash.template", ok=False)
             check(r.returncode != 0, "plain risk acceptance beyond the SLA deadline is refused")
             print("    " + (r.stderr.strip().splitlines() or [""])[-1])
-            r = sc("findings", "accept-risk", lodash[0]["ID"], "--deviation", "vendor-dependency", "--author", "secops",
+            r = sc("findings", "accept-risk", lodash[0]["id"], "--deviation", "vendor-dependency", "--author", "secops",
                    "--justification", "waiting for upstream", ok=False)
             check(r.returncode != 0, "vendor dependency is refused when a fix exists (lodash 4.17.21)")
-        wontfix = [f for f in rpm if f["fix_state"] == "wont_fix" and f["State"] == "open"]
+        wontfix = [f for f in rpm if f["fix_state"] == "wont_fix" and f["state"] == "open"]
         print(f"  RPM findings marked won't fix by the vendor: {len(wontfix)}")
         accepted = None
         if wontfix:
             accepted = sorted(wontfix, key=lambda f: -f["cvss_score"])[0]
-            r = sc("findings", "accept-risk", accepted["ID"], "--deviation", "vendor-dependency", "--author", "secops",
+            r = sc("findings", "accept-risk", accepted["id"], "--deviation", "vendor-dependency", "--author", "secops",
                    "--justification", f"Red Hat will not fix {accepted['vuln_id']} in UBI 9; reviewed monthly (vendor dependency)")
             print("    " + r.stdout.strip())
             check("vendor_dependency" in r.stdout, "won't-fix finding accepted as a vendor dependency (30-day review)")
@@ -230,18 +230,18 @@ def main():
         print(f"  digest changed {mon.get('previous_digest', '')[:19]} → {v2[:19]}; transitions {mon.get('transitions')}")
         check(mon["digest_changed"], "new digest detected for the same tag")
         check(mon.get("transitions", {}).get("fixed", 0) > 0, "findings closed as fixed with the new scan as evidence")
-        after = {f["ID"]: f for f in findings(sc)}
+        after = {f["id"]: f for f in findings(sc)}
         for f in lodash + minimist:
-            check(after[f["ID"]]["State"] == "fixed", f"{f['pkg_name']} {f['vuln_id']} → fixed (dependency bumped)")
+            check(after[f["id"]]["state"] == "fixed", f"{f['pkg_name']} {f['vuln_id']} → fixed (dependency bumped)")
         if accepted:
-            succ = [f for f in after.values() if f.get("PredecessorID") == accepted["ID"]]
+            succ = [f for f in after.values() if f.get("predecessor_id") == accepted["id"]]
             if succ:
-                check(succ[0]["State"] in ("risk_accepted", "reopened"),
-                      f"vendor-dependency decision followed {accepted['vuln_id']} to the new digest ({succ[0]['State']})")
+                check(succ[0]["state"] in ("risk_accepted", "reopened"),
+                      f"vendor-dependency decision followed {accepted['vuln_id']} to the new digest ({succ[0]['state']})")
             else:
-                check(after[accepted["ID"]]["State"] == "fixed", f"{accepted['vuln_id']} no longer present after the rebuild")
+                check(after[accepted["id"]]["state"] == "fixed", f"{accepted['vuln_id']} no longer present after the rebuild")
         def open_on(digest):
-            return [f for f in findings(sc, digest) if f["State"] in ("open", "reopened", "triaged", "in_remediation")]
+            return [f for f in findings(sc, digest) if f["state"] in ("open", "reopened", "triaged", "in_remediation")]
 
         def fixable(fs):
             return [f for f in fs if f["fix_state"] == "fixed"]

@@ -18,6 +18,7 @@ not described, describe it (that is part of the change).
 
 | Process | Document |
 |---|---|
+| Deployment: systemd timer, Kubernetes CronJob | [processes/deployment.md](processes/deployment.md) |
 | The monitoring cycle, step by step | [processes/monitoring-cycle.md](processes/monitoring-cycle.md) |
 | Triage, decisions and the finding lifecycle | [processes/triage-and-decisions.md](processes/triage-and-decisions.md) |
 | Remediation: how fixes are made and tracked (rebuilds, Renovate) | [processes/remediation.md](processes/remediation.md) |
@@ -26,6 +27,7 @@ not described, describe it (that is part of the change).
 | CI gate: pass, warn or fail an image on policy | [processes/ci-gate.md](processes/ci-gate.md) |
 | Base images: rebuild available, unmaintained bases | [processes/base-images.md](processes/base-images.md) |
 | Ownership: teams, their findings and their channels | [processes/ownership.md](processes/ownership.md) |
+| Exports to Dependency-Track and DefectDojo | [processes/exports.md](processes/exports.md) |
 | Notifications (webhook, e-mail, chat, issue trackers) | [processes/notifications.md](processes/notifications.md) |
 | Registries and credentials (Docker Hub, ECR, GCR/Artifact Registry, …) | [processes/registries.md](processes/registries.md) |
 | Monthly reporting (HTML, Markdown, CSV, JSON, remediation plan, SARIF) | [processes/reporting.md](processes/reporting.md) |

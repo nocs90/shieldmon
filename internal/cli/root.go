@@ -21,6 +21,7 @@ import (
 	"github.com/nocs90/shieldmon/internal/config"
 	"github.com/nocs90/shieldmon/internal/engine"
 	"github.com/nocs90/shieldmon/internal/enrich"
+	"github.com/nocs90/shieldmon/internal/export"
 	"github.com/nocs90/shieldmon/internal/lineage"
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/notify"
@@ -35,13 +36,15 @@ import (
 var Version = "dev"
 
 type app struct {
-	cfgPath  string
-	dataDir  string
-	logLevel string
+	cfgPath   string
+	dataDir   string
+	logLevel  string
+	logFormat string
 
 	cfg        config.Config
 	owners     owners.Ownership
 	registries *oci.Registries
+	exports    []export.Instance
 	store      *store.Store
 	engine     *engine.Engine
 	log        *slog.Logger
@@ -85,6 +88,7 @@ when a later scan provides evidence.`,
 	root.PersistentFlags().StringVar(&a.cfgPath, "config", "", "config file (default "+config.DefaultPath()+")")
 	root.PersistentFlags().StringVar(&a.dataDir, "data-dir", "", "data directory (overrides config)")
 	root.PersistentFlags().StringVar(&a.logLevel, "log-level", "warn", "log level: debug, info, warn, error")
+	root.PersistentFlags().StringVar(&a.logFormat, "log-format", "text", "log format: text, json (one object per line, for log pipelines)")
 
 	root.AddGroup(
 		&cobra.Group{ID: "monitor", Title: "Monitoring:"},
@@ -93,7 +97,7 @@ when a later scan provides evidence.`,
 	)
 	for group, cmds := range map[string][]*cobra.Command{
 		"monitor": {a.scanCmd(), a.gateCmd(), a.monitorCmd(), a.rematchCmd(), a.targetsCmd()},
-		"triage":  {a.findingsCmd(), a.vexCmd(), a.healthCmd(), a.reportCmd(), a.sbomCmd(), a.componentsCmd(), a.notifyCmd(), a.auditCmd()},
+		"triage":  {a.findingsCmd(), a.vexCmd(), a.healthCmd(), a.reportCmd(), a.sbomCmd(), a.componentsCmd(), a.notifyCmd(), a.exportCmd(), a.auditCmd()},
 		"setup":   {a.initCmd(), a.doctorCmd(), a.dbCmd(), a.pluginsCmd(), a.versionCmd()},
 	} {
 		for _, c := range cmds {
@@ -139,11 +143,9 @@ func (a *app) setup(cmd *cobra.Command) error {
 		return err
 	}
 
-	var lvl slog.Level
-	if err := lvl.UnmarshalText([]byte(a.logLevel)); err != nil {
-		return fmt.Errorf("--log-level: %w", err)
+	if a.log, err = newLogger(cmd.ErrOrStderr(), a.logFormat, a.logLevel); err != nil {
+		return err
 	}
-	a.log = slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: lvl}))
 
 	// tmp holds scanner scratch space and, in the container image (TMPDIR=<data_dir>/tmp), the
 	// only temporary files a read-only root filesystem allows.
@@ -186,6 +188,13 @@ func (a *app) setup(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
+	exps := make([]export.Config, 0, len(cfg.Exports))
+	for _, x := range cfg.Exports {
+		exps = append(exps, export.Config{Name: x.Name, Exporter: x.Exporter, Options: x.Options})
+	}
+	if a.exports, err = export.New(exps, export.Spec{}); err != nil {
+		return err
+	}
 	enrichCfg := map[string]enrich.Config{}
 	for name, c := range cfg.Enrichers {
 		maxAge := c.MaxAge.Duration
@@ -220,6 +229,7 @@ func (a *app) setup(cmd *cobra.Command) error {
 		Enrichers:           enrichers,
 		Bases:               lineage.Policy{MaxAge: cfg.Bases.MaxAge.Duration, Successors: successors},
 		Owners:              own,
+		Concurrency:         cfg.Scanners.Concurrency,
 		Log:                 a.log,
 	}
 	return nil
@@ -234,6 +244,8 @@ func (a *app) ociOptions() oci.Options {
 			MaxConfigBytes: oci.DefaultLimits.MaxConfigBytes,
 		},
 		UserAgent: "shieldmon/" + Version,
+		// Per registry host (docs/adr/0026-concurrent-monitoring.md).
+		Transport: oci.RegistryRateLimit(l.RegistryRPS),
 	}
 }
 
@@ -543,6 +555,7 @@ becomes a monitoring target that 'shieldmon monitor' re-evaluates.`,
 
 func (a *app) monitorCmd() *cobra.Command {
 	var format string
+	var concurrency int
 	cmd := &cobra.Command{
 		Use:   "monitor",
 		Short: "Run one continuous-monitoring cycle over all targets (for cron/systemd/CronJob)",
@@ -550,6 +563,12 @@ func (a *app) monitorCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := a.setup(cmd); err != nil {
 				return err
+			}
+			switch {
+			case concurrency < 0 || concurrency > 64:
+				return fmt.Errorf("--concurrency %d: want 1 to 64 (0: scanners.concurrency)", concurrency)
+			case concurrency > 0:
+				a.engine.Concurrency = concurrency
 			}
 			unlock, err := a.lock()
 			if err != nil {
@@ -600,6 +619,7 @@ func (a *app) monitorCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&format, "output", "o", "text", "output format: text, json")
+	cmd.Flags().IntVar(&concurrency, "concurrency", 0, "targets scanned at once, 1 to 64 (0: scanners.concurrency; ADR 0026)")
 	return cmd
 }
 
@@ -717,6 +737,10 @@ func (a *app) pluginsCmd() *cobra.Command {
 					opts = " (options: " + strings.Join(n.Options, ", ") + ")"
 				}
 				fmt.Fprintf(w, "  %-14s %s%s\n", n.Name, n.Description, opts)
+			}
+			fmt.Fprintln(w, "Exporters:")
+			for _, x := range export.Plugins() {
+				fmt.Fprintf(w, "  %-16s %s (options: %s)\n", x.Name, x.Description, strings.Join(x.Options, ", "))
 			}
 			fmt.Fprintln(w, "Enrichers:")
 			for _, p := range enrich.Plugins() {

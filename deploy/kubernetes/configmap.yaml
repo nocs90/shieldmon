@@ -1,0 +1,27 @@
+# ShieldMon configuration and the images to monitor (docs/processes/deployment.md).
+# config.yaml holds no credential: registry credentials come from the pod's identity (IRSA,
+# Workload Identity) or a mounted docker config, never from this file.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shieldmon
+  labels:
+    app.kubernetes.io/name: shieldmon
+data:
+  config.yaml: |
+    # Keys left out keep their defaults ('shieldmon init' writes them all, commented).
+    scanners:
+      matchers: [grype, trivy]
+      timeout: 30m
+      sandbox:
+        backend: auto          # landlock in the image: needs Linux >= 5.19 on the node
+    health:
+      db_max_age: 72h
+      monitor_interval: 24h    # the CronJob's schedule: a longer gap opens monitor_missed
+    sla:
+      profile: standard
+  # One reference per line, '#' for comments; added (never removed) before each cycle.
+  # Retire a decommissioned image with 'shieldmon targets retire' (docs/processes/inventory.md).
+  targets.txt: |
+    # registry.example.com/payments/api:prod
+    # docker.io/library/alpine:3.20

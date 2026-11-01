@@ -1,0 +1,12 @@
+# kubectl apply -k deploy/kubernetes -n shieldmon   (docs/processes/deployment.md)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - serviceaccount.yaml
+  - configmap.yaml
+  - pvc.yaml
+  - cronjob.yaml
+# images:
+#   - name: registry.example.com/shieldmon
+#     newName: registry.example.com/security/shieldmon
+#     digest: sha256:…

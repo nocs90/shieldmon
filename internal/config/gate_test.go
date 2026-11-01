@@ -85,6 +85,20 @@ func TestGatePolicyBounded(t *testing.T) {
 	}
 }
 
+func TestConcurrencyAndRateLimitValidated(t *testing.T) {
+	for _, c := range []struct {
+		concurrency int
+		rps         float64
+		ok          bool
+	}{{1, 10, true}, {8, 0, true}, {0, 10, false}, {65, 10, false}, {1, -1, false}} {
+		cfg := Default()
+		cfg.Scanners.Concurrency, cfg.Limits.RegistryRPS = c.concurrency, c.rps
+		if err := cfg.Validate(); (err == nil) != c.ok {
+			t.Errorf("concurrency %d, rps %v: %v", c.concurrency, c.rps, err)
+		}
+	}
+}
+
 func TestConfigGateValidated(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(p, []byte("gate:\n  exit_codes: { fail: 0 }\n"), 0o600); err != nil {

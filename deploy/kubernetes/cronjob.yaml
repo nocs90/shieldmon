@@ -1,0 +1,82 @@
+# One monitoring cycle a day (docs/processes/deployment.md). The image is ShieldMon's own
+# (ADR 0012): distroless, non-root 65532, scanners sandboxed with Landlock; it never runs the
+# images it scans.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: shieldmon-monitor
+  labels:
+    app.kubernetes.io/name: shieldmon
+spec:
+  schedule: "17 3 * * *"
+  timeZone: Etc/UTC
+  # One cycle at a time: the data dir is locked, a second pod would only fail.
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # A failed cycle is not retried at once: the next one runs on schedule, and ShieldMon's
+      # health findings (monitor_missed, *_failed) say what went wrong.
+      backoffLimit: 0
+      activeDeadlineSeconds: 21600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: shieldmon
+        spec:
+          serviceAccountName: shieldmon
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            fsGroup: 65532
+            fsGroupChangePolicy: OnRootMismatch
+            # Docker's and containerd's default profiles allow the landlock_* system calls.
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            # Declarative targets: every reference of targets.txt is added if missing.
+            - name: targets
+              image: registry.example.com/shieldmon:dev # pin by digest: @sha256:…
+              args: ["targets", "add", "-f", "/config/shieldmon/targets.txt"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - { name: data, mountPath: /data }
+                - { name: config, mountPath: /config/shieldmon, readOnly: true }
+          containers:
+            - name: monitor
+              image: registry.example.com/shieldmon:dev # pin by digest: @sha256:…
+              args: ["monitor", "--log-format", "json", "--log-level", "info"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - { name: data, mountPath: /data }
+                - { name: config, mountPath: /config/shieldmon, readOnly: true }
+              resources:
+                requests: { cpu: 500m, memory: 2Gi }
+                limits: { memory: 6Gi }   # the scanners' vulnerability DBs live in memory while matching
+              # For one scan at a time (scanners.concurrency: 1). With N, raise the memory limit
+              # and the claim about N times (docs/processes/monitoring-cycle.md).
+              # Credentials for notifications come from a Secret, by the variable names the
+              # configuration gives (*_env options):
+              # env:
+              #   - name: SHIELDMON_WEBHOOK_SECRET
+              #     valueFrom: { secretKeyRef: { name: shieldmon-notify, key: webhook-secret } }
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: shieldmon-data
+            - name: config
+              configMap:
+                name: shieldmon

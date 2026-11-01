@@ -110,6 +110,29 @@ sandbox, SHA-256), when the base tag moves; the base is never matched and has no
 "Rebuild" is an expectation: a newer version can still be vulnerable, and only the scan of the
 rebuilt image closes the finding.
 
+## Proposals: what to rebuild, what to move
+
+```sh
+shieldmon report bases                # Markdown; -o json for tools, --out FILE
+```
+
+One row per monitored target with a known base, most useful first:
+
+| Action | When | Then |
+|---|---|---|
+| `rebuild` on the newest base digest | the image is built on an older digest of its base tag | `migrate to <successor>` or `find base` when that base is unmaintained: a rebuild still replaces packages now |
+| `migrate` to the successor | the base is unmaintained and a successor is configured | |
+| `find base` | the base is unmaintained, no successor configured | |
+| `verify base` | the base shares no layers with the image (`targets set-base` may be wrong) | |
+| `up to date` | on the newest, maintained base: what remains is in the base vendor's or the application's hands | |
+
+with the target's open findings split by remedy: those the rebuild replaces, those the newest
+base still has, the application's. Nothing is changed or pushed: rebuilding is the image's own
+pipeline (Renovate, Dependabot), and the next monitoring cycle proves the result.
+
+Seen on `python:3.12-alpine3.20` over `alpine:3.20` (end of life April 2026): `rebuild` replaces
+55 of 123 open findings, then `find base`; 68 are the application's (python, pip, sqlite).
+
 ## Monthly report and notifications
 
 - The monthly report (section "Base images", a Base column in HTML, `bases` and

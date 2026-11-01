@@ -23,7 +23,8 @@ RUN apt-get update -q \
  && apt-get install -y -q --no-install-recommends bash ca-certificates curl \
  && rm -rf /var/lib/apt/lists/*
 COPY scripts/install-scanners.sh /install-scanners.sh
-# Checksums are recorded in the script, not fetched: a bad download fails the build.
+# Checksums are recorded in the script, not fetched, and each release's signed checksums are
+# verified with a pinned cosign (ADR 0006): a bad download or signature fails the build.
 RUN /install-scanners.sh /out "$TARGETOS/$TARGETARCH" && mkdir /data
 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab

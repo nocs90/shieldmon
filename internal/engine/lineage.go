@@ -122,12 +122,15 @@ func (e *Engine) baseStates(ctx context.Context, now time.Time) ([]notify.Base, 
 // monitor cycle. With sboms, the digest it points to gets SBOMs (ADR 0023).
 func (e *Engine) observeBase(ctx context.Context, ref string, p model.Platform, sboms bool) {
 	key := ref + " " + p.String()
+	e.basesMu.Lock()
 	if e.observedBases != nil {
 		if e.observedBases[key] {
+			e.basesMu.Unlock()
 			return
 		}
-		e.observedBases[key] = true
+		e.observedBases[key] = true // claimed by this worker before any I/O
 	}
+	e.basesMu.Unlock()
 	res, err := e.Fetcher.Resolve(ctx, ref, p)
 	if err != nil {
 		e.health(ctx, CheckBaseResolve, ref, "medium", err)
@@ -168,6 +171,8 @@ func (e *Engine) baseSBOMs(ctx context.Context, r oci.Resolved) {
 		e.log().Error("record base artifact", "err", err)
 		return
 	}
+	unlock := e.digests.lock(r.Digest) // a base can also be a monitored image (ADR 0026)
+	defer unlock()
 	if _, errs := e.ensureSBOMs(ctx, r); len(errs) > 0 {
 		e.log().Warn("base image SBOMs", "base", r.DigestRef(), "errors", errs)
 	}

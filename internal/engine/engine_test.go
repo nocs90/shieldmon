@@ -13,12 +13,14 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/nocs90/shieldmon/internal/config"
 	"github.com/nocs90/shieldmon/internal/engine"
 	"github.com/nocs90/shieldmon/internal/enrich"
+	"github.com/nocs90/shieldmon/internal/export"
 	"github.com/nocs90/shieldmon/internal/gate"
 	"github.com/nocs90/shieldmon/internal/lifecycle"
 	"github.com/nocs90/shieldmon/internal/lineage"
@@ -36,6 +38,7 @@ import (
 // fakeFetcher resolves refs from a mutable tag table, like a registry whose
 // tags move over time.
 type fakeFetcher struct {
+	mu      sync.Mutex        // monitor may run workers concurrently (ADR 0026)
 	tags    map[string]string // ref -> digest
 	fetches int
 	// infos are what Inspect reads per digest; a digest without one has a single layer of its own.
@@ -45,6 +48,8 @@ type fakeFetcher struct {
 }
 
 func (f *fakeFetcher) Inspect(_ context.Context, ref string, p model.Platform) (oci.ImageInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.inspects = append(f.inspects, ref)
 	d, ok := f.tags[ref]
 	if _, digest, isDigest := strings.Cut(ref, "@"); isDigest {
@@ -62,6 +67,8 @@ func (f *fakeFetcher) Inspect(_ context.Context, ref string, p model.Platform) (
 }
 
 func (f *fakeFetcher) Resolve(_ context.Context, ref string, p model.Platform) (oci.Resolved, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.resolves == nil {
 		f.resolves = map[string]int{}
 	}
@@ -77,16 +84,21 @@ func (f *fakeFetcher) Resolve(_ context.Context, ref string, p model.Platform) (
 }
 
 func (f *fakeFetcher) Fetch(_ context.Context, r oci.Resolved, dir string) error {
+	f.mu.Lock()
 	f.fetches++
+	f.mu.Unlock()
 	return os.MkdirAll(dir, 0o700)
 }
 
 // fakeGenerator writes a minimal SBOM that records the digest it describes. With pad > 0
 // the file is extended to pad bytes (sparse: no disk is used).
 type fakeGenerator struct {
+	mu    sync.Mutex
 	name  string
 	calls int
 	pad   int64
+	// delay makes each generation take that long, so that concurrent workers overlap.
+	delay time.Duration
 	// components are the SBOM components per digest, as CycloneDX JSON objects.
 	components map[string][]map[string]any
 }
@@ -97,7 +109,10 @@ func (g *fakeGenerator) Tool(context.Context) (model.Tool, error) {
 }
 
 func (g *fakeGenerator) Generate(_ context.Context, src scanner.Source, out string) ([]scanner.SBOMFile, error) {
+	g.mu.Lock()
 	g.calls++
+	g.mu.Unlock()
+	time.Sleep(g.delay)
 	p := filepath.Join(out, "bom.json")
 	doc := map[string]any{
 		"bomFormat": "CycloneDX", "specVersion": "1.6", "metadata": map[string]any{"component": map[string]string{"version": src.Version}},
@@ -124,6 +139,7 @@ type fakeMatcher struct {
 	// updateFail makes UpdateDB fail; calls records "update"/"match" with the network
 	// grant of each process, e.g. "update+net".
 	updateFail bool
+	mu         sync.Mutex
 	calls      []string
 }
 
@@ -131,7 +147,9 @@ func (m *fakeMatcher) record(ctx context.Context, call string) {
 	if scanner.PolicyFrom(ctx).Network {
 		call += "+net"
 	}
+	m.mu.Lock()
 	m.calls = append(m.calls, call)
+	m.mu.Unlock()
 }
 
 func (m *fakeMatcher) Name() string      { return m.name }
@@ -1665,5 +1683,128 @@ func TestNotificationsByOwner(t *testing.T) {
 	}
 	if pending, _ := h.eng.PendingNotifications(h.ctx); len(pending["payments"]) != 0 {
 		t.Errorf("other teams' events are never sent to the team channel: %+v", pending["payments"])
+	}
+}
+
+// TestMonitorConcurrently runs a cycle with a pool of workers over targets that share
+// digests (docs/adr/0026-concurrent-monitoring.md): one SBOM generation per digest, the same
+// findings as one after the other, results in the targets' order. Run it with -race.
+func TestMonitorConcurrently(t *testing.T) {
+	digests := []string{digestA, digestB, digestC, "sha256:dddd000000000000000000000000000000000000000000000000000000000000"}
+	setup := func(concurrency int) (*harness, []string) {
+		h := newHarness(t)
+		h.eng.Concurrency = concurrency
+		h.syft.delay, h.trivyG.delay = 20*time.Millisecond, 20*time.Millisecond // workers overlap
+		var refs []string
+		for i := range 8 {
+			r := fmt.Sprintf("registry.test/app-%d:1", i)
+			// Two adjacent targets per digest: they start together and contend for it.
+			d := digests[i/2]
+			h.image(r, d, vuln("zlib", "1.2.13-r0", fmt.Sprintf("CVE-2026-%04d", i/2), model.SeverityHigh))
+			if _, err := h.store.UpsertTarget(h.ctx, r, "linux/amd64", h.clock); err != nil {
+				t.Fatal(err)
+			}
+			refs = append(refs, r)
+		}
+		return h, refs
+	}
+	findings := func(h *harness) []string {
+		fs, err := h.store.ListFindings(h.ctx, store.FindingFilter{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, f := range fs {
+			out = append(out, f.Digest[:11]+" "+f.VulnID+" "+string(f.State))
+		}
+		slices.Sort(out)
+		return out
+	}
+
+	seq, _ := setup(1)
+	seq.monitor()
+	par, refs := setup(4)
+	sum := par.monitor()
+
+	if sum.Status != "ok" || len(sum.Results) != len(refs) {
+		t.Fatalf("cycle: %s, %d results, failures %v", sum.Status, len(sum.Results), sum.Failures)
+	}
+	for i, r := range sum.Results {
+		if r.Target.Ref != refs[i] {
+			t.Fatalf("results out of the targets' order at %d: %s", i, r.Target.Ref)
+		}
+	}
+	if par.syft.calls != len(digests) || par.trivyG.calls != len(digests) {
+		t.Errorf("SBOMs generated syft %d, trivy %d times for %d digests: one per digest", par.syft.calls, par.trivyG.calls, len(digests))
+	}
+	if got, want := findings(par), findings(seq); !slices.Equal(got, want) || len(got) != len(digests) {
+		t.Errorf("findings concurrently %v, one after the other %v", got, want)
+	}
+}
+
+// fakeExporter records the batches it is given and fails while err is set.
+type fakeExporter struct {
+	batches []export.Batch
+	err     error
+	failed  map[string]string
+}
+
+func (f *fakeExporter) Export(_ context.Context, b export.Batch) (export.Result, error) {
+	f.batches = append(f.batches, b)
+	return export.Result{Sent: len(b.Targets) - len(f.failed), Failed: f.failed}, f.err
+}
+
+// TestExportBatchAndHealth builds what exporters get from the store (docs/adr/0027-exporters.md)
+// and records failing exports as health findings.
+func TestExportBatchAndHealth(t *testing.T) {
+	h := newHarness(t)
+	sla, _ := config.SLAProfile("standard", nil)
+	h.eng.Decisions = lifecycle.Policy{Profile: "standard", SLADays: sla}
+	h.image(ref, digestA,
+		vuln("zlib", "1.2.13-r0", "CVE-2023-45853", model.SeverityCritical, "1.2.13-r1"),
+		vuln("busybox", "1.36.1-r29", "CVE-2023-42366", model.SeverityMedium))
+	h.scan(ref)
+	if _, err := h.eng.Scan(h.ctx, ref, model.Platform{OS: "linux", Architecture: "arm64"}); err != nil {
+		t.Fatal(err)
+	}
+	busybox := h.finding("CVE-2023-42366", digestA)
+	if _, err := h.store.ApplyDecision(h.ctx, busybox.ID, lifecycle.Decision{
+		State: model.StateNotAffected, Author: "vendor", Justification: "vulnerable_code_not_present",
+	}, h.eng.Decisions, h.clock); err != nil {
+		t.Fatal(err)
+	}
+
+	b, err := h.eng.ExportBatch(h.ctx, "shieldmon test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.Targets) != 2 || b.Tool != "shieldmon test" {
+		t.Fatalf("batch: %+v", b)
+	}
+	tg := b.Targets[0]
+	if tg.Repository != "registry.test/app" || tg.Tag != "prod" || !tg.MultiPlatform || len(tg.SBOM) == 0 {
+		t.Errorf("target: %+v (SBOM %d bytes)", tg, len(tg.SBOM))
+	}
+	if len(tg.Findings) != 1 || tg.Findings[0].VulnID != "CVE-2023-45853" || tg.Findings[0].SLADue.IsZero() {
+		t.Errorf("open findings with their deadline, not_affected left out: %+v", tg.Findings)
+	}
+
+	ok, bad := &fakeExporter{}, &fakeExporter{failed: map[string]string{ref: "POST dojo.test: answered 500"}}
+	exps := []export.Instance{{Name: "dtrack", Sender: ok}, {Name: "dojo", Sender: bad}}
+	if _, err := h.eng.Export(h.ctx, exps, b); err != nil {
+		t.Fatal(err)
+	}
+	if hf := h.health(engine.CheckExport, "dojo"); hf == nil || !hf.ResolvedAt.IsZero() {
+		t.Errorf("a failing export opens export_failed: %+v", hf)
+	}
+	if hf := h.health(engine.CheckExport, "dtrack"); hf != nil {
+		t.Errorf("a working export opens nothing: %+v", hf)
+	}
+	bad.failed = nil
+	if _, err := h.eng.Export(h.ctx, exps, b); err != nil {
+		t.Fatal(err)
+	}
+	if hf := h.health(engine.CheckExport, "dojo"); hf == nil || hf.ResolvedAt.IsZero() {
+		t.Errorf("the next success resolves it: %+v", hf)
 	}
 }

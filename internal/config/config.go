@@ -57,6 +57,14 @@ type Channel struct {
 	Options map[string]any `yaml:"options,omitempty"`
 }
 
+// Export configures one exporter (docs/adr/0027-exporters.md). Options never hold a
+// credential: they name environment variables (*_env).
+type Export struct {
+	Name     string         `yaml:"name"`
+	Exporter string         `yaml:"exporter"`
+	Options  map[string]any `yaml:"options,omitempty"`
+}
+
 // Owner is a team owning the targets its patterns match (docs/adr/0024-ownership.md).
 type Owner struct {
 	Team    string   `yaml:"team"`
@@ -93,6 +101,9 @@ type Config struct {
 		Sandbox struct {
 			Backend string `yaml:"backend"`
 		} `yaml:"sandbox"`
+		// Concurrency is how many targets monitor scans at once
+		// (docs/adr/0026-concurrent-monitoring.md); memory and scratch space scale with it.
+		Concurrency int `yaml:"concurrency"`
 	} `yaml:"scanners"`
 
 	Limits struct {
@@ -103,6 +114,9 @@ type Config struct {
 		MaxScratchBytes int64 `yaml:"max_scratch_bytes"`
 		// MinFreeDiskBytes stops a scanner before the data dir's disk fills up.
 		MinFreeDiskBytes int64 `yaml:"min_free_disk_bytes"`
+		// RegistryRPS bounds the monitoring cycle's requests per registry host per second
+		// (bursts of as many; 0: unlimited).
+		RegistryRPS float64 `yaml:"registry_rps"`
 	} `yaml:"limits"`
 
 	Health struct {
@@ -137,6 +151,10 @@ type Config struct {
 
 	// Gate is the policy of 'shieldmon gate' (docs/adr/0021-policy-gate.md).
 	Gate Gate `yaml:"gate"`
+
+	// Exports hand results to portfolio tools (docs/adr/0027-exporters.md); validated by
+	// export.New.
+	Exports []Export `yaml:"exports,omitempty"`
 
 	// Owners are the teams owning targets, first match wins (docs/adr/0024-ownership.md);
 	// validated by owners.New.
@@ -178,6 +196,8 @@ func Default() Config {
 	c.Limits.MaxTotalBytes = 16 << 30
 	c.Limits.MaxScratchBytes = 32 << 30
 	c.Limits.MinFreeDiskBytes = 2 << 30
+	c.Limits.RegistryRPS = 10
+	c.Scanners.Concurrency = 1
 	c.Health.DBMaxAge = Duration{72 * time.Hour}
 	c.Health.MonitorInterval = Duration{24 * time.Hour}
 	c.Health.AuditVerifyInterval = Duration{24 * time.Hour}
@@ -246,6 +266,12 @@ func (c Config) Validate() error {
 	}
 	if c.Limits.MaxScratchBytes < 0 || c.Limits.MinFreeDiskBytes < 0 {
 		return fmt.Errorf("limits: max_scratch_bytes and min_free_disk_bytes must not be negative (0 disables)")
+	}
+	if c.Scanners.Concurrency < 1 || c.Scanners.Concurrency > 64 {
+		return fmt.Errorf("scanners.concurrency %d: want 1 to 64", c.Scanners.Concurrency)
+	}
+	if !(c.Limits.RegistryRPS >= 0) { // NaN too
+		return fmt.Errorf("limits.registry_rps must not be negative (0: unlimited)")
 	}
 	if c.Bases.MaxAge.Duration < 0 {
 		return fmt.Errorf("bases.max_age must not be negative (0 disables base_unmaintained)")
@@ -374,6 +400,10 @@ scanners:
   # Scanner DBs and caches live in <data_dir>/cache.
   sandbox:
     backend: auto
+  # Targets 'shieldmon monitor' scans at once (--concurrency overrides). Each scan holds a
+  # vulnerability DB in memory and up to max_total_bytes + max_scratch_bytes of disk: size
+  # memory and the data dir's disk for that many (docs/adr/0026-concurrent-monitoring.md).
+  concurrency: 1
 
 limits:
   max_layers: 256
@@ -386,6 +416,9 @@ limits:
   # scan with a health finding. 0 disables a bound.
   max_scratch_bytes: 34359738368
   min_free_disk_bytes: 2147483648
+  # Requests per second to each registry host during monitoring (resolve, fetch, inspect),
+  # with bursts of as many; 0 is unlimited.
+  registry_rps: 10
 
 health:
   db_max_age: 72h        # older vulnerability DBs open a db_stale health finding
@@ -462,6 +495,12 @@ gate:
   # max_db_age: 72h       # default: health.db_max_age
   max_evidence_age: 24h   # with --no-scan, the latest scan may be this old
   exit_codes: { warn: 0, fail: 2, indeterminate: 3 }   # errors exit 1
+
+# Exports to portfolio tools, sent by 'shieldmon export' (docs/processes/exports.md). Options
+# never hold a credential: they name environment variables (*_env).
+exports: []
+# - { name: dtrack, exporter: dependency-track, options: { url: https://dtrack.example.com, api_key_env: SHIELDMON_DTRACK_KEY } }
+# - { name: dojo, exporter: defectdojo, options: { url: https://defectdojo.example.com, api_key_env: SHIELDMON_DOJO_KEY } }
 
 # Teams owning targets (docs/processes/ownership.md): the first team with a pattern matching
 # a target's reference or repository owns it ('*' stays within a path segment). Reports and

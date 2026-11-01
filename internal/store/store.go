@@ -494,17 +494,17 @@ func (s *Store) DigestHistory(ctx context.Context) ([]DigestChange, error) {
 // Finding is a stored vulnerability finding on one digest.
 type Finding struct {
 	model.Match
-	ID            int64
-	Digest        string
-	State         model.State
-	FirstDetected time.Time
-	CreatedAt     time.Time
-	LastSeen      time.Time
-	ClosedAt      time.Time
-	PredecessorID int64
+	ID            int64       `json:"id"`
+	Digest        string      `json:"digest"`
+	State         model.State `json:"state"`
+	FirstDetected time.Time   `json:"first_detected"`
+	CreatedAt     time.Time   `json:"created_at"`
+	LastSeen      time.Time   `json:"last_seen"`
+	ClosedAt      time.Time   `json:"closed_at,omitzero"`
+	PredecessorID int64       `json:"predecessor_id,omitempty"`
 	// Targets are the refs currently resolving to Digest (may be empty for
 	// historical digests).
-	Targets []string
+	Targets []string `json:"targets,omitempty"`
 }
 
 // SeverityName is the textual severity, for JSON output.

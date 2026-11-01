@@ -56,9 +56,10 @@
 
 - The smoke test covers Docker's default seccomp profile only. Other runtimes and
   Kubernetes pod settings are shown by the deployment examples (#11).
-- Publishing to a registry, signing, an SBOM of the image, and documenting it pinned by
-  digest belong to the release pipeline (#8): until then there is no published digest to
-  pin.
+- Publishing to a registry, signing and provenance belong to the release pipeline (#8):
+  `ghcr.io/nocs90/shieldmon:<version>`, signed by digest with cosign keyless signing, SLSA
+  provenance in the registry (docs/processes/release.md). An SBOM of the image itself is not
+  attested yet; the binaries' archives have one.
 - The image is about the size of the three scanners. Bumping a scanner is a reviewed change
   to `install-scanners.sh` for both platforms.
 - arm64 is built and checked, but no CI job scans with arm64 scanners.
