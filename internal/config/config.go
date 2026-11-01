@@ -7,11 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/nocs90/shieldmon/internal/charts"
 	"github.com/nocs90/shieldmon/internal/lifecycle"
 	"github.com/nocs90/shieldmon/internal/model"
 )
@@ -174,6 +176,14 @@ type Config struct {
 	// options are validated by charts.New.
 	Charts []Chart `yaml:"charts,omitempty"`
 
+	// Helm renders charts (docs/adr/0033-chart-rendering.md): the binary
+	// scripts/install-scanners.sh installs, run in the scanners' sandbox.
+	Helm struct {
+		Path    string   `yaml:"path,omitempty"`
+		SHA256  string   `yaml:"sha256,omitempty"`
+		Timeout Duration `yaml:"timeout"`
+	} `yaml:"helm"`
+
 	// Runtime is where images run, from cluster exports (docs/adr/0029-runtime-context.md).
 	Runtime struct {
 		// Inventories are `kubectl get pods,services,ingresses,httproutes -A -o json` files,
@@ -205,6 +215,43 @@ type Chart struct {
 	Chart   string         `yaml:"chart"`
 	Source  string         `yaml:"source"`
 	Options map[string]any `yaml:"options,omitempty"`
+	// Profiles are the ways the chart is installed, each rendered on its own; none: one,
+	// "default", with the chart's own values.
+	Profiles []ChartProfile `yaml:"profiles,omitempty"`
+}
+
+// ChartProfile is one installation of a chart: its release, namespace and values
+// (docs/adr/0033-chart-rendering.md).
+type ChartProfile struct {
+	Name string `yaml:"name"`
+	// Release defaults to the chart's name in ShieldMon, Namespace to "default".
+	Release   string `yaml:"release,omitempty"`
+	Namespace string `yaml:"namespace,omitempty"`
+	// ValuesFiles are applied in order, then Values: later ones win, like helm's -f.
+	ValuesFiles          []string       `yaml:"values_files,omitempty"`
+	Values               map[string]any `yaml:"values,omitempty"`
+	KubeVersion          string         `yaml:"kube_version,omitempty"`
+	APIVersions          []string       `yaml:"api_versions,omitempty"`
+	SkipSchemaValidation bool           `yaml:"skip_schema_validation,omitempty"`
+}
+
+// RenderProfiles returns the chart's profiles with their defaults applied.
+func (c Chart) RenderProfiles() []ChartProfile {
+	ps := c.Profiles
+	if len(ps) == 0 {
+		ps = []ChartProfile{{Name: "default"}}
+	}
+	out := make([]ChartProfile, len(ps))
+	for i, p := range ps {
+		if p.Release == "" {
+			p.Release = c.ID()
+		}
+		if p.Namespace == "" {
+			p.Namespace = "default"
+		}
+		out[i] = p
+	}
+	return out
 }
 
 // RuntimeInventory is one cluster's export.
@@ -251,6 +298,7 @@ func Default() Config {
 	c.Gate = DefaultGate()
 	c.Bases.MaxAge = Duration{90 * 24 * time.Hour}
 	c.Runtime.MaxAge = Duration{48 * time.Hour}
+	c.Helm.Timeout = Duration{2 * time.Minute}
 	return c
 }
 
@@ -335,6 +383,26 @@ func (c Config) Validate() error {
 			return fmt.Errorf("charts[%d]: name %q is listed twice (give one a name:)", i, id)
 		}
 		chartNames[id] = true
+		profiles := map[string]bool{}
+		for j, p := range ch.RenderProfiles() {
+			switch {
+			case !chartID.MatchString(p.Name):
+				return fmt.Errorf("charts[%d].profiles[%d]: name %q: lowercase letters, digits, '.', '_', '-' (at most 100)", i, j, p.Name)
+			case profiles[p.Name]:
+				return fmt.Errorf("charts[%d]: profile %q is listed twice", i, p.Name)
+			case slices.Contains(p.ValuesFiles, "") || slices.Contains(p.ValuesFiles, "-"):
+				return fmt.Errorf("charts[%d].profiles[%d]: values_files entries are file paths", i, j)
+			}
+			profiles[p.Name] = true
+			// Values files are read when the chart renders; the rest is checked now.
+			cp := charts.Profile{Release: p.Release, Namespace: p.Namespace, KubeVersion: p.KubeVersion, APIVersions: p.APIVersions}
+			if err := cp.Check(); err != nil {
+				return fmt.Errorf("charts[%d] %s profile %s: %w", i, id, p.Name, err)
+			}
+		}
+	}
+	if c.Helm.Timeout.Duration <= 0 {
+		return fmt.Errorf("helm.timeout must be positive")
 	}
 	clusters := map[string]bool{}
 	for i, inv := range c.Runtime.Inventories {
@@ -612,6 +680,21 @@ charts: []
   # - { chart: ingress-nginx, source: http, options: { url: https://kubernetes.github.io/ingress-nginx } }
   # - { chart: nginx, source: oci, options: { repository: registry-1.docker.io/bitnamicharts } }
   # - { name: podinfo, chart: podinfo, source: artifacthub, options: { repository: podinfo } }
+  # Each profile is one installation, rendered on its own with 'helm template' in the
+  # scanners' sandbox (no network, only the archive and the values); none: the chart's defaults.
+  # - chart: ingress-nginx
+  #   source: http
+  #   options: { url: https://kubernetes.github.io/ingress-nginx }
+  #   profiles:
+  #     - { name: prod, namespace: ingress, values_files: [/etc/shieldmon/values/ingress-prod.yaml] }
+  #     - { name: mirror, values: { global: { image: { registry: mirror.example.com } } }, kube_version: "1.33" }
+
+# The helm that renders charts: scripts/install-scanners.sh installs a pinned, signature-verified
+# one. Pin it by SHA-256 like the scanners.
+helm:
+  path: ""
+  sha256: ""
+  timeout: 2m
 `
 
 // Policy builds the decision policy from configuration.

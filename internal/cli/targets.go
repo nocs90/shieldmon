@@ -27,7 +27,7 @@ const (
 // targetsAddCmd registers references as monitoring targets without scanning them: the next
 // `monitor` cycle resolves and scans them (F1).
 func (a *app) targetsAddCmd() *cobra.Command {
-	var file, manifestsFile, platform, base, by string
+	var file, manifestsFile, chart, chartVersion, profile, platform, base, by string
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "add [IMAGE...]",
@@ -44,9 +44,13 @@ ephemeral container of their workloads, hooks included. Custom resources are lis
 operator may run images for them that the manifests do not show
 (docs/processes/manifest-images.md).
 
+--chart renders a configured chart (charts:) with its profiles, as 'shieldmon charts images'
+does, and adds the images of every profile.
+
 --base records the base image the new targets are built on (see 'targets set-base').`,
 		Example: "  shieldmon targets add alpine:3.20 ghcr.io/org/app:1.4\n  shieldmon targets add -f images.txt --dry-run\n" +
 			"  helm template shop ./charts/shop -f values-prod.yaml | shieldmon targets add --manifests - --dry-run\n" +
+			"  shieldmon targets add --chart ingress-nginx --profile prod --dry-run\n" +
 			"  shieldmon targets add ghcr.io/org/api:2.1 --base registry.access.redhat.com/ubi9/nodejs-22-minimal:latest",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			refs := args
@@ -67,11 +71,24 @@ operator may run images for them that the manifests do not show
 				}
 				refs = append(refs, fromManifests...)
 			}
+			if chart == "" && (chartVersion != "" || profile != "") {
+				return errors.New("--chart-version and --profile need --chart")
+			}
+			if chart != "" {
+				fromChart, err := a.chartTargets(cmd, chart, chartVersion, profile)
+				if err != nil {
+					return err
+				}
+				refs = append(refs, fromChart...)
+			}
 			switch {
-			case len(refs) == 0 && file == "" && manifestsFile == "":
-				return errors.New("give image references, -f FILE or --manifests FILE")
+			case len(refs) == 0 && file == "" && manifestsFile == "" && chart == "":
+				return errors.New("give image references, -f FILE, --manifests FILE or --chart NAME")
 			case len(refs) == 0 && manifestsFile != "":
 				fmt.Fprintf(cmd.OutOrStdout(), "%s: no images, nothing to add\n", manifestsFile)
+				return nil
+			case len(refs) == 0 && chart != "":
+				fmt.Fprintf(cmd.OutOrStdout(), "chart %s: no images, nothing to add\n", printable(chart))
 				return nil
 			case len(refs) == 0:
 				// A declarative list may be empty for a while (a deployment's targets file).
@@ -97,6 +114,9 @@ operator may run images for them that the manifests do not show
 	}
 	cmd.Flags().StringVarP(&file, "file", "f", "", `file with one reference per line ("-" for stdin)`)
 	cmd.Flags().StringVar(&manifestsFile, "manifests", "", `Kubernetes manifests whose images to add ("-" for stdin)`)
+	cmd.Flags().StringVar(&chart, "chart", "", "configured chart whose rendered images to add (charts:)")
+	cmd.Flags().StringVar(&chartVersion, "chart-version", "", "chart version (default: the newest release)")
+	cmd.Flags().StringVar(&profile, "profile", "", "render only this profile of the chart (default: all)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be added, add nothing")
 	cmd.Flags().StringVar(&base, "base", "", "base image tag the new targets are built on (docs/adr/0022-base-image-lineage.md)")
 	cmd.Flags().StringVar(&by, "by", engine.ActorFromEnv(), "who records the base")

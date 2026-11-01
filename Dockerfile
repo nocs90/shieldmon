@@ -24,11 +24,12 @@ COPY LICENSE /out/licenses/LICENSE
 FROM --platform=$BUILDPLATFORM debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8 AS scanners
 ARG TARGETOS TARGETARCH
 RUN apt-get update -q \
- && apt-get install -y -q --no-install-recommends bash ca-certificates curl \
+ && apt-get install -y -q --no-install-recommends bash ca-certificates curl gpg \
  && rm -rf /var/lib/apt/lists/*
 COPY scripts/install-scanners.sh /install-scanners.sh
 # Checksums are recorded in the script, not fetched, and each release's signed checksums are
-# verified with a pinned cosign (ADR 0006): a bad download or signature fails the build.
+# verified with a pinned cosign (ADR 0006), helm's archive with gpg against its pinned release
+# key (ADR 0033): a bad download or signature fails the build.
 RUN LICENSES=/licenses /install-scanners.sh /out "$TARGETOS/$TARGETARCH" && mkdir /data
 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab

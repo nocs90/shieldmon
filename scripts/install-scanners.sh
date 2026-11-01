@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Install syft, grype and trivy at pinned versions, verifying each archive
-# against a SHA-256 recorded in this file (not fetched at install time).
+# Install syft, grype and trivy at pinned versions, and helm (which renders charts), verifying
+# each archive against a SHA-256 recorded in this file (not fetched at install time) and its
+# project's release signature.
 #
 # Why: scanners run with access to image content and are a supply-chain
 # target (e.g. the March 2026 trivy release/tag compromise, CVE-2026-33634).
@@ -12,6 +13,7 @@
 #             architecture: the container image build downloads for its target platform.
 #   LICENSES  (environment) a directory to also install each scanner's LICENSE into, as
 #             LICENSES/<scanner>/LICENSE: images that redistribute the binaries must carry it.
+#   HELM      (environment) 0 skips helm: only chart rendering needs it, and verifying it needs gpg.
 # Pins come from each release's checksums file; when bumping, check that the file also
 # lists the hashes already recorded here for the previous version's other platform.
 set -euo pipefail
@@ -63,6 +65,20 @@ COSIGN_PINS=(
   "Linux/aarch64|c5d324e091826b0d7a78eb16fef316450b4eb9aaec045611c08ba06f5e73220a|linux-arm64"
   "Darwin/arm64|5cf948c2f4dfe59687bdd0b8523709067383e03982cc543475c8a7dc70e92a76|darwin-arm64"
 )
+
+# helm renders third-party charts (ADR 0033), in the scanners' sandbox. Helm signs each release
+# archive with OpenPGP, not Sigstore: the signature must be valid and made by the pinned
+# release key, taken from Helm's KEYS file at a pinned commit, itself pinned by SHA-256.
+HELM_VERSION=4.3.1
+# platform|sha256 of helm-v<version>-linux-<arch>.tar.gz (its .sha256sum on get.helm.sh)
+HELM_PINS=(
+  "linux/amd64|0403a88ae20913d11b10a2467b50087721fea7581736da6b9d3992f5357fe54b"
+  "linux/arm64|8cf8f66ecbc252ac8f7f06cca68aba88508ddfde3a6a34feb1678ad1694b4f88"
+)
+HELM_KEYS_URL=https://raw.githubusercontent.com/helm/helm/e74a4c6c6c2469f6dabab54879d3f53a9ed8bbf3/KEYS
+HELM_KEYS_SHA256=5de12e8dca75f8a72d1ad4e9a05a6f9de0356ee520bf0bd703bd2d37a536e85b
+# Primary key fingerprint of the Helm maintainer who signed the pinned release (Scott Rigby).
+HELM_SIGNER=208DD36ED5BB3745A16743A4C7C6FBB5B91C1155
 
 fetch() { curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 -o "$1" "$2"; }
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1; }
@@ -137,6 +153,39 @@ for pin in "${PINS[@]}"; do
   fi
   verified+=("$name|$version")
 done
+
+if [[ "${HELM:-1}" != 0 ]]; then
+  command -v gpg >/dev/null \
+    || { echo "install-scanners: gpg is needed to verify helm's signature (HELM=0 skips helm)" >&2; exit 1; }
+  hpin="$(printf '%s\n' "${HELM_PINS[@]}" | grep "^$PLATFORM|")" \
+    || { echo "install-scanners: no helm pin for $PLATFORM" >&2; exit 1; }
+  hsha="${hpin#*|}"
+  hdir="${PLATFORM/\//-}"
+  asset="helm-v$HELM_VERSION-$hdir.tar.gz"
+  fetch "$tmp/helm.tar.gz" "https://get.helm.sh/$asset"
+  [[ "$(sha256 "$tmp/helm.tar.gz")" == "$hsha" ]] || { echo "checksum mismatch for helm $HELM_VERSION" >&2; exit 1; }
+  fetch "$tmp/helm.tar.gz.asc" "https://github.com/helm/helm/releases/download/v$HELM_VERSION/$asset.asc"
+  fetch "$tmp/KEYS" "$HELM_KEYS_URL"
+  [[ "$(sha256 "$tmp/KEYS")" == "$HELM_KEYS_SHA256" ]] || { echo "install-scanners: helm KEYS file changed (checksum mismatch)" >&2; exit 1; }
+  # A keyring of its own: nothing the user trusts, and nothing left behind.
+  gnupg="$tmp/gnupg"
+  mkdir -m 0700 "$gnupg"
+  gpg --homedir "$gnupg" --batch --quiet --no-autostart --import "$tmp/KEYS" 2>/dev/null \
+    || { echo "install-scanners: cannot import helm's KEYS" >&2; exit 1; }
+  # VALIDSIG <signing key> ... <primary key>: a good signature, by a key whose primary is the
+  # pinned one. A good signature by any other key in KEYS is refused.
+  status="$(gpg --homedir "$gnupg" --batch --no-autostart --status-fd 1 --verify "$tmp/helm.tar.gz.asc" "$tmp/helm.tar.gz" 2>/dev/null)" || true
+  awk '$1 == "[GNUPG:]" && $2 == "VALIDSIG" { print $NF }' <<<"$status" | grep -qxF "$HELM_SIGNER" \
+    || { echo "install-scanners: signature of helm $HELM_VERSION not verified for key $HELM_SIGNER" >&2; exit 1; }
+  tar -xzf "$tmp/helm.tar.gz" -C "$tmp" "$hdir/helm"
+  mv "$tmp/$hdir/helm" "$tmp/helm"
+  if [[ -n "${LICENSES:-}" ]]; then
+    mkdir -p "$tmp/licenses/helm"
+    tar -xzf "$tmp/helm.tar.gz" -C "$tmp" "$hdir/LICENSE"
+    mv "$tmp/$hdir/LICENSE" "$tmp/licenses/helm/LICENSE"
+  fi
+  verified+=("helm|$HELM_VERSION")
+fi
 
 # All or nothing: DEST changes only once every scanner verified.
 for v in "${verified[@]}"; do
