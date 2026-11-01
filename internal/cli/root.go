@@ -18,6 +18,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/nocs90/shieldmon/internal/charts"
 	"github.com/nocs90/shieldmon/internal/config"
 	"github.com/nocs90/shieldmon/internal/engine"
 	"github.com/nocs90/shieldmon/internal/enrich"
@@ -96,7 +97,7 @@ when a later scan provides evidence.`,
 		&cobra.Group{ID: "setup", Title: "Setup:"},
 	)
 	for group, cmds := range map[string][]*cobra.Command{
-		"monitor": {a.scanCmd(), a.gateCmd(), a.monitorCmd(), a.rematchCmd(), a.targetsCmd()},
+		"monitor": {a.scanCmd(), a.gateCmd(), a.monitorCmd(), a.rematchCmd(), a.targetsCmd(), a.chartsCmd()},
 		"triage":  {a.findingsCmd(), a.vexCmd(), a.healthCmd(), a.reportCmd(), a.sbomCmd(), a.componentsCmd(), a.notifyCmd(), a.exportCmd(), a.auditCmd()},
 		"setup":   {a.initCmd(), a.doctorCmd(), a.dbCmd(), a.pluginsCmd(), a.versionCmd()},
 	} {
@@ -741,6 +742,10 @@ func (a *app) pluginsCmd() *cobra.Command {
 			fmt.Fprintln(w, "Exporters:")
 			for _, x := range export.Plugins() {
 				fmt.Fprintf(w, "  %-16s %s (options: %s)\n", x.Name, x.Description, strings.Join(x.Options, ", "))
+			}
+			fmt.Fprintln(w, "Chart sources:")
+			for _, s := range charts.Plugins() {
+				fmt.Fprintf(w, "  %-12s %s (options: %s)\n", s.Name, s.Description, strings.Join(s.Options, ", "))
 			}
 			fmt.Fprintln(w, "Enrichers:")
 			for _, p := range enrich.Plugins() {
