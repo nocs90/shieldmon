@@ -270,15 +270,18 @@ jobs:
           df -h /
       # Dogfooding (#14): ShieldMon's own image, judged by ShieldMon's gate with the built-in
       # policy (fail on CISA KEV and critical findings, warn on high; docs/processes/ci-gate.md).
-      # A matcher failure is indeterminate (exit 3) and fails the job too.
+      # A matcher failure is indeterminate (exit 3) and fails the job too. Findings that do not
+      # apply are exempt only by the reviewed VEX statements in security/vex (never an ignore list).
       - name: Gate ShieldMon's own image and report on it
         if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run/integration')
         run: |
           mkdir -p "$RUNNER_TEMP/dogfood"
           sc() {
             docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
-              --network host -v shieldmon-data:/data localhost:5000/shieldmon:ci "$@"
+              --network host -v shieldmon-data:/data -v "$GITHUB_WORKSPACE/security/vex:/vex:ro" \
+              localhost:5000/shieldmon:ci "$@"
           }
+          sc vex import --by ci /vex/shieldmon-image.openvex.json
           sc report monthly --month "$(date -u +%Y-%m)" -o md > "$RUNNER_TEMP/dogfood/report.md"
           sc report inventory -o md > "$RUNNER_TEMP/dogfood/inventory.md"
           sc gate --no-scan localhost:5000/shieldmon:ci -o sarif > "$RUNNER_TEMP/dogfood/gate.sarif" || true
