@@ -9,8 +9,8 @@
     {
       "vulnerability": { "name": "CVE-2026-56857" },
       "products": [
-        { "@id": "pkg:oci/shieldmon?repository_url=ghcr.io/nocs90/shieldmon", "subcomponents": [ { "@id": "pkg:golang/stdlib@go1.26.8" } ] },
-        { "@id": "pkg:oci/shieldmon?repository_url=localhost:5000/shieldmon", "subcomponents": [ { "@id": "pkg:golang/stdlib@go1.26.8" } ] }
+        { "@id": "pkg:oci/shieldmon?repository_url=ghcr.io/nocs90/shieldmon", "subcomponents": [ { "@id": "pkg:golang/stdlib@1.26.8" }, { "@id": "pkg:golang/stdlib@v1.26.8" } ] },
+        { "@id": "pkg:oci/shieldmon?repository_url=localhost:5000/shieldmon", "subcomponents": [ { "@id": "pkg:golang/stdlib@1.26.8" }, { "@id": "pkg:golang/stdlib@v1.26.8" } ] }
       ],
       "status": "not_affected",
       "justification": "vulnerable_code_not_present",
@@ -20,8 +20,8 @@
     {
       "vulnerability": { "name": "CVE-2026-78663" },
       "products": [
-        { "@id": "pkg:oci/shieldmon?repository_url=ghcr.io/nocs90/shieldmon", "subcomponents": [ { "@id": "pkg:golang/stdlib@go1.26.8" } ] },
-        { "@id": "pkg:oci/shieldmon?repository_url=localhost:5000/shieldmon", "subcomponents": [ { "@id": "pkg:golang/stdlib@go1.26.8" } ] }
+        { "@id": "pkg:oci/shieldmon?repository_url=ghcr.io/nocs90/shieldmon", "subcomponents": [ { "@id": "pkg:golang/stdlib@1.26.8" }, { "@id": "pkg:golang/stdlib@v1.26.8" } ] },
+        { "@id": "pkg:oci/shieldmon?repository_url=localhost:5000/shieldmon", "subcomponents": [ { "@id": "pkg:golang/stdlib@1.26.8" }, { "@id": "pkg:golang/stdlib@v1.26.8" } ] }
       ],
       "status": "not_affected",
       "justification": "vulnerable_code_not_in_execute_path",
