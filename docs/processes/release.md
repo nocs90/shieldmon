@@ -18,13 +18,17 @@ builds and signs everything, and leaves a draft for a maintainer to publish.
 4. The workflow runs two jobs:
    - **binaries**: goreleaser (pinned, v2.18.3) builds `shieldmon` for linux and darwin, amd64
      and arm64, reproducibly (`-trimpath`, no build ID, timestamps from the commit), archives
-     them with LICENSE, README and SECURITY, writes `shieldmon_<v>_checksums.txt` and a
+     them with LICENSE, README, SECURITY and THIRD_PARTY_LICENSES (the license texts of every
+     linked Go module, written by `scripts/third-party-licenses.sh`, which fails on a module
+     without one), writes `shieldmon_<v>_checksums.txt` and a
      CycloneDX SBOM of each archive (syft, installed signature-verified by
      `scripts/install-scanners.sh`), signs the checksums with cosign keyless signing
      (`shieldmon_<v>_checksums.txt.sigstore.json`), creates the draft release, and attaches
      SLSA build provenance to the archives and checksums (GitHub artifact attestations).
    - **image**: builds `ghcr.io/nocs90/shieldmon:<v>` for linux/amd64 and linux/arm64, signs
-     it by digest with cosign keyless signing, and pushes its provenance to the registry.
+     it by digest with cosign keyless signing, and pushes its provenance to the registry. The
+     image carries ShieldMon's license and its modules' under `/usr/share/licenses/shieldmon`,
+     and each bundled scanner's under `/usr/share/licenses/<scanner>`.
 5. Read the draft's notes, check the assets, publish it, and announce it in Discussions with
    breaking changes called out.
 

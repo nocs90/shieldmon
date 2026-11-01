@@ -5,7 +5,10 @@ project_name: shieldmon
 
 before:
   hooks:
-    - scripts/third-party-licenses.sh THIRD_PARTY_LICENSES
+    # The licenses of every module linked into any of the builds below.
+    - cmd: scripts/third-party-licenses.sh THIRD_PARTY_LICENSES
+      env:
+        - PLATFORMS=linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
 builds:
   - id: shieldmon
