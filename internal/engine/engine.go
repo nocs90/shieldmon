@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nocs90/shieldmon/internal/charts"
 	"github.com/nocs90/shieldmon/internal/enrich"
 	"github.com/nocs90/shieldmon/internal/lifecycle"
 	"github.com/nocs90/shieldmon/internal/lineage"
@@ -122,6 +123,14 @@ type Engine struct {
 	// Concurrency is how many targets Monitor scans at once (≤ 1: one after the other;
 	// docs/adr/0026-concurrent-monitoring.md).
 	Concurrency int
+
+	// Charts are followed by every monitoring cycle, rendered by ChartRenderer
+	// (docs/adr/0034-chart-tracking.md); ChartRendererErr says why there is none.
+	Charts           []FollowedChart
+	ChartRenderer    ChartRenderer
+	ChartRendererErr error
+	// ChartPolicy says when a followed chart is neglected.
+	ChartPolicy charts.NeglectPolicy
 
 	// observedBases are the base references observed in the running monitor cycle: each is
 	// resolved once per cycle, however many targets share it.
@@ -630,6 +639,8 @@ type MonitorSummary struct {
 	// Notified counts the events sent per channel; NotifyFailures holds failed channels.
 	Notified       map[string]int
 	NotifyFailures map[string]string
+	// ChartFailures holds the followed charts that could not be brought up to date.
+	ChartFailures map[string]string
 }
 
 // Monitor runs one ConMon cycle over every target: check the schedule, expire
@@ -658,6 +669,10 @@ func (e *Engine) Monitor(ctx context.Context) (MonitorSummary, error) {
 
 	if sum.ExpiredDecision, err = e.Store.ExpireDecisions(ctx, now); err != nil {
 		return sum, err
+	}
+	// Charts first: the images of a new release are scanned in the same cycle.
+	if len(e.Charts) > 0 {
+		sum.ChartFailures = e.FollowCharts(ctx)
 	}
 	targets, err := e.Store.ListTargets(ctx)
 	if err != nil {
@@ -731,7 +746,7 @@ func (e *Engine) Monitor(ctx context.Context) (MonitorSummary, error) {
 	switch {
 	case ctx.Err() != nil || (errCount > 0 && errCount == len(targets)):
 		sum.Status = "failed"
-	case errCount > 0:
+	case errCount > 0 || len(sum.ChartFailures) > 0:
 		sum.Status = "degraded"
 	}
 	if e.AuditVerifyInterval > 0 && ctx.Err() == nil {

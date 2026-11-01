@@ -1,7 +1,8 @@
 # Following Helm charts
 
 Normative rules: [ADR 0032](../adr/0032-chart-sources.md) (sources),
-[ADR 0033](../adr/0033-chart-rendering.md) (rendering) and
+[ADR 0033](../adr/0033-chart-rendering.md) (rendering),
+[ADR 0034](../adr/0034-chart-tracking.md) (tracking, neglected charts) and
 [ADR 0030](../adr/0030-manifest-images.md) (images of rendered manifests). This page is the
 runbook.
 
@@ -87,3 +88,45 @@ What the listing means is the same as for `targets add --manifests`
 (docs/processes/manifest-images.md): hook-only images are marked, and custom resources are
 listed because the operator they configure may run images the manifests do not show; add those
 by hand.
+
+## 5. Follow releases
+
+`shieldmon monitor` follows every configured chart at the start of each cycle: the newest
+release (not a pre-release, not deprecated) is rendered with each profile the first time, and
+again only when its archive or a profile changes; every render is recorded (append-only,
+audited). With `add_targets: true` the release's images become targets and are scanned in the
+same cycle; without it, add them with `targets add --chart`.
+
+```sh
+shieldmon charts track                 # the same, now, without scanning
+shieldmon charts history ingress-nginx # every release recorded, images added (+) and dropped (-)
+```
+
+A chart that cannot be followed opens `chart_failed` (docs/processes/health-findings.md) and
+the cycle is `degraded`; its targets are still scanned. Images a new release no longer runs
+stay targets: retire them when nothing runs them any more (`targets retire`, with a reason).
+
+## 6. Neglected charts
+
+```sh
+shieldmon charts status                # every chart: release, images, monitored, with a fix, neglected
+shieldmon charts status ingress-nginx -o md > charts.md
+```
+
+A chart is **neglected** when its newest release ships an image with an active finding that
+has a fix, of at least `chart_policy.min_severity` (`high`), detected more than
+`chart_policy.fixable_after` ago (`720h`), or when it has not released for
+`chart_policy.stale_after` (`4320h`) and its source dates releases. Images that are not scanned
+targets show as not monitored: they are not known to be clean.
+
+What to do with a neglected chart, in order:
+
+1. Check the chart's newer pre-releases and its issue tracker: a fix may be on its way.
+2. Override the image in the profile's values (`image.tag`, a registry mirror) to a release
+   with the fix, if the chart allows it, and keep the profile in review with the deployment.
+3. Tell the maintainers. `shieldmon charts draft-issue NAME` prints a Markdown draft with the
+   overdue findings: review it, follow the project's CONTRIBUTING (templates, sign-off),
+   search its issues for an existing report, and submit it yourself. ShieldMon never submits
+   anything upstream.
+4. If the chart is abandoned, plan a replacement and record the risk decision on the findings
+   meanwhile (docs/processes/triage-and-decisions.md).

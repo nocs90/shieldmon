@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -17,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nocs90/shieldmon/internal/charts"
+	"github.com/nocs90/shieldmon/internal/charts/chartstest"
 	"github.com/nocs90/shieldmon/internal/config"
 	"github.com/nocs90/shieldmon/internal/engine"
 	"github.com/nocs90/shieldmon/internal/enrich"
@@ -24,6 +27,7 @@ import (
 	"github.com/nocs90/shieldmon/internal/gate"
 	"github.com/nocs90/shieldmon/internal/lifecycle"
 	"github.com/nocs90/shieldmon/internal/lineage"
+	"github.com/nocs90/shieldmon/internal/manifests"
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/notify"
 	"github.com/nocs90/shieldmon/internal/oci"
@@ -1806,5 +1810,159 @@ func TestExportBatchAndHealth(t *testing.T) {
 	}
 	if hf := h.health(engine.CheckExport, "dojo"); hf == nil || hf.ResolvedAt.IsZero() {
 		t.Errorf("the next success resolves it: %+v", hf)
+	}
+}
+
+// fakeChartSource serves chart archives for a mutable list of versions.
+type fakeChartSource struct {
+	t        *testing.T
+	versions []charts.Version
+	fail     error
+}
+
+func (s *fakeChartSource) Versions(context.Context, string) ([]charts.Version, error) {
+	return s.versions, s.fail
+}
+
+func (s *fakeChartSource) Fetch(_ context.Context, chart, version string, w io.Writer) (string, error) {
+	a := chartstest.Archive(s.t, chart, version)
+	_, err := w.Write(a)
+	return chartstest.Digest(a), err
+}
+
+func (s *fakeChartSource) Location(string) string { return "fake" }
+
+// fakeRenderer answers with the images listed per version and profile.
+type fakeRenderer struct {
+	images map[string][]string // "version/profile" -> refs
+	calls  []string
+}
+
+func (r *fakeRenderer) Render(_ context.Context, archive []byte, chart, version string, p charts.Profile) (manifests.Result, error) {
+	if _, err := charts.CheckArchive(archive, chart, version); err != nil {
+		return manifests.Result{}, err
+	}
+	key := version + "/" + p.Name
+	r.calls = append(r.calls, key)
+	var res manifests.Result
+	for _, ref := range r.images[key] {
+		res.Images = append(res.Images, manifests.Image{Ref: ref, Where: []string{"Deployment default/web (container c)"}})
+	}
+	return res, nil
+}
+
+// TestChartTracking follows a chart across cycles (docs/adr/0034-chart-tracking.md): its
+// newest release is rendered once per profile and its images monitored in the same cycle;
+// nothing is rendered again until a release or a profile changes; a release that keeps a
+// fixable finding past the policy, or stops releasing, is neglected; failures are health
+// findings.
+func TestChartTracking(t *testing.T) {
+	h := newHarness(t)
+	day := 24 * time.Hour
+	src := &fakeChartSource{t: t, versions: []charts.Version{{Version: "1.0.0", Created: h.clock}, {Version: "2.0.0-rc.1"}}}
+	rend := &fakeRenderer{images: map[string][]string{
+		"1.0.0/prod": {"registry.test/app:prod", "registry.test/sidecar:1", "bad ref!"},
+		"1.0.0/dev":  {"registry.test/app:prod"},
+		"1.1.0/prod": {"registry.test/app:v2", "registry.test/sidecar:2"},
+		"1.1.0/dev":  {"registry.test/app:v2"},
+	}}
+	h.image("registry.test/app:prod", digestA, vuln("openssl", "3.1.0", "CVE-2026-1001", model.SeverityHigh, "3.1.4"),
+		vuln("zlib", "1.2.13", "CVE-2026-1002", model.SeverityCritical))
+	h.image("registry.test/sidecar:1", digestB, vuln("busybox", "1.36.0", "CVE-2026-1003", model.SeverityMedium, "1.36.1"))
+	h.image("registry.test/app:v2", digestC)
+	h.image("registry.test/sidecar:2", "sha256:dddd000000000000000000000000000000000000000000000000000000000000")
+	prod := charts.Profile{Name: "prod", Release: "web", Namespace: "shop", Values: [][]byte{[]byte("replicas: 3\n")}}
+	dev := charts.Profile{Name: "dev", Release: "web", Namespace: "dev"}
+	h.eng.Charts = []engine.FollowedChart{{ID: "web", Chart: "web", Source: src, Profiles: []charts.Profile{prod, dev}, AddTargets: true, Platform: "linux/amd64"}}
+	h.eng.ChartRenderer = rend
+	h.eng.ChartPolicy = charts.NeglectPolicy{FixableAfter: 30 * day, MinSeverity: model.SeverityHigh, StaleAfter: 180 * day}
+	status := func() charts.Status {
+		t.Helper()
+		sts, err := h.eng.ChartStatuses(h.ctx)
+		if err != nil || len(sts) != 1 {
+			t.Fatalf("statuses: %+v %v", sts, err)
+		}
+		return sts[0]
+	}
+
+	// First cycle: the newest release (not the pre-release) with both profiles; its images
+	// become targets and are scanned in the same cycle.
+	sum := h.monitor()
+	if len(sum.ChartFailures) != 0 || !slices.Equal(rend.calls, []string{"1.0.0/prod", "1.0.0/dev"}) {
+		t.Fatalf("first cycle: %+v, renders %v", sum.ChartFailures, rend.calls)
+	}
+	if len(sum.Results) != 2 {
+		t.Errorf("the chart's images are scanned in the cycle that found them: %d results", len(sum.Results))
+	}
+	st := status()
+	if st.Version != "1.0.0" || len(st.Images) != 2 || !st.Images[0].Monitored || st.Images[0].Fixable != 1 || st.Invalid != 1 || st.Assessment.Neglected {
+		t.Fatalf("status after the first cycle: %+v", st)
+	}
+	if !slices.Equal(st.Images[0].Profiles, []string{"prod", "dev"}) || !slices.Equal(st.Images[1].Profiles, []string{"prod"}) {
+		t.Errorf("profiles per image: %+v", st.Images)
+	}
+
+	// Nothing changed: nothing is rendered again.
+	h.advance(day)
+	h.monitor()
+	if len(rend.calls) != 2 {
+		t.Errorf("an unchanged release is not rendered again: %v", rend.calls)
+	}
+
+	// A month later the high finding with a fix is still there: neglected. The critical one
+	// has no fix, the medium one is below the policy.
+	h.advance(30 * day)
+	h.monitor()
+	st = status()
+	if !st.Assessment.Neglected || len(st.Assessment.Overdue) != 1 || st.Assessment.Overdue[0].VulnID != "CVE-2026-1001" ||
+		st.Assessment.Overdue[0].Image != "registry.test/app:prod" {
+		t.Fatalf("neglected after the policy's 30 days: %+v", st.Assessment)
+	}
+
+	// A release that ships clean images: rendered, monitored, no longer neglected.
+	src.versions = append(src.versions, charts.Version{Version: "1.1.0", Created: h.clock})
+	h.advance(day)
+	h.monitor()
+	st = status()
+	if st.Version != "1.1.0" || st.Assessment.Neglected || len(st.Images) != 2 || !st.Images[0].Monitored || !st.Images[1].Monitored {
+		t.Fatalf("after a clean release: %+v", st)
+	}
+	if hist, _ := h.store.ChartRenders(h.ctx, "web"); len(hist) != 4 {
+		t.Errorf("every version and profile rendered is recorded: %d", len(hist))
+	}
+
+	// A changed profile renders that profile again, not the others.
+	h.eng.Charts[0].Profiles[1].Values = [][]byte{[]byte("debug: true\n")}
+	h.monitor()
+	if got := rend.calls[len(rend.calls)-1]; len(rend.calls) != 5 || got != "1.1.0/dev" {
+		t.Errorf("a changed profile is rendered again: %v", rend.calls)
+	}
+
+	// A failing source is a health finding and a degraded cycle; the next success resolves it.
+	src.fail = errors.New("index.yaml: 503 Service Unavailable")
+	if sum := h.monitor(); sum.Status != "degraded" || !strings.Contains(sum.ChartFailures["web"], "503") {
+		t.Errorf("failing source: %s %+v", sum.Status, sum.ChartFailures)
+	}
+	if hf := h.health(engine.CheckChart, "web"); hf == nil || !hf.ResolvedAt.IsZero() {
+		t.Errorf("chart_failed open: %+v", hf)
+	}
+	src.fail = nil
+	h.monitor()
+	if hf := h.health(engine.CheckChart, "web"); hf == nil || hf.ResolvedAt.IsZero() {
+		t.Errorf("chart_failed resolved: %+v", hf)
+	}
+
+	// Without helm, every chart says why.
+	h.eng.ChartRenderer, h.eng.ChartRendererErr = nil, errors.New("helm: not found in PATH")
+	if sum := h.monitor(); !strings.Contains(sum.ChartFailures["web"], "helm: not found") {
+		t.Errorf("no renderer: %+v", sum.ChartFailures)
+	}
+	h.eng.ChartRenderer = rend
+
+	// Half a year without a release: stale, so neglected.
+	h.advance(181 * day)
+	st = status()
+	if !st.Assessment.Neglected || !st.Assessment.Stale {
+		t.Errorf("a chart that stopped releasing: %+v", st.Assessment)
 	}
 }

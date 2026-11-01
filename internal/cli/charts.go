@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -20,10 +19,13 @@ import (
 
 	"github.com/nocs90/shieldmon/internal/charts"
 	"github.com/nocs90/shieldmon/internal/config"
+	"github.com/nocs90/shieldmon/internal/engine"
 	"github.com/nocs90/shieldmon/internal/manifests"
 	"github.com/nocs90/shieldmon/internal/oci"
 	"github.com/nocs90/shieldmon/internal/redact"
+	"github.com/nocs90/shieldmon/internal/report"
 	"github.com/nocs90/shieldmon/internal/scanner"
+	"github.com/nocs90/shieldmon/internal/store"
 )
 
 // chartOCI gives chart sources registry access through internal/oci, where registry
@@ -89,16 +91,7 @@ func (a *app) fetchChart(ctx context.Context, c config.Chart, version string) ([
 			return nil, "", charts.Meta{}, fmt.Errorf("%s: no released version", c.ID())
 		}
 	}
-	var buf bytes.Buffer
-	digest, err := src.Fetch(ctx, c.Chart, version, &buf)
-	if err != nil {
-		return nil, "", charts.Meta{}, err
-	}
-	meta, err := charts.CheckArchive(buf.Bytes(), c.Chart, version)
-	if err != nil {
-		return nil, "", charts.Meta{}, fmt.Errorf("%s %s: %w", c.ID(), version, err)
-	}
-	return buf.Bytes(), digest, meta, nil
+	return charts.FetchChecked(ctx, src, c.Chart, version)
 }
 
 // chartRenderer renders charts with the configured helm, in the scanners' sandbox
@@ -219,6 +212,230 @@ func chartImageRefs(cmd *cobra.Command, c config.Chart, rc renderedChart) ([]str
 		}
 	}
 	return refs, nil
+}
+
+// followCharts gives the engine the configured charts to follow, with their profiles' values
+// read, and the renderer (docs/adr/0034-chart-tracking.md). A chart whose configuration cannot
+// be used carries the reason, and so does every chart when helm is missing: the others, and
+// the targets, are still monitored.
+func (a *app) followCharts(warn io.Writer) {
+	if len(a.cfg.Charts) == 0 || a.engine.Charts != nil {
+		return
+	}
+	platform := a.cfg.Platform
+	for _, c := range a.cfg.Charts {
+		f := engine.FollowedChart{ID: c.ID(), Chart: c.Chart, AddTargets: c.AddTargets, Platform: platform}
+		src, err := a.chartSource(c)
+		if err == nil {
+			f.Source = src
+			f.Profiles, err = chartProfiles(c, "")
+		}
+		f.Err = err
+		a.engine.Charts = append(a.engine.Charts, f)
+	}
+	r, err := a.chartRenderer(warn)
+	if err != nil {
+		a.engine.ChartRendererErr = err
+		return
+	}
+	a.engine.ChartRenderer = r
+}
+
+// chartIDs checks that ids name configured charts.
+func (a *app) chartIDs(ids []string) error {
+	for _, id := range ids {
+		if _, err := a.configuredChart(id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *app) chartsTrackCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "track [NAME...]",
+		Short: "Bring the record of followed charts up to their newest release, as monitor does",
+		Long: `Look for each followed chart's newest release (only the charts named, when given), render
+it with every profile the first time, and again when its archive or a profile changes, and
+record what it runs; with add_targets, add its images as targets. 'shieldmon monitor' does
+this at the start of every cycle.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := a.setup(cmd); err != nil {
+				return err
+			}
+			if err := a.chartIDs(args); err != nil {
+				return err
+			}
+			unlock, err := a.lock()
+			if err != nil {
+				return err
+			}
+			defer unlock()
+			a.followCharts(cmd.ErrOrStderr())
+			failures := a.engine.FollowCharts(cmd.Context(), args...)
+			sts, err := a.engine.ChartStatuses(cmd.Context(), args...)
+			if err != nil {
+				return err
+			}
+			for _, s := range sts {
+				if msg, ok := failures[s.Chart]; ok {
+					fmt.Fprintf(cmd.ErrOrStderr(), "%s: %s\n", s.Chart, printable(msg))
+					continue
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "%s: %s, %d image(s)\n", s.Chart, printable(s.Version), len(s.Images))
+			}
+			if len(failures) > 0 {
+				return fmt.Errorf("%d chart(s) could not be followed (see 'shieldmon health')", len(failures))
+			}
+			return nil
+		},
+	}
+}
+
+func (a *app) chartsStatusCmd() *cobra.Command {
+	var format string
+	cmd := &cobra.Command{
+		Use:   "status [NAME...]",
+		Short: "What followed charts run and whether they are neglected",
+		Long: `Show, for each followed chart (only the charts named, when given), its newest recorded release,
+its images and which are monitored, their findings with a fix, and whether the chart is
+neglected under chart_policy: its newest release keeps a finding with a fix past
+fixable_after, or it has not released for stale_after. Nothing is fetched: 'shieldmon charts
+track' or 'shieldmon monitor' records releases.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "table" && format != "json" && format != "md" {
+				return fmt.Errorf("unknown output format %q", format)
+			}
+			if err := a.setup(cmd); err != nil {
+				return err
+			}
+			if err := a.chartIDs(args); err != nil {
+				return err
+			}
+			a.followCharts(io.Discard)
+			sts, err := a.engine.ChartStatuses(cmd.Context(), args...)
+			if err != nil {
+				return err
+			}
+			w := cmd.OutOrStdout()
+			switch format {
+			case "json":
+				enc := json.NewEncoder(w)
+				enc.SetIndent("", "  ")
+				return enc.Encode(sts)
+			case "md":
+				return report.ChartsMarkdown(w, sts, time.Now())
+			}
+			tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+			fmt.Fprintln(tw, "CHART\tVERSION\tRELEASED\tIMAGES\tMONITORED\tWITH A FIX\tNEGLECTED")
+			for _, s := range sts {
+				monitored, fixable := 0, 0
+				for _, img := range s.Images {
+					if img.Monitored {
+						monitored++
+					}
+					fixable += img.Fixable
+				}
+				released := "-"
+				if !s.ReleasedAt.IsZero() {
+					released = s.ReleasedAt.Format(time.DateOnly)
+				}
+				neglected := "no"
+				if s.Assessment.Neglected {
+					neglected = "yes: " + strings.Join(s.Assessment.Reasons, "; ")
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%d\t%s\n", s.Chart, orDash(printable(s.Version)), released, len(s.Images), monitored, fixable, printable(neglected))
+			}
+			return tw.Flush()
+		},
+	}
+	cmd.Flags().StringVarP(&format, "output", "o", "table", "output format: table, json, md")
+	return cmd
+}
+
+func (a *app) chartsHistoryCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "history NAME",
+		Short: "The releases of a followed chart ShieldMon recorded, and how their images changed",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := a.setup(cmd); err != nil {
+				return err
+			}
+			if err := a.chartIDs(args); err != nil {
+				return err
+			}
+			renders, err := a.store.ChartRenders(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			w := cmd.OutOrStdout()
+			if len(renders) == 0 {
+				fmt.Fprintf(w, "%s: nothing recorded yet ('shieldmon charts track %s')\n", args[0], args[0])
+				return nil
+			}
+			prev := map[string][]store.ChartImage{} // profile -> images of its previous render
+			for _, r := range renders {
+				fmt.Fprintf(w, "%s  %s  profile %s  %d image(s)  %s\n", r.RenderedAt.Format(time.DateOnly), printable(r.Version), r.Profile, len(r.Images), shortDigest(r.Digest))
+				if before, ok := prev[r.Profile]; ok {
+					for _, line := range imageChanges(before, r.Images) {
+						fmt.Fprintf(w, "    %s\n", printable(line))
+					}
+				}
+				prev[r.Profile] = r.Images
+			}
+			return nil
+		},
+	}
+}
+
+// imageChanges lists images added (+) and removed (-) between two renders of a profile.
+func imageChanges(before, after []store.ChartImage) []string {
+	had, has := map[string]bool{}, map[string]bool{}
+	for _, i := range before {
+		had[i.Ref] = true
+	}
+	for _, i := range after {
+		has[i.Ref] = true
+	}
+	var out []string
+	for _, i := range after {
+		if !had[i.Ref] {
+			out = append(out, "+ "+i.Ref)
+		}
+	}
+	for _, i := range before {
+		if !has[i.Ref] {
+			out = append(out, "- "+i.Ref)
+		}
+	}
+	return out
+}
+
+func (a *app) chartsDraftIssueCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "draft-issue NAME",
+		Short: "Draft an issue for the maintainers of a neglected chart (never submitted)",
+		Long: `Print a Markdown draft for the chart's maintainers: the images of its newest release that carry
+vulnerabilities with a fixed version, past chart_policy.fixable_after. ShieldMon never submits
+it: review it, follow the project's contribution guidelines, search its issues for an existing
+report, and submit it yourself (docs/processes/charts.md).`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := a.setup(cmd); err != nil {
+				return err
+			}
+			if err := a.chartIDs(args); err != nil {
+				return err
+			}
+			a.followCharts(io.Discard)
+			sts, err := a.engine.ChartStatuses(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return report.ChartIssueDraft(cmd.OutOrStdout(), sts[0], time.Now())
+		},
+	}
 }
 
 // chartTargets renders the configured chart id for 'targets add --chart'.
@@ -348,7 +565,7 @@ naming the chart and version asked for. Nothing in it is run.`,
 	}
 	fetch.Flags().StringVar(&version, "version", "", "chart version (default: the newest release)")
 	fetch.Flags().StringVar(&out, "out", "", "file to write the archive to")
-	cmd.AddCommand(list, versions, fetch, a.chartsImagesCmd())
+	cmd.AddCommand(list, versions, fetch, a.chartsImagesCmd(), a.chartsTrackCmd(), a.chartsStatusCmd(), a.chartsHistoryCmd(), a.chartsDraftIssueCmd())
 	return cmd
 }
 
