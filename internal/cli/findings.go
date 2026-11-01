@@ -21,6 +21,7 @@ import (
 	"github.com/nocs90/shieldmon/internal/engine"
 	"github.com/nocs90/shieldmon/internal/lifecycle"
 	"github.com/nocs90/shieldmon/internal/model"
+	"github.com/nocs90/shieldmon/internal/owners"
 	"github.com/nocs90/shieldmon/internal/priority"
 	"github.com/nocs90/shieldmon/internal/report"
 	"github.com/nocs90/shieldmon/internal/sbom"
@@ -112,7 +113,7 @@ func printResults(w io.Writer, results []engine.Result, format string) error {
 
 func (a *app) targetsCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "targets", Short: "Manage monitoring targets"}
-	cmd.AddCommand(a.targetsAddCmd(), a.targetsAddRepoCmd(), a.targetsRetireCmd(true), a.targetsRetireCmd(false))
+	cmd.AddCommand(a.targetsAddCmd(), a.targetsAddRepoCmd(), a.targetsRetireCmd(true), a.targetsRetireCmd(false), a.targetsSetBaseCmd())
 	cmd.AddCommand(&cobra.Command{
 		Use:   "list",
 		Short: "List monitoring targets",
@@ -125,14 +126,26 @@ func (a *app) targetsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			bases, err := a.store.TargetBases(cmd.Context())
+			if err != nil {
+				return err
+			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-			fmt.Fprintln(tw, "ID\tREF\tPLATFORM\tDIGEST\tLAST RESOLVED\tSTATUS")
+			fmt.Fprintln(tw, "ID\tREF\tPLATFORM\tDIGEST\tLAST RESOLVED\tSTATUS\tBASE\tOWNER")
 			for _, t := range targets {
 				status := "monitored"
 				if !t.RetiredAt.IsZero() {
 					status = "retired " + t.RetiredAt.Format(time.DateOnly)
 				}
-				fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\n", t.ID, t.Ref, t.Platform, shortDigest(t.CurrentDigest), fmtTime(t.LastResolvedAt), status)
+				base := bases[t.ID]
+				if base == "" {
+					base = "-"
+				}
+				owner := a.owners.Of(t.Ref)
+				if owner == "" {
+					owner = owners.Unowned
+				}
+				fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t.ID, t.Ref, t.Platform, shortDigest(t.CurrentDigest), fmtTime(t.LastResolvedAt), status, base, owner)
 			}
 			return tw.Flush()
 		},
@@ -145,7 +158,7 @@ func (a *app) findingsCmd() *cobra.Command {
 
 	var states []string
 	var all bool
-	var severity, digest, vuln, format, target, sortBy string
+	var severity, digest, vuln, format, target, sortBy, owner string
 	var limit int
 	list := &cobra.Command{
 		Use:   "list",
@@ -159,8 +172,11 @@ func (a *app) findingsCmd() *cobra.Command {
 				return fmt.Errorf("--sort: want severity or priority, got %q", sortBy)
 			}
 			flt := store.FindingFilter{VulnID: vuln, Limit: limit}
-			if sortBy == "priority" {
-				flt.Limit = 0 // the top N by priority, not by severity
+			if sortBy == "priority" || owner != "" {
+				flt.Limit = 0 // the top N by priority, or of the team, not of the table
+			}
+			if owner != "" && owner != owners.Unowned && !a.owners.Has(owner) {
+				return fmt.Errorf("--owner: %q is not a team in owners (- for unowned findings)", owner)
 			}
 			for _, arg := range []string{digest, target} {
 				if arg == "" {
@@ -197,15 +213,25 @@ func (a *app) findingsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if owner != "" {
+				fs = slices.DeleteFunc(fs, func(f store.Finding) bool {
+					teams := a.owners.Teams(f.Targets)
+					if len(teams) == 0 {
+						teams = []string{owners.Unowned}
+					}
+					return !slices.Contains(teams, owner)
+				})
+			}
 			if sortBy == "priority" {
 				sortByPriority(fs, policy)
-				if limit > 0 && len(fs) > limit {
-					fs = fs[:limit]
-				}
+			}
+			if limit > 0 && len(fs) > limit {
+				fs = fs[:limit]
 			}
 			return printFindings(cmd.OutOrStdout(), fs, format, policy)
 		},
 	}
+	list.Flags().StringVar(&owner, "owner", "", "only findings on targets of this team (- for unowned; docs/adr/0024-ownership.md)")
 	list.Flags().StringVar(&sortBy, "sort", "severity", "order: severity, priority (CVSS, EPSS, KEV, fix, SLA clock; docs/adr/0020-priority-score.md)")
 	list.Flags().StringSliceVar(&states, "state", nil, "filter by state (repeatable)")
 	list.Flags().BoolVar(&all, "all", false, "include every state")
@@ -587,6 +613,11 @@ func (a *app) reportCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			read := func(b store.SBOM) ([]byte, error) { return a.engine.ReadSBOM(b, sbom.MaxBytes) }
+			if err := report.AddBaseLineage(cmd.Context(), a.store, &r, a.engine.Bases, read); err != nil {
+				return err
+			}
+			report.AddOwners(&r, a.owners)
 			w, closeOut, err := reportOutput(cmd, out)
 			if err != nil {
 				return err
@@ -634,7 +665,7 @@ health.monitor_interval, a required SBOM generator missing.`,
 			slices.Sort(gens)
 			opts := report.InventoryOptions{
 				Now: time.Now().UTC(), StaleAfter: a.cfg.Health.MonitorInterval.Duration * 3 / 2, Generators: gens,
-				Tool: "shieldmon " + Version,
+				Tool: "shieldmon " + Version, Bases: a.engine.Bases,
 			}
 			if f, ok := report.LookupInventoryFormat(format); ok && f.Components {
 				opts.ReadSBOM = func(b store.SBOM) ([]byte, error) { return a.engine.ReadSBOM(b, sbom.MaxBytes) }

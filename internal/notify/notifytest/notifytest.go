@@ -63,6 +63,10 @@ func HostileEvents() []notify.Event {
 		{Key: "health:registry_auth:ghcr.io:2026-10-01T09:00:00Z", Kind: notify.HealthOpened, Health: &notify.Health{
 			Check: "registry_auth", Subject: "ghcr.io" + evil, Severity: "high", Detail: "401 Unauthorized" + evil, FirstSeen: first,
 		}},
+		{Key: "base_rebuild_available:sha256:aaaa:sha256:b2", Kind: notify.BaseRebuildAvailable, Base: &notify.Base{
+			Images: []string{"registry.test/app:prod" + evil}, Digest: "sha256:aaaa", BaseRef: "registry.test/base:1",
+			BaseDigest: "sha256:b1", Newest: "sha256:b2", Since: first, Status: "rebuild_available",
+		}},
 		// The first event's problem, fixed: an issue tracker closes what it opened for it.
 		{Key: "finding_fixed:1", Kind: notify.FindingFixed, Finding: &notify.Finding{
 			ID: 1, Lineage: 1, VulnID: "CVE-2024-3094", Title: "xz backdoor" + evil, Severity: "critical", KEV: true,
@@ -127,6 +131,8 @@ func CheckNotifier(t *testing.T, f Fixture) {
 			return strings.Contains(payload, e.Finding.VulnID)
 		case e.Health != nil:
 			return strings.Contains(payload, e.Health.Check)
+		case e.Base != nil:
+			return strings.Contains(payload, e.Base.BaseRef)
 		}
 		return strings.Contains(payload, e.Key)
 	}

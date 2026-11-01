@@ -51,6 +51,15 @@ var auditTables = []auditTable{
 	{name: "notification_events", key: []string{"id"}, cols: [][]string{{"id", "key", "kind", "payload", "created_at"}}},
 	{name: "notification_channels", key: []string{"name"}, cols: [][]string{{"name", "added_at"}}},
 	{name: "notifications", key: []string{"channel", "event_id"}, cols: [][]string{{"channel", "event_id", "sent_at"}}},
+	{name: "target_bases", key: []string{"id"}, cols: [][]string{{"id", "target_id", "base_ref", "actor", "at"}}},
+	{name: "image_inspections", key: []string{"digest"}, cols: [][]string{{
+		"digest", "diff_ids", "created", "annotated_base", "annotated_repository", "annotated_digest", "annotated_verified",
+		"problems", "inspected_at",
+	}, {
+		"digest", "diff_ids", "created", "annotated_base", "annotated_repository", "annotated_digest", "annotated_verified",
+		"problems", "inspected_at", "annotated_base_layers",
+	}}},
+	{name: "base_observations", key: []string{"id"}, cols: [][]string{{"id", "base_ref", "platform", "digest", "diff_ids", "created", "observed_at"}}},
 }
 
 func auditTableNamed(name string) (auditTable, bool) {

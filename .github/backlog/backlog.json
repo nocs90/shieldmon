@@ -972,6 +972,57 @@
       "milestone": "M5 — Compliance profiles",
       "epic": null,
       "body": "## Context\n\n#31 signs reports and audit digests with the organization's own minisign or cosign (docs/processes/audit.md); ShieldMon holds no key and adds no cryptographic dependency. Signing in-process (`--sign-key-env`) would save a step in scheduled jobs.\n\n## Acceptance criteria\n\n- [ ] Decide in an ADR whether the convenience is worth a cryptographic dependency (candidates: aead.dev/minisign, sigstore-go); no hand-written signature format\n- [ ] Signatures verify with the real `minisign -V` / `cosign verify-blob`: interoperability tests in CI install the pinned tools\n- [ ] Keys only from environment variables or files with owner-only permissions; never logged; redaction tests"
+    },
+    {
+      "key": "base-identify",
+      "title": "Base image identification: configured, OCI annotations, verified by layers",
+      "labels": [
+        "kind/feature",
+        "area/registry",
+        "area/storage",
+        "priority/high"
+      ],
+      "milestone": "M4 — Prioritization, VEX, notifications",
+      "epic": "stale-base",
+      "body": "## Context\n\nTo say whether a rebuild can fix an image, ShieldMon must first know what it is built on. The OCI image spec defines the `org.opencontainers.image.base.name` and `org.opencontainers.image.base.digest` annotations (\"the immediate image sharing zero-indexed layers with the image\"), but BuildKit does not set them by default: they are present only when the build sets them. Labels are inherited from the base and cannot tell which image is the base.\n\n## Acceptance criteria\n\n- [ ] ADR first: sources in order of trust (configured base for a target, then the manifest annotations), and verification: a base digest is accepted only when its layers (config `rootfs.diff_ids`) are a prefix of the image's\n- [ ] `targets add --base REF` and `targets set-base TARGET REF|--none`, recorded append-only with actor\n- [ ] Read once per new digest (manifest and config, bounded like every registry response; hostile annotation values bounded and validated as references and digests); stored per digest with its source and whether layers verified it\n- [ ] Image inventory shows the base, its source and verification; `targets list` shows the configured base"
+    },
+    {
+      "key": "base-freshness",
+      "title": "Base lineage freshness: rebuild available, unmaintained lineage",
+      "labels": [
+        "kind/feature",
+        "area/engine",
+        "area/remediation",
+        "priority/high"
+      ],
+      "milestone": "M4 — Prioritization, VEX, notifications",
+      "epic": "stale-base",
+      "body": "## Context\n\nIn the UBI 9 + Node.js e2e scenario the newest `ubi9/nodejs-20-minimal` was five months old: rebuilding could not fix anything. In the opposite case a newer base exists and only a rebuild is missing.\n\n## Acceptance criteria\n\n- [ ] Each monitor cycle resolves every distinct base reference once and records what it points to (append-only, with the base image's creation time)\n- [ ] Per image: `rebuild_available` (the base reference now points to a digest whose layers are not the image's prefix) and `base_unmaintained` (the newest base was created more than `bases.max_age` ago, default 90 days)\n- [ ] Shown in the image inventory and the monthly report; notification events for both (opt-in), sent once per image digest and base digest\n- [ ] Not health findings: a stale base is a property of the image, not a failure of the monitoring (I6)"
+    },
+    {
+      "key": "base-fixable",
+      "title": "Fixable by rebuild vs needs base migration: compare with the newest base",
+      "labels": [
+        "kind/feature",
+        "area/remediation",
+        "area/report",
+        "priority/medium"
+      ],
+      "milestone": "M4 — Prioritization, VEX, notifications",
+      "epic": "stale-base",
+      "body": "## Context\n\nTeams need to know which open findings a rebuild removes and which need a different base or an application change.\n\n## Acceptance criteria\n\n- [ ] SBOM and match the newest base digest (once per digest, SBOM-first) without making it a monitored target\n- [ ] Classify each open finding of an image: in the base and gone from the newest base (fixable by rebuild), in the newest base too (needs base migration or an upstream fix), not from the base (application)\n- [ ] Report section and remediation-plan column; no finding state changes (closure stays with scan evidence of the image itself)"
+    },
+    {
+      "key": "base-successor",
+      "title": "Successor lineages: suggest the maintained base when a lineage is unmaintained",
+      "labels": [
+        "kind/feature",
+        "area/remediation",
+        "priority/low"
+      ],
+      "milestone": "M4 — Prioritization, VEX, notifications",
+      "epic": "stale-base",
+      "body": "## Context\n\n`ubi9/nodejs-20-minimal` is succeeded by `ubi9/nodejs-22-minimal`; nothing in the registry says so.\n\n## Acceptance criteria\n\n- [ ] Configured successors (`bases.successors`: reference pattern to successor reference), validated\n- [ ] Report and notification name the successor and its age when a lineage is unmaintained\n- [ ] Evaluate end-of-life data sources (e.g. endoflife.date) as an enricher in an ADR; no guessing from tag names"
     }
   ]
 }

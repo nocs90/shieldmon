@@ -118,12 +118,13 @@ footer{margin-top:28px;color:var(--muted);font-size:12px}
 <section class="card">
   <h2>Targets</h2>
   {{if .TargetSummaries}}<div class="tbl"><table>
-    <tr><th>Image</th><th>Platform</th><th>Digest</th><th class="num">Open</th><th>By severity</th><th class="num">Past SLA</th></tr>
-    {{range .TargetSummaries}}<tr>
+    <tr><th>Image</th><th>Platform</th><th>Digest</th><th class="num">Open</th><th>By severity</th><th class="num">Past SLA</th>{{if .Bases}}<th>Base</th>{{end}}</tr>
+    {{$bases := .Bases}}{{range .TargetSummaries}}<tr>
       <td class="mono">{{.Ref}}</td><td class="muted">{{.Platform}}</td><td class="mono muted">{{short .Digest}}</td>
       <td class="num"><b>{{.Open}}</b></td>
       <td class="chips">{{$t := .}}{{range $sev := severities}}{{with index $t.BySev $sev}}<span title="{{$sev}}"><i class="sw s-{{$sev}}"></i>{{.}}</span>{{end}}{{end}}</td>
       <td class="num {{if .Breached}}late{{end}}">{{.Breached}}</td>
+      {{if $bases}}<td>{{with .Base}}{{if .BaseRef}}<span class="mono" title="{{.BaseRef}}">{{.Status}}</span>{{if .Unmaintained}} <b class="late">unmaintained</b>{{end}}{{else}}<span class="muted">none</span>{{end}}{{end}}</td>{{end}}
     </tr>{{end}}
   </table></div>{{else}}<p class="empty">No targets.</p>{{end}}
 </section>

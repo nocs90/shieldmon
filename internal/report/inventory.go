@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nocs90/shieldmon/internal/lineage"
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/sbom"
 	"github.com/nocs90/shieldmon/internal/store"
@@ -24,6 +25,7 @@ type InventorySource interface {
 	SBOMs(ctx context.Context, digest string) ([]store.SBOM, error)
 	ListFindings(ctx context.Context, f store.FindingFilter) ([]store.Finding, error)
 	ChangesSource
+	LineageSource
 }
 
 // Evidence gaps: why the inventory cannot vouch for an image's findings.
@@ -50,6 +52,8 @@ type InventoryOptions struct {
 	ReadSBOM SBOMReader
 	// Tool names the producer ("shieldmon 1.2.3") in formats that record it.
 	Tool string
+	// Bases judges base lineages: unmaintained after MaxAge (0: never), successors.
+	Bases lineage.Policy
 }
 
 // Inventory is what ShieldMon monitors and how fresh its evidence is.
@@ -72,6 +76,10 @@ type InventorySummary struct {
 	WithGaps int            `json:"with_gaps"`
 	Gaps     map[string]int `json:"gaps"`
 	Open     map[string]int `json:"open_by_severity"`
+	// Bases counts monitored images per base status; BaseUnmaintained those whose base
+	// lineage is unmaintained (docs/adr/0022-base-image-lineage.md).
+	Bases            map[string]int `json:"base_status"`
+	BaseUnmaintained int            `json:"base_unmaintained"`
 }
 
 // Image is one monitored target.
@@ -91,6 +99,8 @@ type Image struct {
 	// RetiredAt is when the image was retired: it is listed, not monitored, and neither its
 	// gaps nor its findings count.
 	RetiredAt time.Time `json:"retired_at,omitzero"`
+	// Base is what the current digest is built on and whether that base is current.
+	Base lineage.Result `json:"base"`
 	// Components are filled only when InventoryOptions.ReadSBOM is set.
 	Components []sbom.Component `json:"-"`
 }
@@ -114,9 +124,13 @@ type SBOMInfo struct {
 
 // BuildInventory computes the inventory as of opts.Now.
 func BuildInventory(ctx context.Context, src InventorySource, opts InventoryOptions) (Inventory, error) {
-	inv := Inventory{GeneratedAt: opts.Now.UTC(), Tool: opts.Tool, Summary: InventorySummary{Gaps: map[string]int{}, Open: map[string]int{}}}
+	inv := Inventory{GeneratedAt: opts.Now.UTC(), Tool: opts.Tool, Summary: InventorySummary{Gaps: map[string]int{}, Open: map[string]int{}, Bases: map[string]int{}}}
 	components := map[string][]sbom.Component{} // per digest, read once
 	targets, err := src.ListTargets(ctx)
+	if err != nil {
+		return inv, err
+	}
+	bases, err := Lineages(ctx, src, targets, opts.Bases, opts.Now)
 	if err != nil {
 		return inv, err
 	}
@@ -156,6 +170,11 @@ func BuildInventory(ctx context.Context, src InventorySource, opts InventoryOpti
 			continue
 		}
 		inv.Summary.Targets++
+		img.Base = bases[t.ID]
+		inv.Summary.Bases[string(img.Base.Status)]++
+		if img.Base.Unmaintained {
+			inv.Summary.BaseUnmaintained++
+		}
 		if err := fillEvidence(ctx, src, &img, opts); err != nil {
 			return inv, fmt.Errorf("%s: %w", t.Ref, err)
 		}

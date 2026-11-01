@@ -20,6 +20,7 @@ const (
 	MaxDepth      = 16
 	maxField      = 2048
 	maxLicenses   = 32
+	maxLayers     = 16
 )
 
 // ErrNotCycloneDX is returned for documents that are not CycloneDX JSON.
@@ -33,6 +34,9 @@ type Component struct {
 	Type     string   `json:"type"`
 	PURL     string   `json:"purl,omitempty"`
 	Licenses []string `json:"licenses,omitempty"`
+	// Layers are the image layers (diff IDs) the component was found in, when the generator
+	// records them (docs/adr/0023-fixable-by-rebuild.md).
+	Layers []string `json:"layers,omitempty"`
 }
 
 // Key identifies a component across SBOMs: its PURL, or its type, group, name and version.
@@ -57,6 +61,10 @@ type cdxComponent struct {
 		Expression string `json:"expression"`
 	} `json:"licenses"`
 	Components []cdxComponent `json:"components"`
+	Properties []struct {
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	} `json:"properties"`
 }
 
 // ParseCycloneDX returns the components of a CycloneDX JSON SBOM (spec 1.2 and later),
@@ -79,7 +87,7 @@ func ParseCycloneDX(data []byte) (comps []Component, skipped int, err error) {
 	if doc.BOMFormat != "CycloneDX" || !strings.HasPrefix(doc.SpecVersion, "1.") {
 		return nil, 0, ErrNotCycloneDX
 	}
-	seen := map[string]bool{}
+	seen := map[string]int{} // key -> index in comps
 	var walk func([]cdxComponent, int) error
 	walk = func(list []cdxComponent, depth int) error {
 		if depth > MaxDepth {
@@ -90,11 +98,17 @@ func ParseCycloneDX(data []byte) (comps []Component, skipped int, err error) {
 				return fmt.Errorf("more than %d components", MaxComponents)
 			}
 			comp, ok := component(c)
-			switch {
-			case !ok:
+			if !ok {
 				skipped++
-			case !seen[comp.Key()]:
-				seen[comp.Key()] = true
+			} else if i, dup := seen[comp.Key()]; dup {
+				// The same package found again (another layer): keep where else it is.
+				for _, l := range comp.Layers {
+					if !slices.Contains(comps[i].Layers, l) && len(comps[i].Layers) < maxLayers {
+						comps[i].Layers = append(comps[i].Layers, l)
+					}
+				}
+			} else {
+				seen[comp.Key()] = len(comps)
 				comps = append(comps, comp)
 			}
 			if err := walk(c.Components, depth+1); err != nil {
@@ -136,5 +150,33 @@ func component(c cdxComponent) (Component, bool) {
 			out.Licenses = append(out.Licenses, v)
 		}
 	}
+	for _, p := range c.Properties {
+		if layerProperty(p.Name) && isLayerDigest(p.Value) && !slices.Contains(out.Layers, p.Value) && len(out.Layers) < maxLayers {
+			out.Layers = append(out.Layers, p.Value)
+		}
+	}
 	return out, true
+}
+
+// layerProperty names the properties generators record a component's image layer in: syft
+// "syft:location:N:layerID", trivy "aquasecurity:trivy:LayerDiffID" (uncompressed digests).
+func layerProperty(name string) bool {
+	if name == "aquasecurity:trivy:LayerDiffID" {
+		return true
+	}
+	rest, ok := strings.CutPrefix(name, "syft:location:")
+	return ok && strings.HasSuffix(rest, ":layerID")
+}
+
+func isLayerDigest(v string) bool {
+	hex, ok := strings.CutPrefix(v, "sha256:")
+	if !ok || len(hex) != 64 {
+		return false
+	}
+	for _, c := range hex {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }

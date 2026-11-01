@@ -48,11 +48,20 @@ type Registry struct {
 // Channel is one notification channel (docs/adr/0015-notifications.md). Options are validated
 // by the notifier and never hold a credential: they name environment variables.
 type Channel struct {
-	Name     string         `yaml:"name"`
-	Notifier string         `yaml:"notifier"`
-	Events   []string       `yaml:"events,omitempty"`
-	Digest   bool           `yaml:"digest,omitempty"`
-	Options  map[string]any `yaml:"options,omitempty"`
+	Name     string   `yaml:"name"`
+	Notifier string   `yaml:"notifier"`
+	Events   []string `yaml:"events,omitempty"`
+	Digest   bool     `yaml:"digest,omitempty"`
+	// Owners, when set, limit the channel to the events of these teams' targets.
+	Owners  []string       `yaml:"owners,omitempty"`
+	Options map[string]any `yaml:"options,omitempty"`
+}
+
+// Owner is a team owning the targets its patterns match (docs/adr/0024-ownership.md).
+type Owner struct {
+	Team    string   `yaml:"team"`
+	Contact string   `yaml:"contact,omitempty"`
+	Targets []string `yaml:"targets"`
 }
 
 // Enricher configures one enricher (docs/adr/0019-enrichers.md). Options never hold a
@@ -128,6 +137,25 @@ type Config struct {
 
 	// Gate is the policy of 'shieldmon gate' (docs/adr/0021-policy-gate.md).
 	Gate Gate `yaml:"gate"`
+
+	// Owners are the teams owning targets, first match wins (docs/adr/0024-ownership.md);
+	// validated by owners.New.
+	Owners []Owner `yaml:"owners,omitempty"`
+
+	// Bases are the base images targets are built on (docs/adr/0022-base-image-lineage.md).
+	Bases struct {
+		// MaxAge is how long a base may stay unchanged before it is unmaintained (0: never).
+		MaxAge Duration `yaml:"max_age"`
+		// Successors name the maintained base to move to (docs/adr/0025-base-successors.md);
+		// validated by lineage.NewSuccessors.
+		Successors []Successor `yaml:"successors,omitempty"`
+	} `yaml:"bases"`
+}
+
+// Successor names the base that succeeds the bases matching From.
+type Successor struct {
+	From string `yaml:"from"`
+	To   string `yaml:"to"`
 }
 
 // TemplateWithSandbox is Template with scanners.sandbox.backend set to backend.
@@ -158,6 +186,7 @@ func Default() Config {
 	c.Decisions.OperationalRequirementMaxDays = 365
 	c.Notifications.DueSoonDays = 7
 	c.Gate = DefaultGate()
+	c.Bases.MaxAge = Duration{90 * 24 * time.Hour}
 	return c
 }
 
@@ -217,6 +246,9 @@ func (c Config) Validate() error {
 	}
 	if c.Limits.MaxScratchBytes < 0 || c.Limits.MinFreeDiskBytes < 0 {
 		return fmt.Errorf("limits: max_scratch_bytes and min_free_disk_bytes must not be negative (0 disables)")
+	}
+	if c.Bases.MaxAge.Duration < 0 {
+		return fmt.Errorf("bases.max_age must not be negative (0 disables base_unmaintained)")
 	}
 	return c.Gate.Validate()
 }
@@ -397,8 +429,9 @@ enrichers:
 
 # Notifications after each 'shieldmon monitor' cycle (docs/processes/notifications.md).
 # Events: finding_new_kev, finding_new_critical, sla_breached, sla_due_soon, health_opened
-# (all of these when events is omitted), and finding_fixed (opt-in; github-issues and
-# gitlab-issues default to it). Each event reaches a channel once; digest: true sends one
+# (all of these when events is omitted), and the opt-in finding_fixed (github-issues and
+# gitlab-issues default to it), base_rebuild_available and base_unmaintained (base images,
+# docs/processes/base-images.md). Each event reaches a channel once; digest: true sends one
 # summary per cycle. 'shieldmon plugins' lists the notifiers and their options; options
 # never hold a credential: they name environment variables (*_env).
 notifications:
@@ -429,6 +462,25 @@ gate:
   # max_db_age: 72h       # default: health.db_max_age
   max_evidence_age: 24h   # with --no-scan, the latest scan may be this old
   exit_codes: { warn: 0, fail: 2, indeterminate: 3 }   # errors exit 1
+
+# Teams owning targets (docs/processes/ownership.md): the first team with a pattern matching
+# a target's reference or repository owns it ('*' stays within a path segment). Reports and
+# the remediation plan show owners; a channel with 'owners: [team]' hears only their images.
+owners: []
+# - team: payments
+#   contact: payments-security@example.com
+#   targets: ["registry.example.com/payments/*"]
+
+# Base images (docs/processes/base-images.md): each target's base comes from
+# 'targets set-base' or the org.opencontainers.image.base.name annotation, and is proven by
+# shared layers. monitor follows each base tag: a base unchanged for longer than max_age is
+# unmaintained, and rebuilding on it fixes nothing.
+bases:
+  max_age: 2160h   # 90 days; 0 disables
+  # The maintained base to move to when one is unmaintained, followed but never fetched
+  # (first match wins; 'from' is a reference pattern like owners' targets).
+  successors: []
+  # - { from: "registry.access.redhat.com/ubi9/nodejs-20-minimal", to: "registry.access.redhat.com/ubi9/nodejs-22-minimal:latest" }
 `
 
 // Policy builds the decision policy from configuration.

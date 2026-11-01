@@ -143,15 +143,7 @@ func Resolve(ctx context.Context, ref string, o Options) (Resolved, error) {
 		if err != nil {
 			return Resolved{}, classify(err)
 		}
-		want := v1.Platform{OS: o.Platform.OS, Architecture: o.Platform.Architecture, Variant: o.Platform.Variant}
-		var chosen *v1.Descriptor
-		for i := range im.Manifests {
-			m := im.Manifests[i]
-			if m.Platform != nil && m.Platform.Satisfies(want) && m.MediaType.IsImage() {
-				chosen = &m
-				break
-			}
-		}
+		chosen := choosePlatform(im, o.Platform)
 		if chosen == nil {
 			return Resolved{}, fmt.Errorf("%s: no manifest for platform %s", r.Name(), o.Platform)
 		}

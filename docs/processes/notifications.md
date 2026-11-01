@@ -12,6 +12,8 @@ ShieldMon tells people what needs them after each `shieldmon monitor` cycle
 | `sla_breached` | an active finding (open, triaged, in remediation, reopened) past its remediation deadline | problem and deadline |
 | `sla_due_soon` | an active finding within `notifications.due_soon_days` (default 7) of its deadline | problem and deadline |
 | `health_opened` | an open health finding | health finding and opening |
+| `base_unmaintained` | a monitored image's base tag has not moved for longer than `bases.max_age` ([base-images.md](base-images.md)); opt-in | image digest and base digest |
+| `base_rebuild_available` | a monitored image is built on an older digest of its base tag: a rebuild picks up the newer base; opt-in | image digest and base digest |
 | `finding_fixed` | a finding closed as fixed by scan evidence since the previous cycle began (not in the first cycle); opt-in, except for issue trackers | finding |
 
 A *problem* is followed across digests: when a new digest of a target still has the
@@ -26,8 +28,9 @@ notifications:
   channels:
     - name: secops                 # lowercase letters, digits, - and _
       notifier: <name>             # 'shieldmon plugins' lists the notifiers
-      events: [finding_new_kev, finding_new_critical, sla_breached, health_opened]  # default: all but finding_fixed
+      events: [finding_new_kev, finding_new_critical, sla_breached, health_opened]  # default: all but the opt-in ones
       digest: false                # true: one summary per cycle
+      # owners: [payments]         # only these teams' images, no health events (ownership.md)
       options: { … }               # per notifier; credentials only through *_env options
 ```
 

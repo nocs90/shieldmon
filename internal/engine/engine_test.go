@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -20,10 +21,13 @@ import (
 	"github.com/nocs90/shieldmon/internal/enrich"
 	"github.com/nocs90/shieldmon/internal/gate"
 	"github.com/nocs90/shieldmon/internal/lifecycle"
+	"github.com/nocs90/shieldmon/internal/lineage"
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/notify"
 	"github.com/nocs90/shieldmon/internal/oci"
+	"github.com/nocs90/shieldmon/internal/owners"
 	"github.com/nocs90/shieldmon/internal/report"
+	"github.com/nocs90/shieldmon/internal/sbom"
 	"github.com/nocs90/shieldmon/internal/scanner"
 	"github.com/nocs90/shieldmon/internal/store"
 	"github.com/nocs90/shieldmon/internal/vex"
@@ -34,9 +38,34 @@ import (
 type fakeFetcher struct {
 	tags    map[string]string // ref -> digest
 	fetches int
+	// infos are what Inspect reads per digest; a digest without one has a single layer of its own.
+	infos    map[string]oci.ImageInfo
+	inspects []string
+	resolves map[string]int
+}
+
+func (f *fakeFetcher) Inspect(_ context.Context, ref string, p model.Platform) (oci.ImageInfo, error) {
+	f.inspects = append(f.inspects, ref)
+	d, ok := f.tags[ref]
+	if _, digest, isDigest := strings.Cut(ref, "@"); isDigest {
+		d, ok = digest, true
+	}
+	if !ok {
+		return oci.ImageInfo{}, fmt.Errorf("%w: 401 for %s", oci.ErrAuth, ref)
+	}
+	info, ok := f.infos[d]
+	if !ok {
+		info.DiffIDs = []string{"layer-of-" + d}
+	}
+	info.Digest, info.Platform = d, p
+	return info, nil
 }
 
 func (f *fakeFetcher) Resolve(_ context.Context, ref string, p model.Platform) (oci.Resolved, error) {
+	if f.resolves == nil {
+		f.resolves = map[string]int{}
+	}
+	f.resolves[ref]++
 	d, ok := f.tags[ref]
 	if !ok {
 		return oci.Resolved{}, fmt.Errorf("%w: 401 for %s", oci.ErrAuth, ref)
@@ -58,6 +87,8 @@ type fakeGenerator struct {
 	name  string
 	calls int
 	pad   int64
+	// components are the SBOM components per digest, as CycloneDX JSON objects.
+	components map[string][]map[string]any
 }
 
 func (g *fakeGenerator) Name() string { return g.name }
@@ -68,7 +99,10 @@ func (g *fakeGenerator) Tool(context.Context) (model.Tool, error) {
 func (g *fakeGenerator) Generate(_ context.Context, src scanner.Source, out string) ([]scanner.SBOMFile, error) {
 	g.calls++
 	p := filepath.Join(out, "bom.json")
-	doc := map[string]any{"bomFormat": "CycloneDX", "specVersion": "1.6", "metadata": map[string]any{"component": map[string]string{"version": src.Version}}}
+	doc := map[string]any{
+		"bomFormat": "CycloneDX", "specVersion": "1.6", "metadata": map[string]any{"component": map[string]string{"version": src.Version}},
+		"components": g.components[src.Version],
+	}
 	b, _ := json.Marshal(doc)
 	if err := os.WriteFile(p, b, 0o600); err != nil {
 		return nil, err
@@ -777,6 +811,8 @@ func (n *recordingNotifier) sent() []string {
 				what = e.Finding.VulnID
 			case e.Health != nil:
 				what = e.Health.Check + "/" + e.Health.Subject
+			case e.Base != nil:
+				what = strings.Join(e.Base.Images, ",") + "@" + e.Base.Newest
 			}
 			out = append(out, string(e.Kind)+" "+what)
 		}
@@ -1346,5 +1382,288 @@ func TestGateDecidesOnEvidenceAndDecisions(t *testing.T) {
 	}
 	if r = gateNow(res.ScanID); r.Verdict != gate.Fail || len(r.Exempt) != 0 {
 		t.Fatalf("an expired acceptance exempts nothing: %+v", r)
+	}
+}
+
+// TestBaseLineage follows images on a base tag (docs/adr/0022-base-image-lineage.md): the
+// base moves, a rebuild is available, the image is rebuilt, the base stops moving.
+func TestBaseLineage(t *testing.T) {
+	h := newHarness(t)
+	const base, api = "registry.test/base:1", "registry.test/api:1"
+	const base1, base2 = "sha256:ba5e100000000000000000000000000000000000000000000000000000000000", "sha256:ba5e200000000000000000000000000000000000000000000000000000000000"
+	h.fetch.infos = map[string]oci.ImageInfo{
+		base1:   {DiffIDs: []string{"sha256:b1"}, Created: time.Unix(0, 0)}, // reproducible: no age from it
+		base2:   {DiffIDs: []string{"sha256:b2"}},
+		digestA: {DiffIDs: []string{"sha256:b1", "sha256:app-a"}},
+		digestB: {DiffIDs: []string{"sha256:b2", "sha256:app-b"}},
+		// api names its base by annotation and claims base1, which its layers confirm.
+		digestC: {DiffIDs: []string{"sha256:b1", "sha256:api"}, BaseName: base, BaseRepository: "registry.test/base", BaseDigest: base1},
+	}
+	h.fetch.tags[base] = base1
+	h.image(ref, digestA)
+	h.image(api, digestC)
+	h.scan(ref)
+	h.scan(api)
+	h.eng.Bases.MaxAge = 90 * 24 * time.Hour
+	// base:2 succeeds base:1: followed, never fetched.
+	const next, nextDigest = "registry.test/base:2", "sha256:ba5e900000000000000000000000000000000000000000000000000000000000"
+	h.fetch.tags[next] = nextDigest
+	h.fetch.infos[nextDigest] = oci.ImageInfo{DiffIDs: []string{"sha256:b9"}}
+	var err error
+	if h.eng.Bases.Successors, err = lineage.NewSuccessors([]config.Successor{{From: base, To: next}}); err != nil {
+		t.Fatal(err)
+	}
+	bases := &recordingNotifier{}
+	h.eng.Channels = []notify.Channel{{Name: "platform", Kinds: []notify.Kind{notify.BaseRebuildAvailable, notify.BaseUnmaintained}, Sender: bases}}
+	app, err := h.store.TargetsByRef(h.ctx, ref)
+	if err != nil || len(app) != 1 {
+		t.Fatal(app, err)
+	}
+	if err := h.store.SetTargetBase(h.ctx, app[0].ID, base, "platform-team", h.clock); err != nil {
+		t.Fatal(err)
+	}
+	lineages := func() map[string]lineage.Result {
+		t.Helper()
+		inv, err := report.BuildInventory(h.ctx, h.store, report.InventoryOptions{Now: h.clock, Bases: h.eng.Bases})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]lineage.Result{}
+		for _, img := range inv.Images {
+			out[img.Ref] = img.Base
+		}
+		return out
+	}
+	count := func(ref string) int {
+		n := 0
+		for _, r := range h.fetch.inspects {
+			if r == ref {
+				n++
+			}
+		}
+		return n
+	}
+
+	h.monitor()
+	l := lineages()
+	if a := l[ref]; a.Status != lineage.Current || a.Source != lineage.SourceConfigured || a.BaseDigest != base1 {
+		t.Fatalf("app on the newest base: %+v", a)
+	}
+	if b := l[api]; b.Status != lineage.Current || b.Source != lineage.SourceAnnotation {
+		t.Fatalf("api by annotation: %+v", b)
+	}
+	if ins, err := h.store.Inspection(h.ctx, digestC); err != nil || !ins.AnnotatedVerified || ins.AnnotatedDigest != base1 {
+		t.Fatalf("the annotated base digest is checked by its layers: %+v %v", ins, err)
+	}
+
+	// The base moves: both images can be rebuilt; the base is resolved once for both.
+	h.advance(24 * time.Hour)
+	h.fetch.tags[base] = base2
+	resolved := h.fetch.resolves[base]
+	h.monitor()
+	if n := h.fetch.resolves[base] - resolved; n != 1 {
+		t.Errorf("base resolved %d times in one cycle for two images", n)
+	}
+	l = lineages()
+	if a := l[ref]; a.Status != lineage.RebuildAvailable || a.BaseDigest != base1 || a.Newest != base2 {
+		t.Fatalf("rebuild available: %+v", a)
+	}
+	if count("registry.test/app@"+base2) != 1 || count("registry.test/app@"+digestA) != 1 {
+		t.Errorf("each digest is inspected once, however many cycles and images: %q", h.fetch.inspects)
+	}
+	// The channel hears it once per image digest, with every target on it.
+	want := []string{
+		"base_rebuild_available " + api + " (linux/amd64)@" + base2,
+		"base_rebuild_available " + ref + " (linux/amd64)@" + base2,
+	}
+	if got := bases.sent(); !slices.Equal(slices.Sorted(slices.Values(got)), want) {
+		t.Fatalf("sent %q, want %q", got, want)
+	}
+
+	// The image is rebuilt on the new base: nothing more to say about it.
+	h.advance(24 * time.Hour)
+	h.image(ref, digestB)
+	h.monitor()
+	if a := lineages()[ref]; a.Status != lineage.Current || a.BaseDigest != base2 || a.Unmaintained {
+		t.Fatalf("rebuilt: %+v", a)
+	}
+	if got := bases.sent(); len(got) != 2 {
+		t.Fatalf("nothing new after the rebuild: %q", got)
+	}
+
+	// The base stops moving: 91 days after it was seen moving, it is unmaintained.
+	h.advance(91 * 24 * time.Hour)
+	h.monitor()
+	if a := lineages()[ref]; !a.Unmaintained || a.SinceSource != "observed" {
+		t.Fatalf("unmaintained: %+v", a)
+	}
+	if a := lineages()[ref]; a.Successor != next || a.SuccessorSince.IsZero() {
+		t.Fatalf("the successor and its freshness: %+v", a)
+	}
+	if sboms, _ := h.store.SBOMs(h.ctx, nextDigest); len(sboms) != 0 {
+		t.Errorf("a successor is followed, never fetched: %+v", sboms)
+	}
+	h.monitor()
+	var lines []string
+	for _, m := range bases.msgs {
+		for _, e := range m.Events {
+			if e.Kind == notify.BaseUnmaintained {
+				lines = append(lines, e.Lines()...)
+			}
+		}
+	}
+	if !slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, "Successor: "+next+", current digest since ") }) {
+		t.Errorf("base_unmaintained names the successor: %q", lines)
+	}
+	// The October report, generated now, says what was true at the end of October: app on the
+	// newest base, which had moved a month before.
+	sla, _ := config.SLAProfile("standard", nil)
+	oct, err := report.BuildMonthly(h.ctx, h.store, report.MonthPeriod(time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC)), "standard", sla, h.clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := report.AddBaseLineage(h.ctx, h.store, &oct, h.eng.Bases, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, ts := range oct.TargetSummaries {
+		if ts.Ref == ref && (ts.Base == nil || ts.Base.Status != lineage.Current || ts.Base.Unmaintained) {
+			t.Fatalf("October lineage of %s: %+v", ref, ts.Base)
+		}
+	}
+	if oct.Bases.Status["current"] != 1 || oct.Bases.Status["rebuild_available"] != 1 || oct.Bases.Unmaintained != 0 {
+		t.Fatalf("October bases: %+v", oct.Bases)
+	}
+
+	// Both images are on the unmaintained base; api's rebuild was already announced.
+	want = []string{"base_unmaintained " + api + " (linux/amd64)@" + base2, "base_unmaintained " + ref + " (linux/amd64)@" + base2}
+	if got := bases.sent()[2:]; !slices.Equal(slices.Sorted(slices.Values(got)), want) {
+		t.Fatalf("unmaintained, once each: %q", got)
+	}
+
+	// A base that cannot be resolved is a monitoring failure, not a property of the image.
+	delete(h.fetch.tags, base)
+	h.monitor()
+	if hf := h.health(engine.CheckBaseResolve, base); hf == nil || !hf.ResolvedAt.IsZero() {
+		t.Fatalf("base_resolve_failed: %+v", hf)
+	}
+	h.fetch.tags[base] = base2
+	h.monitor()
+	if hf := h.health(engine.CheckBaseResolve, base); hf == nil || hf.ResolvedAt.IsZero() {
+		t.Fatalf("resolved again: %+v", hf)
+	}
+	hs, _ := h.store.ListHealth(h.ctx, false)
+	for _, hf := range hs {
+		if hf.Check != engine.CheckUnsandboxed { // the harness runs no sandbox
+			t.Errorf("no other health finding: %+v", hf)
+		}
+	}
+}
+
+// TestRemedies tells, per finding, whether a rebuild on the newest base removes it
+// (docs/adr/0023-fixable-by-rebuild.md): from the layers the image's SBOM records and the
+// newest base's SBOM, generated once when the base moves.
+func TestRemedies(t *testing.T) {
+	h := newHarness(t)
+	const base = "registry.test/base:1"
+	const base1, base2 = "sha256:ba5e100000000000000000000000000000000000000000000000000000000000", "sha256:ba5e200000000000000000000000000000000000000000000000000000000000"
+	const l1, l2, appLayer = "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+		"sha256:2222222222222222222222222222222222222222222222222222222222222222",
+		"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	h.fetch.infos = map[string]oci.ImageInfo{
+		base1: {DiffIDs: []string{l1}}, base2: {DiffIDs: []string{l2}}, digestA: {DiffIDs: []string{l1, appLayer}},
+	}
+	h.fetch.tags[base] = base1
+	pkg := func(purl, layer string) map[string]any {
+		return map[string]any{"type": "library", "name": "p", "purl": purl, "properties": []map[string]string{{"name": "syft:location:0:layerID", "value": layer}}}
+	}
+	h.syft.components = map[string][]map[string]any{
+		digestA: {
+			pkg("pkg:apk/alpine/zlib@1.2.13-r0?arch=x86_64", l1),
+			pkg("pkg:apk/alpine/busybox@1.36.1-r29?arch=x86_64", l1),
+			pkg("pkg:pypi/requests@2.31.0", appLayer),
+		},
+		base2: {pkg("pkg:apk/alpine/zlib@1.3.1-r1?arch=x86_64", l2), pkg("pkg:apk/alpine/busybox@1.36.1-r29?arch=x86_64", l2)},
+	}
+	h.image(ref, digestA,
+		vuln("zlib", "1.2.13-r0", "CVE-2023-45853", model.SeverityCritical, "1.3.1-r1"),
+		vuln("busybox", "1.36.1-r29", "CVE-2023-42366", model.SeverityMedium),
+		model.RawMatch{VulnID: "CVE-2024-35195", PURL: "pkg:pypi/requests@2.31.0", PkgName: "requests", PkgVersion: "2.31.0", Severity: model.SeverityMedium})
+	h.scan(ref)
+	app, _ := h.store.TargetsByRef(h.ctx, ref)
+	if err := h.store.SetTargetBase(h.ctx, app[0].ID, base, "platform-team", h.clock); err != nil {
+		t.Fatal(err)
+	}
+	h.monitor()
+	h.advance(24 * time.Hour)
+	h.fetch.tags[base] = base2
+	h.monitor()
+	if sboms, _ := h.store.SBOMs(h.ctx, base2); len(sboms) != 2 {
+		t.Fatalf("the newest base gets its SBOMs once: %+v", sboms)
+	}
+	generated := h.syft.calls
+	h.monitor()
+	if h.syft.calls != generated {
+		t.Error("base SBOMs are generated once per base digest")
+	}
+	if fs, _ := h.store.ListFindings(h.ctx, store.FindingFilter{Digest: base2}); len(fs) != 0 {
+		t.Errorf("a base is never matched: %d findings", len(fs))
+	}
+
+	sla, _ := config.SLAProfile("standard", nil)
+	rep, err := report.BuildMonthly(h.ctx, h.store, report.MonthPeriod(h.clock), "standard", sla, h.clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func(b store.SBOM) ([]byte, error) { return h.eng.ReadSBOM(b, sbom.MaxBytes) }
+	if err := report.AddBaseLineage(h.ctx, h.store, &rep, lineage.Policy{MaxAge: 90 * 24 * time.Hour}, read); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, r := range rep.Open {
+		got[r.VulnID] = r.Remedy
+	}
+	want := map[string]string{"CVE-2023-45853": "rebuild", "CVE-2023-42366": "base", "CVE-2024-35195": "application"}
+	if !maps.Equal(got, want) {
+		t.Fatalf("remedies = %v, want %v", got, want)
+	}
+	if rep.Bases.Remedies["rebuild"] != 1 || rep.Targets != 1 {
+		t.Errorf("summary: %+v (the base is not a target)", rep.Bases)
+	}
+}
+
+// TestNotificationsByOwner routes events to team channels (docs/adr/0024-ownership.md): a
+// team hears about its images only, the security channel about everything.
+func TestNotificationsByOwner(t *testing.T) {
+	h := newHarness(t)
+	const pay, other = "registry.test/payments/api:1", "registry.test/tools/cli:1"
+	own, err := owners.New([]config.Owner{{Team: "payments", Targets: []string{"registry.test/payments/*"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.eng.Owners = own
+	team, secops := &recordingNotifier{}, &recordingNotifier{}
+	h.eng.Channels = []notify.Channel{
+		{Name: "payments", Kinds: notify.DefaultKinds, Owners: []string{"payments"}, Sender: team},
+		{Name: "secops", Kinds: notify.DefaultKinds, Sender: secops},
+	}
+	h.monitor() // first cycle: nothing is new yet
+	h.image(pay, digestA, vuln("xz-libs", "5.6.0-r0", "CVE-2024-3094", model.SeverityCritical))
+	h.image(other, digestB, vuln("zlib", "1.2.13-r0", "CVE-2023-45853", model.SeverityCritical))
+	h.scan(pay)
+	h.scan(other)
+	h.grype.fail = true // a health finding: about the monitoring, for no team
+	h.monitor()
+	h.grype.fail = false
+
+	if got := team.sent(); !slices.Equal(got, []string{"finding_new_critical CVE-2024-3094"}) {
+		t.Errorf("the team channel heard %q", got)
+	}
+	got := secops.sent() // and scanner_unsandboxed: the harness runs no sandbox
+	if len(got) != 4 || !slices.Contains(got, "finding_new_critical CVE-2023-45853") || !slices.Contains(got, "finding_new_critical CVE-2024-3094") ||
+		!slices.Contains(got, "health_opened matcher_failed/grype") {
+		t.Errorf("the security channel heard %q", got)
+	}
+	if pending, _ := h.eng.PendingNotifications(h.ctx); len(pending["payments"]) != 0 {
+		t.Errorf("other teams' events are never sent to the team channel: %+v", pending["payments"])
 	}
 }

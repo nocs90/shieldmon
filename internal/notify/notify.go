@@ -30,12 +30,16 @@ const (
 	SLABreached        Kind = "sla_breached"
 	SLADueSoon         Kind = "sla_due_soon"
 	HealthOpened       Kind = "health_opened"
+	// BaseUnmaintained and BaseRebuildAvailable are about an image's base
+	// (docs/adr/0022-base-image-lineage.md): opt-in.
+	BaseUnmaintained     Kind = "base_unmaintained"
+	BaseRebuildAvailable Kind = "base_rebuild_available"
 	// FindingFixed is good news, and what lets an issue tracker close its issue: opt-in.
 	FindingFixed Kind = "finding_fixed"
 )
 
 // Kinds lists every kind, most urgent first: the order of events in a message.
-var Kinds = []Kind{FindingNewKEV, FindingNewCritical, SLABreached, SLADueSoon, HealthOpened, FindingFixed}
+var Kinds = []Kind{FindingNewKEV, FindingNewCritical, SLABreached, SLADueSoon, HealthOpened, BaseUnmaintained, BaseRebuildAvailable, FindingFixed}
 
 // DefaultKinds are what a channel that lists no events receives (unless its notifier says
 // otherwise): the alerts.
@@ -66,6 +70,10 @@ func (k Kind) Summary() string {
 		return "Monitoring problem"
 	case FindingFixed:
 		return "Vulnerability fixed"
+	case BaseUnmaintained:
+		return "Base image unmaintained"
+	case BaseRebuildAvailable:
+		return "Newer base image available"
 	}
 	return string(k)
 }
@@ -102,6 +110,25 @@ type Health struct {
 	FirstSeen time.Time `json:"first_seen"`
 }
 
+// Base is an image's base an event is about (docs/adr/0022-base-image-lineage.md).
+type Base struct {
+	// Images are the targets on the digest ("ref (platform)").
+	Images []string `json:"images"`
+	Digest string   `json:"digest"`
+	// BaseRef is the base tag; BaseDigest the digest the image is built on, when proven.
+	BaseRef    string `json:"base_ref"`
+	BaseDigest string `json:"base_digest,omitempty"`
+	// Newest is what the base tag points to now, Since since when.
+	Newest       string    `json:"newest_base_digest"`
+	Since        time.Time `json:"newest_base_since"`
+	Status       string    `json:"status"`
+	Unmaintained bool      `json:"unmaintained"`
+	// Successor is the configured maintained base to move to, and since when it points to
+	// its newest digest (docs/adr/0025-base-successors.md).
+	Successor      string    `json:"successor,omitempty"`
+	SuccessorSince time.Time `json:"successor_since,omitzero"`
+}
+
 // Event is something to tell people about. Key identifies it across cycles: an event is
 // sent to a channel at most once.
 type Event struct {
@@ -109,6 +136,7 @@ type Event struct {
 	Kind    Kind     `json:"kind"`
 	Finding *Finding `json:"finding,omitempty"`
 	Health  *Health  `json:"health,omitempty"`
+	Base    *Base    `json:"base,omitempty"`
 	// Remaining is, for finding_fixed, how many active findings still have the vulnerability
 	// on the finding's targets (in other packages): 0 means it is gone from them.
 	Remaining int `json:"remaining,omitempty"`
@@ -123,6 +151,8 @@ func (e Event) Title() string {
 		return fmt.Sprintf("%s: %s in %s %s (%s)", e.Kind.Summary(), f.VulnID, f.Package, f.Version, f.Severity)
 	case e.Health != nil:
 		return fmt.Sprintf("%s: %s on %s", e.Kind.Summary(), e.Health.Check, e.Health.Subject)
+	case e.Base != nil:
+		return fmt.Sprintf("%s: %s for %s", e.Kind.Summary(), e.Base.BaseRef, strings.Join(e.Base.Images, ", "))
 	}
 	return e.Kind.Summary()
 }
@@ -167,6 +197,27 @@ func (e Event) Lines() []string {
 			}
 		}
 		out = append(out, fmt.Sprintf("Finding #%d (state %s): shieldmon findings show %d", f.ID, f.State, f.ID))
+	}
+	if b := e.Base; b != nil {
+		out = append(out, "Image: "+strings.Join(b.Images, ", ")+" ("+b.Digest+")", "Base: "+b.BaseRef)
+		if b.BaseDigest != "" {
+			out = append(out, "Built on: "+b.BaseDigest)
+		}
+		out = append(out, "Newest base: "+b.Newest+", since "+day(b.Since))
+		switch e.Kind {
+		case BaseRebuildAvailable:
+			out = append(out, "Rebuild the image on the newest base: the next cycle closes what it fixed, with scan evidence")
+		case BaseUnmaintained:
+			out = append(out, "The base has not changed for longer than bases.max_age: rebuilding on it fixes nothing; plan a maintained base")
+			if b.Successor != "" {
+				s := "Successor: " + b.Successor
+				if !b.SuccessorSince.IsZero() {
+					s += ", current digest since " + day(b.SuccessorSince)
+				}
+				out = append(out, s)
+			}
+		}
+		out = append(out, "See: shieldmon report inventory")
 	}
 	if h := e.Health; h != nil {
 		if h.Detail != "" {
@@ -387,8 +438,11 @@ type ChannelConfig struct {
 	Name     string
 	Notifier string
 	// Events the channel receives; every kind when empty.
-	Events  []string
-	Digest  bool
+	Events []string
+	Digest bool
+	// Owners, when set, limit the channel to the finding and base events of these teams'
+	// targets (docs/adr/0024-ownership.md); the engine applies it.
+	Owners  []string
 	Options map[string]any
 }
 
@@ -398,6 +452,7 @@ type Channel struct {
 	Notifier string
 	Kinds    []Kind
 	Digest   bool
+	Owners   []string
 	Sender   Notifier
 }
 
@@ -456,7 +511,7 @@ func NewChannels(cfgs []ChannelConfig, base Spec) ([]Channel, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: notifier %s: %s", where, c.Notifier, redact.Error(err))
 		}
-		out = append(out, Channel{Name: c.Name, Notifier: c.Notifier, Kinds: kinds, Digest: c.Digest, Sender: n})
+		out = append(out, Channel{Name: c.Name, Notifier: c.Notifier, Kinds: kinds, Digest: c.Digest, Owners: c.Owners, Sender: n})
 	}
 	return out, nil
 }

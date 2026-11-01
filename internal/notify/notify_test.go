@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -263,7 +264,7 @@ func TestMessageText(t *testing.T) {
 	if s := (notify.Message{Events: ev[:1]}).Subject(); !strings.HasPrefix(s, "ShieldMon: New known exploited vulnerability: CVE-2024-3094 in xz-libs") {
 		t.Errorf("subject = %q", s)
 	}
-	if s := (notify.Message{Digest: true, Events: ev}).Subject(); s != "ShieldMon digest: 1 finding new kev, 1 sla breached, 1 health opened, 1 finding fixed" {
+	if s := (notify.Message{Digest: true, Events: ev}).Subject(); s != "ShieldMon digest: 1 finding new kev, 1 sla breached, 1 health opened, 1 base rebuild available, 1 finding fixed" {
 		t.Errorf("digest subject = %q", s)
 	}
 	if got := notify.Clean("a\r\nb\u202ec"+strings.Repeat("x", 10), 8); got != `a\u000d\u000ab\u202ecxx…` {
@@ -297,5 +298,39 @@ func TestCollectFixed(t *testing.T) {
 	back := active(5, 1, "critical", false, false, now, time.Time{})
 	if cur := notify.Current(got, notify.Input{Active: []notify.Active{back}}); len(cur) != 0 {
 		t.Error("a fix whose problem came back is stale news")
+	}
+}
+
+func TestBaseEvents(t *testing.T) {
+	stale := notify.Base{Images: []string{"a (linux/amd64)"}, Digest: "sha256:a", BaseRef: "registry.test/base:1", BaseDigest: "sha256:b1", Newest: "sha256:b2", Status: "rebuild_available", Unmaintained: true}
+	current := notify.Base{Images: []string{"c (linux/amd64)"}, Digest: "sha256:c", BaseRef: "registry.test/base:1", BaseDigest: "sha256:b2", Newest: "sha256:b2", Status: "current"}
+	got := notify.Collect(notify.Input{Bases: []notify.Base{stale, current}})
+	var keys []string
+	for _, e := range got {
+		keys = append(keys, e.Key)
+	}
+	if strings.Join(keys, " ") != "base_unmaintained:sha256:a:sha256:b2 base_rebuild_available:sha256:a:sha256:b2" {
+		t.Fatalf("keys = %v: once per image digest and newest base, nothing for a current image", keys)
+	}
+	for _, k := range []notify.Kind{notify.BaseRebuildAvailable, notify.BaseUnmaintained} {
+		if slices.Contains(notify.DefaultKinds, k) {
+			t.Errorf("%s is opt-in", k)
+		}
+	}
+	if lines := strings.Join(got[1].Lines(), "\n"); !strings.Contains(lines, "Rebuild the image") || !strings.Contains(lines, "Built on: sha256:b1") {
+		t.Errorf("rebuild lines = %s", lines)
+	}
+
+	// Rebuilt: the image is on a new digest; the events about the old one are stale.
+	rebuilt := stale
+	rebuilt.Digest, rebuilt.Status, rebuilt.Unmaintained = "sha256:a2", "current", false
+	if cur := notify.Current(got, notify.Input{Bases: []notify.Base{rebuilt}}); len(cur) != 0 {
+		t.Errorf("stale base events kept: %v", cur)
+	}
+	more := stale
+	more.Images = append(more.Images, "a:latest (linux/amd64)")
+	cur := notify.Current(got, notify.Input{Bases: []notify.Base{more}})
+	if len(cur) != 2 || len(cur[0].Base.Images) != 2 {
+		t.Errorf("events still true are kept with the images of now: %+v", cur)
 	}
 }

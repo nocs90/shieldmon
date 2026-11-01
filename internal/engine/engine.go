@@ -21,10 +21,12 @@ import (
 
 	"github.com/nocs90/shieldmon/internal/enrich"
 	"github.com/nocs90/shieldmon/internal/lifecycle"
+	"github.com/nocs90/shieldmon/internal/lineage"
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/normalize"
 	"github.com/nocs90/shieldmon/internal/notify"
 	"github.com/nocs90/shieldmon/internal/oci"
+	"github.com/nocs90/shieldmon/internal/owners"
 	"github.com/nocs90/shieldmon/internal/redact"
 	"github.com/nocs90/shieldmon/internal/scanner"
 	"github.com/nocs90/shieldmon/internal/store"
@@ -47,6 +49,8 @@ const (
 	CheckAuditChain      = "audit_chain_broken"
 	CheckEnrichUpdate    = "enrichment_update_failed"
 	CheckEnrichStale     = "enrichment_stale"
+	CheckImageInspect    = "image_inspect_failed"
+	CheckBaseResolve     = "base_resolve_failed"
 	maxSBOMBytes         = 256 << 20
 	monitorMissedFactor  = 1.5
 )
@@ -55,6 +59,8 @@ const (
 type Fetcher interface {
 	Resolve(ctx context.Context, ref string, platform model.Platform) (oci.Resolved, error)
 	Fetch(ctx context.Context, r oci.Resolved, dir string) error
+	// Inspect reads an image's manifest and config, no layers (docs/adr/0022-base-image-lineage.md).
+	Inspect(ctx context.Context, ref string, platform model.Platform) (oci.ImageInfo, error)
 }
 
 // RegistryFetcher is the production Fetcher backed by go-containerregistry.
@@ -68,6 +74,12 @@ func (f RegistryFetcher) Resolve(ctx context.Context, ref string, p model.Platfo
 
 func (f RegistryFetcher) Fetch(ctx context.Context, r oci.Resolved, dir string) error {
 	return oci.Fetch(ctx, r, dir, f.Options)
+}
+
+func (f RegistryFetcher) Inspect(ctx context.Context, ref string, p model.Platform) (oci.ImageInfo, error) {
+	o := f.Options
+	o.Platform = p
+	return oci.Inspect(ctx, ref, o)
 }
 
 // Engine runs scans against a store.
@@ -97,8 +109,18 @@ type Engine struct {
 	AuditVerifyInterval time.Duration
 	// Enrichers add facts (CISA KEV) to every scan's matches (docs/adr/0019-enrichers.md).
 	Enrichers []enrich.Instance
-	Now       func() time.Time
-	Log       *slog.Logger
+	// Bases judges base lineages: how long a base may stay unchanged before it is
+	// unmaintained, and successors (docs/adr/0022-base-image-lineage.md, 0025).
+	Bases lineage.Policy
+	// Owners says which team owns a target, for channels limited to teams
+	// (docs/adr/0024-ownership.md).
+	Owners owners.Ownership
+	Now    func() time.Time
+	Log    *slog.Logger
+
+	// observedBases are the base references observed in the running monitor cycle: each is
+	// resolved once per cycle, however many targets share it.
+	observedBases map[string]bool
 }
 
 func (e *Engine) now() time.Time {
@@ -204,6 +226,7 @@ func (e *Engine) Scan(ctx context.Context, ref string, platform model.Platform) 
 	if err := e.match(ctx, resolved.Digest, target.ID, kind, &res); err != nil {
 		return res, err
 	}
+	e.trackLineage(ctx, target, resolved, platform)
 	return res, nil
 }
 
@@ -634,6 +657,8 @@ func (e *Engine) Monitor(ctx context.Context) (MonitorSummary, error) {
 		}
 	}
 	errCount := 0
+	e.observedBases = map[string]bool{}
+	defer func() { e.observedBases = nil }()
 	for _, t := range targets {
 		if ctx.Err() != nil {
 			break
@@ -707,7 +732,7 @@ func (e *Engine) Notify(ctx context.Context, since time.Time) (map[string]int, m
 		if err != nil {
 			return sent, failed, err
 		}
-		pending = notify.Current(pending, in)
+		pending = e.forOwners(ch, notify.Current(pending, in))
 		if len(pending) == 0 {
 			continue
 		}
@@ -758,16 +783,46 @@ func (e *Engine) PendingNotifications(ctx context.Context) (map[string][]notify.
 				pending = append(pending, ev)
 			}
 		}
-		pending = notify.Current(pending, in)
+		pending = e.forOwners(ch, notify.Current(pending, in))
 		notify.Sort(pending)
 		out[ch.Name] = pending
 	}
 	return out, nil
 }
 
+// forOwners keeps, for a channel limited to teams, the finding and base events of targets
+// those teams own, by the ownership configured now (docs/adr/0024-ownership.md). The others
+// stay unsent for that channel.
+func (e *Engine) forOwners(ch notify.Channel, events []notify.Event) []notify.Event {
+	if len(ch.Owners) == 0 {
+		return events
+	}
+	return slices.DeleteFunc(events, func(ev notify.Event) bool {
+		var targets []string
+		switch {
+		case ev.Finding != nil:
+			targets = ev.Finding.Targets
+		case ev.Base != nil:
+			targets = ev.Base.Images
+		default:
+			return true // health events are about the monitoring, not a team's images
+		}
+		for _, team := range e.Owners.Teams(targets) {
+			if slices.Contains(ch.Owners, team) {
+				return false
+			}
+		}
+		return true
+	})
+}
+
 func (e *Engine) notifyInput(ctx context.Context, since, now time.Time) (notify.Input, error) {
 	in, err := e.Store.NotifyInput(ctx, e.Decisions, since, now)
 	in.Now, in.Since, in.DueSoon = now, since, e.DueSoon
+	if err != nil {
+		return in, err
+	}
+	in.Bases, err = e.baseStates(ctx, now)
 	return in, err
 }
 

@@ -68,6 +68,9 @@ scan REF / monitor
   │     ├─ trivy sbom <trivy.cdx>  ┘  failure → health finding; scan becomes partial
   │     ├─ normalize.Merge         canonical PURL, CVE-preferred IDs, cross-scanner dedupe
   │     └─ store.ReconcileScan     lifecycle.Reconcile (pure) + apply in one transaction
+  ├─ engine.trackLineage      manifest + config only: layers and base annotations once per
+  │                           digest; base tag resolved once per cycle (ADR 0022); SBOMs of
+  │                           the newest base digest once, never matched (ADR 0023)
   └─ health checks: DB age, auth, fetch, generator/matcher, checksum, schedule
 ```
 
@@ -87,6 +90,8 @@ matcher runs: SBOM-first is a property of the pipeline, not a separate mode.
 | `internal/normalize` | canonical PURL / vuln IDs, alias mapping, merge | packageurl-go |
 | `internal/lifecycle` | **pure** state machine + reconciliation planner | model |
 | `internal/priority` | **pure** remediation priority score with reasons (ADR 0020) | model |
+| `internal/lineage` | **pure** base image status from recorded layers and observations (ADR 0022); remedy per package from SBOM layers and the newest base's SBOM (ADR 0023); configured successors (ADR 0025) | normalize, sbom, config, oci (reference parsing) |
+| `internal/owners` | which team owns a target, from reference patterns in the configuration (ADR 0024) | config, oci |
 | `internal/gate` | **pure** policy gate: rules, exemptions by decision, fail-closed verdict, SARIF (ADR 0021) | config, report |
 | `internal/vex` | **pure** OpenVEX / CycloneDX VEX parsing (bounded, fuzzed), OpenVEX export, statement matching | normalize, go-containerregistry |
 | `internal/enrich` | enricher registry, CISA KEV catalog (bounded, validated, fuzzed, cached outside the scanners' reach); `enrichtest` conformance kit | model, redact |
@@ -117,6 +122,9 @@ artifacts(digest PK, repository, platform)       immutable things we scanned
   └─< findings UNIQUE(digest, purl, vuln_id)      lifecycle state, first_detected (inherited)
         ├─< finding_events (APPEND-ONLY)         every transition: actor, reason, evidence scan
         └─< decisions (APPEND-ONLY)              risk acceptance / not affected (+ expiry)
+target_bases (APPEND-ONLY)                       base tag configured per target
+image_inspections (APPEND-ONLY)                  layers + base annotations, once per digest
+base_observations (APPEND-ONLY)                  every digest a base tag pointed to
 health_findings(check, subject)                  self-health
 monitor_runs                                     cadence for missed-schedule detection
 ```

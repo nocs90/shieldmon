@@ -26,6 +26,7 @@ Files are written 0600: an inventory says where weaknesses can be found.
 | `sboms` | stored SBOMs: generator, version, format and SHA-256 (`shieldmon sbom export` retrieves them) |
 | `open_*` | open findings by severity on the digest |
 | `gaps` | evidence gaps, below |
+| `base`, `base_source`, `base_status`, `base_digest`, `newest_base_digest`, `newest_base_since`, `base_unmaintained` | what the image is built on and whether rebuilding helps ([base-images.md](base-images.md)) |
 
 Targets resolving to the same digest share its scans, SBOMs and findings; the summary
 counts each digest's findings once.

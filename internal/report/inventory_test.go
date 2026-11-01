@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/nocs90/shieldmon/internal/config"
+	"github.com/nocs90/shieldmon/internal/lineage"
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/store"
 )
@@ -24,6 +27,25 @@ type fakeInventory struct {
 	history   []store.DigestChange
 	events    []store.TargetEvent
 	scans     []store.Scan
+	bases     map[int64]string
+	inspected map[string]store.ImageInspection
+	observed  []store.BaseObservation
+}
+
+func (f fakeInventory) TargetBaseHistory(context.Context) ([]store.TargetBaseChange, error) {
+	var out []store.TargetBaseChange
+	for id, ref := range f.bases {
+		out = append(out, store.TargetBaseChange{TargetID: id, BaseRef: ref, Actor: "ops", At: invNow.AddDate(0, -1, 0)})
+	}
+	return out, nil
+}
+
+func (f fakeInventory) Inspections(context.Context) (map[string]store.ImageInspection, error) {
+	return f.inspected, nil
+}
+
+func (f fakeInventory) BaseObservations(context.Context) ([]store.BaseObservation, error) {
+	return f.observed, nil
 }
 
 func (f fakeInventory) ListTargets(context.Context) ([]store.Target, error) { return f.targets, nil }
@@ -112,17 +134,62 @@ func inventoryFixture() fakeInventory {
 			finding("sha256:dddd", model.SeverityCritical), // on the retired image only: not counted
 		},
 		history: []store.DigestChange{
-			{TargetID: 1, Digest: "sha256:old"}, {TargetID: 1, Digest: a, Previous: "sha256:old"}, {TargetID: 2, Digest: b}, {TargetID: 3, Digest: c},
+			{TargetID: 1, Digest: "sha256:old"},
+			{TargetID: 1, Digest: a, Previous: "sha256:old"},
+			{TargetID: 2, Digest: b},
+			{TargetID: 3, Digest: c},
+			{TargetID: 5, Digest: a},
+			{TargetID: 6, Digest: "sha256:dddd"},
+		},
+		// app:prod amd64 is configured on base:1 and built on its older digest, which has not
+		// moved for 100 days; app:latest (same digest) names it by annotation; app:prod arm64
+		// names a base never observed.
+		bases: map[int64]string{1: "registry.test/base:1"},
+		inspected: map[string]store.ImageInspection{
+			a: {Digest: a, DiffIDs: []string{"sha256:l1", "sha256:app"}, AnnotatedBase: "registry.test/base:1", AnnotatedRepository: "registry.test/base"},
+			b: {Digest: b, DiffIDs: []string{"sha256:l7", "sha256:app"}, AnnotatedBase: "registry.test/other:2", AnnotatedRepository: "registry.test/other"},
+		},
+		observed: []store.BaseObservation{
+			{BaseRef: "registry.test/base:1", Platform: "linux/amd64", Digest: "sha256:b1", DiffIDs: []string{"sha256:l1"}, ObservedAt: invNow.AddDate(0, 0, -200)},
+			{BaseRef: "registry.test/base:1", Platform: "linux/amd64", Digest: "sha256:b2", DiffIDs: []string{"sha256:l2"}, ObservedAt: invNow.AddDate(0, 0, -100)},
+			// base:2 succeeds base:1 and was rebuilt 5 days ago.
+			{BaseRef: "registry.test/base:2", Platform: "linux/amd64", Digest: "sha256:c1", DiffIDs: []string{"sha256:l9"}, ObservedAt: invNow.AddDate(0, 0, -30)},
+			{BaseRef: "registry.test/base:2", Platform: "linux/amd64", Digest: "sha256:c2", DiffIDs: []string{"sha256:l10"}, ObservedAt: invNow.AddDate(0, 0, -5)},
 		},
 	}
 }
 
 func TestInventory(t *testing.T) {
+	successors, err := lineage.NewSuccessors([]config.Successor{{From: "registry.test/base:1", To: "registry.test/base:2"}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	inv, err := BuildInventory(context.Background(), inventoryFixture(), InventoryOptions{
 		Now: invNow, StaleAfter: 36 * time.Hour, Generators: []string{"syft", "trivy"},
+		Bases: lineage.Policy{MaxAge: 90 * 24 * time.Hour, Successors: successors},
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if b := inv.Images[2].Base; b.Successor != "registry.test/base:2" || !b.SuccessorSince.Equal(invNow.AddDate(0, 0, -5)) {
+		t.Errorf("app:prod successor: %+v", b)
+	}
+	bases := map[string]string{}
+	for _, img := range inv.Images {
+		bases[img.Ref+" "+img.Platform] = fmt.Sprintf("%s %s %s %v", img.Base.Source, img.Base.Status, img.Base.BaseDigest, img.Base.Unmaintained)
+	}
+	for image, want := range map[string]string{
+		"registry.test/app:prod linux/amd64":   "configured rebuild_available sha256:b1 true",
+		"registry.test/app:latest linux/amd64": "annotation rebuild_available sha256:b1 true",
+		"registry.test/app:prod linux/arm64":   "annotation unknown  false",
+		"=registry.test/evil|x:1 linux/amd64":  " none  false",
+	} {
+		if bases[image] != want {
+			t.Errorf("%s: base %q, want %q", image, bases[image], want)
+		}
+	}
+	if s := inv.Summary; s.Bases["rebuild_available"] != 2 || s.Bases["none"] != 2 || s.BaseUnmaintained != 2 {
+		t.Errorf("base summary: %v, unmaintained %d", s.Bases, s.BaseUnmaintained)
 	}
 	gaps := map[string]string{}
 	for _, img := range inv.Images {
