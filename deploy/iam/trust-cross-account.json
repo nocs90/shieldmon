@@ -1,0 +1,14 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ShieldMonFromItsHomeAccount",
+      "Effect": "Allow",
+      "Principal": { "AWS": "arn:aws:iam::<SHIELDMON_ACCOUNT_ID>:role/<SHIELDMON_ROLE>" },
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "StringEquals": { "sts:ExternalId": "<EXTERNAL_ID>" }
+      }
+    }
+  ]
+}

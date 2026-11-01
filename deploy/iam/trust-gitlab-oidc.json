@@ -1,0 +1,17 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ShieldMonFromGitLabIdTokens",
+      "Effect": "Allow",
+      "Principal": { "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/gitlab.com" },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "gitlab.com:aud": "https://gitlab.com",
+          "gitlab.com:sub": "project_path:<GROUP>/<PROJECT>:ref_type:branch:ref:main"
+        }
+      }
+    }
+  ]
+}

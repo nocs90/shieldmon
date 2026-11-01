@@ -35,6 +35,8 @@ make build
 ./bin/shieldmon init                     # config template + database (macOS: --sandbox none)
 ./bin/shieldmon doctor                   # scanners, hashes for pinning, DB freshness
 ./bin/shieldmon scan alpine:3.18.0       # resolve → SBOM (once) → match → track
+./bin/shieldmon targets add -f images.txt                 # more targets for the next cycle
+./bin/shieldmon targets add-repo ghcr.io/org/app --latest 3 --dry-run
 ./bin/shieldmon findings list --severity high
 ./bin/shieldmon findings show 42         # details + full audit trail
 ./bin/shieldmon monitor                  # one ConMon cycle over every target (cron it)

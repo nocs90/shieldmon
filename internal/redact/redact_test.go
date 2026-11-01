@@ -7,11 +7,16 @@ import (
 
 func TestString(t *testing.T) {
 	cases := map[string]string{
-		"Authorization: Bearer abc.def.ghi-123456":                                                         "abc.def.ghi-123456",
-		"GET https://user:s3cr3t@registry.example.com/v2/":                                                 "s3cr3t",
-		"aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY":                                   "wJalrXUtnFEMI",
-		"key AKIAIOSFODNN7EXAMPLE used":                                                                    "AKIAIOSFODNN7EXAMPLE",
-		"token glpat-ABCDEFGHIJKLMNOPQRST rejected":                                                        "glpat-ABCDEFGHIJKLMNOPQRST",
+		"Authorization: Bearer abc.def.ghi-123456":                       "abc.def.ghi-123456",
+		"GET https://user:s3cr3t@registry.example.com/v2/":               "s3cr3t",
+		"aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY": "wJalrXUtnFEMI",
+		"key AKIAIOSFODNN7EXAMPLE used":                                  "AKIAIOSFODNN7EXAMPLE",
+		"token glpat-ABCDEFGHIJKLMNOPQRST rejected":                      "glpat-ABCDEFGHIJKLMNOPQRST",
+		// The gitlab registry provider's credentials: job token, deploy token, API headers.
+		"login gitlab-ci-token:glcbt-64_abcdefghij0123456789 failed":                                       "glcbt-64_abcdefghij0123456789",
+		"deploy token gldt-abcdefghijklmnopqrst refused":                                                   "gldt-abcdefghijklmnopqrst",
+		"JOB-TOKEN: 64_opaquejobtokenvalue12345":                                                           "64_opaquejobtokenvalue12345",
+		"PRIVATE-TOKEN: opaque-api-token-without-prefix":                                                   "opaque-api-token-without-prefix",
 		"ghp_abcdefghijklmnopqrstuvwxyz0123456789":                                                         "ghp_abcdefghijklmnopqrstuvwxyz",
 		"https://s3.amazonaws.com/x?X-Amz-Signature=deadbeef&a=1":                                          "deadbeef",
 		`{"password": "hunter2"}`:                                                                          "hunter2",

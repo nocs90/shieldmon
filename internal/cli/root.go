@@ -32,11 +32,12 @@ type app struct {
 	dataDir  string
 	logLevel string
 
-	cfg    config.Config
-	store  *store.Store
-	engine *engine.Engine
-	log    *slog.Logger
-	out    io.Writer
+	cfg        config.Config
+	registries *oci.Registries
+	store      *store.Store
+	engine     *engine.Engine
+	log        *slog.Logger
+	out        io.Writer
 }
 
 // Execute runs the CLI and returns the process exit code.
@@ -118,6 +119,13 @@ func (a *app) setup(cmd *cobra.Command) error {
 		return err
 	}
 	a.cfg = cfg
+	rules := make([]oci.Rule, 0, len(cfg.Registries))
+	for _, r := range cfg.Registries {
+		rules = append(rules, oci.Rule{Hosts: r.Hosts, Provider: r.Provider, Options: r.Options})
+	}
+	if a.registries, err = oci.NewRegistries(rules); err != nil {
+		return err
+	}
 
 	var lvl slog.Level
 	if err := lvl.UnmarshalText([]byte(a.logLevel)); err != nil {
@@ -157,6 +165,7 @@ func (a *app) setup(cmd *cobra.Command) error {
 func (a *app) ociOptions() oci.Options {
 	l := a.cfg.Limits
 	return oci.Options{
+		Keychain: a.registries,
 		Limits: oci.Limits{
 			MaxLayers: l.MaxLayers, MaxLayerBytes: l.MaxLayerBytes, MaxTotalBytes: l.MaxTotalBytes,
 			MaxConfigBytes: oci.DefaultLimits.MaxConfigBytes,
@@ -606,7 +615,7 @@ func (a *app) dbCmd() *cobra.Command {
 func (a *app) pluginsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "plugins",
-		Short: "List registered extension plugins (scanners, report formats)",
+		Short: "List registered extension plugins (scanners, sandboxes, registry providers, report formats)",
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, _ []string) {
 			w := cmd.OutOrStdout()
@@ -617,6 +626,18 @@ func (a *app) pluginsCmd() *cobra.Command {
 					opts = " (options: " + strings.Join(p.Options, ", ") + ")"
 				}
 				fmt.Fprintf(w, "  %-8s %s%s\n", p.Name, p.Description, opts)
+			}
+			fmt.Fprintln(w, "Registry providers:")
+			for _, p := range oci.Providers() {
+				scope := "configured hosts only"
+				if p.Default > 0 {
+					scope = fmt.Sprintf("built in, order %d", p.Default)
+				}
+				opts := ""
+				if len(p.Options) > 0 {
+					opts = "; options: " + strings.Join(p.Options, ", ")
+				}
+				fmt.Fprintf(w, "  %-8s %s (%s%s)\n", p.Name, p.Description, scope, opts)
 			}
 			fmt.Fprintln(w, "Sandbox backends:")
 			for _, b := range scanner.SandboxBackends() {

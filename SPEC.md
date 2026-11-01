@@ -28,7 +28,7 @@ These are not features; violating one is a bug.
 
 | ID | Requirement | Status |
 |---|---|---|
-| F1 | Input: image ref (tag or digest). Always resolve to digest; multi-arch indexes resolve to the configured platform. | ✅ refs · ⬜ image lists, registry repositories, Helm charts |
+| F1 | Input: image ref (tag or digest). Always resolve to digest; multi-arch indexes resolve to the configured platform. | ✅ refs, image list files, registry repositories and paths with tag filters and latest-N (`targets add`, `targets add-repo`) · ⬜ Helm charts |
 | F2 | Pluggable scanner adapters (Grype, Trivy) behind one interface and a plugin registry with a conformance kit; normalize; dedupe across scanners and aliases (CVE/GHSA/distro); record scanner name, version, DB version and DB age on every scan. | ✅ |
 | F3 | SBOM-first: generate once per digest (CycloneDX + SPDX), store, re-match on schedule without re-pulling. | ✅ (syft: CycloneDX + SPDX; trivy: CycloneDX) |
 | F4 | Storage: SQLite (CLI/single node) and PostgreSQL (server), same schema, versioned migrations, append-only history. | ✅ SQLite · ⬜ PostgreSQL |
@@ -39,14 +39,14 @@ These are not features; violating one is a bug.
 | F9 | Notifications: pluggable (SMTP, webhook, Matrix, Mattermost, Slack, GitLab/GitHub issues), deduplicated, digest mode. | ⬜ |
 | F10 | Self-health as findings: scanner failures, stale DBs, missed schedules, auth failures, checksum mismatches. | ✅ |
 | F11 | Helm: ingest charts (HTTP, OCI, Artifact Hub), render, extract every image, flag operator-managed images, track neglected charts, upstream-contribution queue (human-approved). | ⬜ (OCI Helm charts are already *rejected* safely as non-images) |
-| F12 | Registries: AWS ECR (cross-account, multi-region, all AWS partitions, ECR Public), GitLab.com + self-managed, generic OCI. Short-lived credentials only. No Docker daemon. | ✅ any OCI registry, no daemon; native ECR (any AWS partition, cross-account via roles) and GCR/Artifact Registry credentials; docker config/credential helpers for the rest · ⬜ repository listing, GitLab provider |
+| F12 | Registries: AWS ECR (cross-account, multi-region, all AWS partitions, ECR Public), GitLab.com + self-managed, generic OCI. Short-lived credentials only. No Docker daemon. | ✅ any OCI registry, no daemon; native ECR (any AWS partition, cross-account via roles) and GCR/Artifact Registry credentials; docker config/credential helpers for the rest ; `RegistryProvider` extension point with bounded repository and tag listing (ADR 0013) ; ECR through its API with role assumption for other accounts and listing with push times; GitLab.com and self-managed (job and deploy tokens, group and project listing) |
 
 ## Security requirements (non-negotiable)
 
 | ID | Requirement | Status |
 |---|---|---|
 | S1 | Never execute image content. Bound sizes, time and output; protect against path traversal / symlink escape. | ✅ manifest/layer/total limits, digest verification, scanner timeouts, output limits, SBOM size/shape validation, scanner sandbox by default with seccomp and W^X — `bwrap` (Linux hosts) or `landlock` (containers) — offline scanning with a separate DB update step, scratch quota and free-disk floor; hostile fixture suite in CI with real scanners |
-| S2 | Credentials never logged, never persisted, redacted from errors. Least-privilege IAM policy shipped and tested. | 🟡 redaction, scanners never receive registry credentials, env allowlist · ⬜ IAM policy (M3) |
+| S2 | Credentials never logged, never persisted, redacted from errors. Least-privilege IAM policy shipped and tested. | ✅ redaction, scanners never receive registry credentials, env allowlist; least-privilege IAM policy and pinned trust policies in `deploy/iam`, tested |
 | S3 | Own supply chain: scanners pinned by checksum, CI actions pinned by full SHA, reproducible signed releases. | 🟡 binary SHA-256 pins, pinned CI actions, checksum-verified installer · ⬜ signature verification, signed releases, SBOM of ShieldMon itself |
 
 > The original requirements prompt was truncated after "S3 Own su…"; S3 above is

@@ -14,7 +14,7 @@ The core never imports an adapter; adapters never touch the lifecycle or storage
 | Vulnerability matcher | `scanner.Matcher` | `scanner.Register` | `scannertest.CheckPlugin`, `CheckParser`, `CheckMatcher` | grype, trivy | ✅ |
 | Report format / exporter | `report.Format` | `report.RegisterFormat` | golden tests | md, json, csv | ✅ |
 | Scanner sandbox | `scanner.Sandbox` | `scanner.RegisterSandbox` | `scannertest.CheckSandbox` | none, bwrap, landlock | 🟡 M2, [ADR 0011](../adr/0011-scanner-sandbox.md) |
-| Registry provider | `RegistryProvider` (keychain + listing) | planned | planned | docker config + credential helpers | ⬜ M3 |
+| Registry provider | `oci.Provider` (keychain + listing) | `oci.RegisterProvider` | `ocitest.CheckProvider` | docker, ecr, google, gitlab | ✅ M3, [ADR 0013](../adr/0013-registry-providers.md) |
 | Enricher (EPSS, KEV, CVSS) | `Enricher` | planned | planned | (EPSS/KEV from grype output) | ⬜ M4 |
 | Notifier | `Notifier` | planned | planned | — | ⬜ M4 |
 | Chart source | `ChartSource` | planned | planned | — | ⬜ M7 |
@@ -47,4 +47,5 @@ to keep the trust boundary small. See [ADR 0008](../adr/0008-extension-model.md)
 
 - [Scanner adapter](scanner-adapter.md)
 - [Report format](report-format.md)
+- [Registry provider](registry-provider.md)
 - [Conformance kit](conformance.md)
