@@ -18,6 +18,7 @@ import (
 	"github.com/nocs90/shieldmon/internal/config"
 	"github.com/nocs90/shieldmon/internal/engine"
 	"github.com/nocs90/shieldmon/internal/enrich"
+	"github.com/nocs90/shieldmon/internal/gate"
 	"github.com/nocs90/shieldmon/internal/lifecycle"
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/notify"
@@ -1273,5 +1274,77 @@ func TestPriorityInReports(t *testing.T) {
 	kev, crit := p["CVE-2024-6119"], p["CVE-2023-45853"]
 	if kev.Priority <= crit.Priority || len(kev.PriorityReasons) == 0 {
 		t.Fatalf("KEV with a fix %d %q must outrank an unexploited critical %d %q", kev.Priority, kev.PriorityReasons, crit.Priority, crit.PriorityReasons)
+	}
+}
+
+// TestGateDecidesOnEvidenceAndDecisions follows a CI gate (docs/adr/0021-policy-gate.md)
+// through a risk acceptance, a failed matcher, stale evidence and an expired decision.
+func TestGateDecidesOnEvidenceAndDecisions(t *testing.T) {
+	h := newHarness(t)
+	policy, err := config.Default().Policy()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.eng.Decisions = policy
+	h.image(ref, digestA,
+		vuln("zlib", "1.2.13-r0", "CVE-2023-45853", model.SeverityCritical),
+		vuln("libcrypto3", "3.3.1-r0", "CVE-2024-6119", model.SeverityHigh, "3.3.2-r0"))
+	gateNow := func(scanID int64) gate.Result {
+		t.Helper()
+		r, err := h.eng.GateDigest(h.ctx, ref, digestA, config.DefaultGate(), "built-in", scanID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+
+	r := gateNow(h.scan(ref).ScanID)
+	if r.Verdict != gate.Fail || r.ExitCode != 2 || len(r.Flagged) != 2 || r.Flagged[0].VulnID != "CVE-2023-45853" {
+		t.Fatalf("a critical finding fails: %+v", r)
+	}
+
+	// Gating changes nothing.
+	before, err := h.store.Events(h.ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateNow(0)
+	if after, _ := h.store.Events(h.ctx, 0); len(after) != len(before) {
+		t.Fatalf("the gate recorded events: %d -> %d", len(before), len(after))
+	}
+
+	// The owner accepts the critical risk: the gate warns on the high one and exits 0.
+	crit := h.finding("CVE-2023-45853", digestA)
+	if _, err := h.store.ApplyDecision(h.ctx, crit.ID, lifecycleDecision(h.clock.AddDate(0, 0, 10)), policy, h.clock); err != nil {
+		t.Fatal(err)
+	}
+	r = gateNow(h.scan(ref).ScanID)
+	if r.Verdict != gate.Warn || r.ExitCode != 0 || len(r.Exempt) != 1 || r.Exempt[0].Decision.Author != "secops-lead" {
+		t.Fatalf("an accepted risk is exempt with its decision: %+v", r)
+	}
+
+	// A matcher fails: with no violation left, a pass cannot be proven.
+	h.trivy.fail = true
+	r = gateNow(h.scan(ref).ScanID)
+	if r.Verdict != gate.Indeterminate || r.ExitCode != 3 {
+		t.Fatalf("partial evidence: %+v", r)
+	}
+	h.trivy.fail = false
+
+	// Stored evidence older than max_evidence_age is not evidence of a pass.
+	h.scan(ref)
+	h.advance(25 * time.Hour)
+	if r = gateNow(0); r.Verdict != gate.Indeterminate || !strings.Contains(strings.Join(r.Unproven, ";"), "max_evidence_age") {
+		t.Fatalf("stale evidence: %+v", r)
+	}
+
+	// The acceptance expires; until the monitor reopens it, the gate already refuses it.
+	h.advance(10 * 24 * time.Hour)
+	res := h.scan(ref)
+	if f := h.finding("CVE-2023-45853", digestA); f.State != model.StateRiskAccepted {
+		t.Fatalf("state = %s: the scan does not expire decisions, the monitor does", f.State)
+	}
+	if r = gateNow(res.ScanID); r.Verdict != gate.Fail || len(r.Exempt) != 0 {
+		t.Fatalf("an expired acceptance exempts nothing: %+v", r)
 	}
 }

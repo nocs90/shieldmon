@@ -4,6 +4,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -55,7 +56,11 @@ func Execute(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if a.store != nil {
 		_ = a.store.Close()
 	}
-	if err != nil {
+	var status exitStatus
+	switch {
+	case errors.As(err, &status):
+		return int(status)
+	case err != nil:
 		fmt.Fprintln(stderr, "error:", err)
 		return 1
 	}
@@ -84,7 +89,7 @@ when a later scan provides evidence.`,
 		&cobra.Group{ID: "setup", Title: "Setup:"},
 	)
 	for group, cmds := range map[string][]*cobra.Command{
-		"monitor": {a.scanCmd(), a.monitorCmd(), a.rematchCmd(), a.targetsCmd()},
+		"monitor": {a.scanCmd(), a.gateCmd(), a.monitorCmd(), a.rematchCmd(), a.targetsCmd()},
 		"triage":  {a.findingsCmd(), a.vexCmd(), a.healthCmd(), a.reportCmd(), a.sbomCmd(), a.componentsCmd(), a.notifyCmd(), a.auditCmd()},
 		"setup":   {a.initCmd(), a.doctorCmd(), a.dbCmd(), a.pluginsCmd(), a.versionCmd()},
 	} {

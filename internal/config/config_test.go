@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -79,6 +80,9 @@ func TestTemplateLoads(t *testing.T) {
 	pol, err := c.Policy()
 	if err != nil || pol.Profile != "standard" || pol.SLADays[model.SeverityCritical] != 30 || pol.VendorDependencyMaxDays != 30 {
 		t.Errorf("template policy = %+v, %v", pol, err)
+	}
+	if !reflect.DeepEqual(c.Gate, DefaultGate()) {
+		t.Errorf("template gate = %+v, want the default %+v", c.Gate, DefaultGate())
 	}
 	bad := strings.Replace(Template, "  profile: standard\n", "  profile: standard\n  days: { critical: 90 }\n", 1)
 	if err := os.WriteFile(p, []byte(bad), 0o600); err != nil {

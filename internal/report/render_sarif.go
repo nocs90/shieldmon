@@ -82,8 +82,8 @@ type (
 	}
 )
 
-// sarifLevel maps severities to SARIF levels.
-func sarifLevel(sev string) string {
+// SARIFLevel maps severities to SARIF levels.
+func SARIFLevel(sev string) string {
 	switch sev {
 	case "critical", "high":
 		return "error"
@@ -93,10 +93,46 @@ func sarifLevel(sev string) string {
 	return "note"
 }
 
+// SARIFResult is one result of a SARIF log: a finding and its level, or a suppressed
+// finding with the justification of its decision.
+type SARIFResult struct {
+	Row           Row
+	Level         string
+	Suppressed    bool
+	Justification string
+	// Properties are added to the result's own (finding_id, state, severity…).
+	Properties map[string]any
+}
+
 func renderSARIF(w io.Writer, r Monthly) error {
-	rows := slices.Concat(r.Open, r.AcceptedRisks)
+	var results []SARIFResult
+	for _, x := range r.Open {
+		results = append(results, SARIFResult{Row: x, Level: SARIFLevel(x.Severity)})
+	}
+	// Risk acceptances are suppressed results; not_affected findings are no weakness and no
+	// result.
+	for _, x := range r.AcceptedRisks {
+		if d := x.Decision; d != nil && x.State == "risk_accepted" {
+			just := d.Justification
+			if d.Deviation != "" {
+				just = d.Deviation + ": " + just
+			}
+			results = append(results, SARIFResult{Row: x, Level: SARIFLevel(x.Severity), Suppressed: true, Justification: just})
+		}
+	}
+	return WriteSARIF(w, results, map[string]string{
+		"period_start": r.Period.Start.Format(time.DateOnly), "period_end": r.Period.End.Format(time.DateOnly),
+		"generated_at": r.GeneratedAt.Format(time.RFC3339), "sla_profile": r.SLAProfile,
+	})
+}
+
+// WriteSARIF writes a SARIF 2.1.0 log with one run of ShieldMon: each vulnerability is a
+// rule, each result a finding located by its package URL, with fingerprints that stay the
+// same across versions and digests of the same images.
+func WriteSARIF(w io.Writer, in []SARIFResult, runProps map[string]string) error {
 	rules := map[string]*sarifRule{}
-	for _, x := range rows {
+	for _, res := range in {
+		x := res.Row
 		rule, ok := rules[x.VulnID]
 		if !ok {
 			desc := x.Title
@@ -127,13 +163,14 @@ func renderSARIF(w io.Writer, r Monthly) error {
 	}
 
 	results := []sarifResult{}
-	for _, x := range rows {
+	for _, in := range in {
+		x := in.Row
 		msg := x.Package + " " + x.Version + " is affected by " + x.VulnID
 		if len(x.FixVersions) > 0 {
 			msg += "; fixed in " + strings.Join(x.FixVersions, ", ")
 		}
 		res := sarifResult{
-			RuleID: x.VulnID, RuleIndex: index[x.VulnID], Level: sarifLevel(x.Severity), Message: sarifText{oneLine(msg)},
+			RuleID: x.VulnID, RuleIndex: index[x.VulnID], Level: in.Level, Message: sarifText{oneLine(msg)},
 			Locations: []sarifLocation{{
 				PhysicalLocation: sarifPhysical{sarifArtifact{purlURI(x.PURL, x.Package)}},
 				LogicalLocations: sarifLogicals(x),
@@ -150,12 +187,11 @@ func renderSARIF(w io.Writer, r Monthly) error {
 		if x.EPSS > 0 {
 			res.Properties["epss"] = x.EPSS
 		}
-		if d := x.Decision; d != nil && x.State == "risk_accepted" {
-			just := d.Justification
-			if d.Deviation != "" {
-				just = d.Deviation + ": " + just
-			}
-			res.Suppressions = []sarifSuppression{{Kind: "external", Status: "accepted", Justification: oneLine(just)}}
+		if in.Suppressed {
+			res.Suppressions = []sarifSuppression{{Kind: "external", Status: "accepted", Justification: oneLine(in.Justification)}}
+		}
+		for k, v := range in.Properties {
+			res.Properties[k] = v
 		}
 		results = append(results, res)
 	}
@@ -163,13 +199,7 @@ func renderSARIF(w io.Writer, r Monthly) error {
 	log := sarifLog{
 		Schema:  "https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json",
 		Version: "2.1.0",
-		Runs: []sarifRun{{
-			Tool: sarifTool{driver}, Results: results,
-			Properties: map[string]string{
-				"period_start": r.Period.Start.Format(time.DateOnly), "period_end": r.Period.End.Format(time.DateOnly),
-				"generated_at": r.GeneratedAt.Format(time.RFC3339), "sla_profile": r.SLAProfile,
-			},
-		}},
+		Runs:    []sarifRun{{Tool: sarifTool{driver}, Results: results, Properties: runProps}},
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")

@@ -125,6 +125,9 @@ type Config struct {
 		DueSoonDays int       `yaml:"due_soon_days"`
 		Channels    []Channel `yaml:"channels,omitempty"`
 	} `yaml:"notifications"`
+
+	// Gate is the policy of 'shieldmon gate' (docs/adr/0021-policy-gate.md).
+	Gate Gate `yaml:"gate"`
 }
 
 // TemplateWithSandbox is Template with scanners.sandbox.backend set to backend.
@@ -154,6 +157,7 @@ func Default() Config {
 	c.Decisions.VendorDependencyMaxDays = 30
 	c.Decisions.OperationalRequirementMaxDays = 365
 	c.Notifications.DueSoonDays = 7
+	c.Gate = DefaultGate()
 	return c
 }
 
@@ -214,7 +218,7 @@ func (c Config) Validate() error {
 	if c.Limits.MaxScratchBytes < 0 || c.Limits.MinFreeDiskBytes < 0 {
 		return fmt.Errorf("limits: max_scratch_bytes and min_free_disk_bytes must not be negative (0 disables)")
 	}
-	return nil
+	return c.Gate.Validate()
 }
 
 // DefaultPath returns the default config file location.
@@ -409,6 +413,22 @@ notifications:
   #   digest: true
   #   options: { host: smtp.example.com, from: shieldmon@example.com, to: [secops@example.com],
   #              username: shieldmon, password_env: SHIELDMON_SMTP_PASSWORD }
+
+# Policy of 'shieldmon gate IMAGE' in CI (docs/processes/ci-gate.md): pass, warn, fail or
+# indeterminate. A finding is flagged by the strongest action of the rules whose conditions
+# all hold: severity, cvss, epss, priority (minimums), age_days, kev, fixable, sla_breached.
+# Findings are exempt only by a decision in force (accept-risk, not-affected, VEX); there is
+# no ignore list. Without complete, fresh evidence a gate with no violation is indeterminate.
+gate:
+  rules:
+    - { name: exploited, action: fail, when: { kev: true } }
+    - { name: critical, action: fail, when: { severity: critical } }
+    - { name: past-deadline, action: fail, when: { sla_breached: true } }
+    - { name: high, action: warn, when: { severity: high } }
+  exempt: [not_affected, risk_accepted]
+  # max_db_age: 72h       # default: health.db_max_age
+  max_evidence_age: 24h   # with --no-scan, the latest scan may be this old
+  exit_codes: { warn: 0, fail: 2, indeterminate: 3 }   # errors exit 1
 `
 
 // Policy builds the decision policy from configuration.

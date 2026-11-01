@@ -187,10 +187,7 @@ func BuildMonthly(ctx context.Context, src Source, p Period, profile string, sla
 	}
 	withDecision := func(rw Row, f store.Finding) Row {
 		if d, ok := decisions[f.ID]; ok {
-			rw.Decision = &DecisionInfo{
-				State: string(d.State), Deviation: d.Deviation, Author: d.Author,
-				Justification: d.Justification, ExpiresAt: d.ExpiresAt,
-			}
+			rw.Decision = decisionInfo(d)
 		}
 		return rw
 	}
@@ -325,6 +322,23 @@ func stateAt(evs []store.Event, t time.Time) model.State {
 		st = e.To
 	}
 	return st
+}
+
+// FindingRow is finding f in state st as of asOf, with its deadline, priority and latest
+// decision (nil when none), as reports show it.
+func FindingRow(f store.Finding, st model.State, asOf time.Time, sla config.SLA, d *store.Decision) Row {
+	rw := row(f, st, asOf, sla)
+	if d != nil {
+		rw.Decision = decisionInfo(*d)
+	}
+	return rw
+}
+
+func decisionInfo(d store.Decision) *DecisionInfo {
+	return &DecisionInfo{
+		State: string(d.State), Deviation: d.Deviation, Author: d.Author,
+		Justification: d.Justification, ExpiresAt: d.ExpiresAt,
+	}
 }
 
 func row(f store.Finding, st model.State, asOf time.Time, sla config.SLA) Row {

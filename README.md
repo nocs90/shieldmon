@@ -76,6 +76,16 @@ shieldmon findings not-affected 40 --author "jane@corp" \
 
 There is no command to mark a finding fixed: a later scan has to prove it.
 
+### CI gate
+
+```sh
+shieldmon gate --policy ci/gate-policy.yaml -o sarif --out gate.sarif "registry.example.com/app@$DIGEST"
+```
+
+Exit status 0 on pass or warn, 2 on fail, 3 when the evidence cannot prove a pass (a matcher
+failed, a stale DB), 1 on error. Findings are exempt only by recorded decisions or VEX
+statements, never by an ignore list ([docs/processes/ci-gate.md](docs/processes/ci-gate.md)).
+
 ### Container image
 
 `make image` builds it; the release pipeline will publish it pinned by digest. It is
