@@ -94,6 +94,7 @@ matcher runs: SBOM-first is a property of the pipeline, not a separate mode.
 | `internal/export` | exporter registry, Dependency-Track and DefectDojo exporters (reusing the notifiers' hardened HTTP helpers); `exporttest` conformance kit (ADR 0027) | notify, report, normalize |
 | `internal/owners` | which team owns a target, from reference patterns in the configuration (ADR 0024) | config, oci |
 | `internal/runtimectx` | where images run and whether they are exposed, from read-only `kubectl get -o json` exports; bounded parser of hostile input (ADR 0029) | — |
+| `internal/server` | `shieldmon serve`'s HTTP API: read endpoints, triage and decisions authored by the authenticated identity, roles, API tokens (ADR 0031) | store, lifecycle, report, priority |
 | `internal/gate` | **pure** policy gate: rules, exemptions by decision, fail-closed verdict, SARIF (ADR 0021) | config, report |
 | `internal/vex` | **pure** OpenVEX / CycloneDX VEX parsing (bounded, fuzzed), OpenVEX export, statement matching | normalize, go-containerregistry |
 | `internal/enrich` | enricher registry, CISA KEV catalog (bounded, validated, fuzzed, cached outside the scanners' reach); `enrichtest` conformance kit | model, redact |

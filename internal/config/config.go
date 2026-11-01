@@ -178,6 +178,26 @@ type Config struct {
 		// MaxAge is how old an export may be before it is ignored (0: no limit).
 		MaxAge Duration `yaml:"max_age"`
 	} `yaml:"runtime"`
+
+	// Server is 'shieldmon serve' (docs/adr/0031-server-mode.md); tokens are validated by
+	// server.NewToken.
+	Server struct {
+		// Listen is the address of the API. Anything but a loopback address needs TLS.
+		Listen  string `yaml:"listen"`
+		TLSCert string `yaml:"tls_cert"`
+		TLSKey  string `yaml:"tls_key"`
+		// Schedule runs a monitoring cycle every health.monitor_interval.
+		Schedule bool          `yaml:"schedule"`
+		Tokens   []ServerToken `yaml:"tokens,omitempty"`
+	} `yaml:"server"`
+}
+
+// ServerToken is an API token: its holder (decisions name it as author), role and the
+// SHA-256 of its secret, which is never stored ('shieldmon serve token' makes one).
+type ServerToken struct {
+	Name   string `yaml:"name"`
+	Role   string `yaml:"role"`
+	SHA256 string `yaml:"sha256"`
 }
 
 // clusterName bounds cluster names, which appear in reports and priority reasons.
@@ -227,6 +247,8 @@ func Default() Config {
 	c.Gate = DefaultGate()
 	c.Bases.MaxAge = Duration{90 * 24 * time.Hour}
 	c.Runtime.MaxAge = Duration{48 * time.Hour}
+	c.Server.Listen = "127.0.0.1:8484"
+	c.Server.Schedule = true
 	return c
 }
 
@@ -564,6 +586,17 @@ runtime:
   max_age: 48h     # an older export is left out, with a warning; 0: no limit
   inventories: []
   # - { cluster: prod, path: /var/lib/shieldmon/runtime/prod.json }
+
+# 'shieldmon serve': the API and a built-in scheduler (docs/processes/server.md). Roles:
+# viewer reads, triager also triages and decides (the token's name is the author), admin
+# also starts cycles. 'shieldmon serve token NAME --role ROLE' prints a secret and its line.
+server:
+  listen: 127.0.0.1:8484   # any other address needs tls_cert and tls_key
+  tls_cert: ""
+  tls_key: ""
+  schedule: true           # a monitoring cycle every health.monitor_interval
+  tokens: []
+  # - { name: alice, role: triager, sha256: "…" }
 `
 
 // Policy builds the decision policy from configuration.

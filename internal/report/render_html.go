@@ -90,7 +90,7 @@ var htmlTmpl = template.Must(template.New("monthly").Funcs(template.FuncMap{
 }).Parse(monthlyHTML))
 
 func init() {
-	RegisterFormat(Format{Name: "html", Description: "self-contained HTML summary for stakeholders and auditors", Render: renderHTML})
+	RegisterFormat(Format{Name: "html", Description: "self-contained HTML summary for stakeholders and auditors", MediaType: "text/html; charset=utf-8", Render: renderHTML})
 }
 
 func renderHTML(w io.Writer, r Monthly) error {

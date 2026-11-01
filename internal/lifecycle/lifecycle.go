@@ -14,6 +14,7 @@ package lifecycle
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -33,7 +34,25 @@ var manualTransitions = map[model.State][]model.State{
 }
 
 // CheckManual validates a human-initiated transition.
-func CheckManual(from, to model.State) error {
+func CheckManual(from, to model.State) error { return refuse(checkManual(from, to)) }
+
+// ErrRefused marks a transition or decision the lifecycle rules or the remediation policy
+// refuse, as opposed to a failure to apply it.
+var ErrRefused = errors.New("refused by the lifecycle rules")
+
+type refusal struct{ error }
+
+func (r refusal) Is(target error) bool { return target == ErrRefused }
+func (r refusal) Unwrap() error        { return r.error }
+
+func refuse(err error) error {
+	if err == nil {
+		return nil
+	}
+	return refusal{err}
+}
+
+func checkManual(from, to model.State) error {
 	if slices.Contains(manualTransitions[from], to) {
 		return nil
 	}
@@ -133,6 +152,10 @@ func (p Policy) DefaultExpiry(d Decision, s Subject, now time.Time) time.Time {
 
 // Validate enforces the decision requirements and the remediation policy.
 func (p Policy) Validate(d Decision, s Subject, now time.Time) error {
+	return refuse(p.validate(d, s, now))
+}
+
+func (p Policy) validate(d Decision, s Subject, now time.Time) error {
 	if d.State != model.StateRiskAccepted && d.State != model.StateNotAffected {
 		return fmt.Errorf("decision state must be risk_accepted or not_affected, got %s", d.State)
 	}
@@ -144,6 +167,10 @@ func (p Policy) Validate(d Decision, s Subject, now time.Time) error {
 	}
 	if d.Author == "" {
 		return fmt.Errorf("author is required")
+	}
+	if d.Author == ActorEngine {
+		// The audit trail must tell automatic transitions from accountable people.
+		return fmt.Errorf("author %q is reserved for automatic transitions", ActorEngine)
 	}
 	if !d.ExpiresAt.IsZero() && !d.ExpiresAt.After(now) {
 		return fmt.Errorf("expiry %s is not in the future", d.ExpiresAt.Format(time.DateOnly))

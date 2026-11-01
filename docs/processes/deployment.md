@@ -35,6 +35,10 @@ Check the result with `systemd-analyze security shieldmon-monitor.service`, and 
 sandbox runs with `sudo -u shieldmon shieldmon plugins` (and `shieldmon health` after a cycle:
 no `scanner_unsandboxed`).
 
+For server mode (an API, cycles scheduled by ShieldMon itself), install
+`shieldmon-serve.service` instead of the timer: `sudo systemctl enable --now
+shieldmon-serve.service` (docs/processes/server.md).
+
 A size-limited, `noexec` scratch filesystem for `/var/lib/shieldmon/tmp` is a mount unit away:
 [deploy/scratch](../../deploy/scratch/README.md).
 

@@ -18,7 +18,24 @@ import (
 type Format struct {
 	Name        string
 	Description string
-	Render      func(io.Writer, Monthly) error
+	// MediaType is what the format is served as (`shieldmon serve`); empty is
+	// application/octet-stream.
+	MediaType string
+	// Download marks formats a browser should save rather than show (spreadsheets).
+	Download bool
+	Render   func(io.Writer, Monthly) error
+}
+
+// LookupFormat returns a registered format by name ("markdown" is md).
+func LookupFormat(name string) (Format, bool) {
+	if name == "markdown" {
+		name = "md"
+	}
+	f, ok := formats[name]
+	if ok && f.MediaType == "" {
+		f.MediaType = "application/octet-stream"
+	}
+	return f, ok
 }
 
 var formats = map[string]Format{}
@@ -45,13 +62,16 @@ func Formats() []Format {
 }
 
 func init() {
-	RegisterFormat(Format{Name: "json", Description: "full report as JSON", Render: func(w io.Writer, r Monthly) error {
+	RegisterFormat(Format{Name: "json", Description: "full report as JSON", MediaType: "application/json; charset=utf-8", Render: func(w io.Writer, r Monthly) error {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(r)
 	}})
-	RegisterFormat(Format{Name: "csv", Description: "flat list of open and risk-accepted findings (see remediation-plan for the worksheet)", Render: renderCSV})
-	RegisterFormat(Format{Name: "md", Description: "human-readable Markdown report", Render: renderMarkdown})
+	RegisterFormat(Format{
+		Name: "csv", Description: "flat list of open and risk-accepted findings (see remediation-plan for the worksheet)",
+		MediaType: "text/csv; charset=utf-8", Download: true, Render: renderCSV,
+	})
+	RegisterFormat(Format{Name: "md", Description: "human-readable Markdown report", MediaType: "text/markdown; charset=utf-8", Render: renderMarkdown})
 }
 
 // Render writes the report in the named format.
