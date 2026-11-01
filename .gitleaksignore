@@ -1,0 +1,5 @@
+# Findings ignored one by one (commit:file:rule:line), for synthetic credentials in files
+# too broad to allowlist in .gitleaks.toml. Each entry says why it is not a secret.
+
+# A fake GitHub token the notifier configuration must refuse without repeating it.
+224f8104986b206719225c2e550a2c062511d372:internal/cli/cli_test.go:github-pat:360

@@ -21,6 +21,7 @@ import (
 	"github.com/nocs90/shieldmon/internal/lifecycle"
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/normalize"
+	"github.com/nocs90/shieldmon/internal/notify"
 	"github.com/nocs90/shieldmon/internal/oci"
 	"github.com/nocs90/shieldmon/internal/redact"
 	"github.com/nocs90/shieldmon/internal/scanner"
@@ -40,6 +41,7 @@ const (
 	CheckUnsandboxed     = "scanner_unsandboxed"
 	CheckSandboxDegraded = "scanner_sandbox_degraded"
 	CheckDBUpdate        = "db_update_failed"
+	CheckNotify          = "notify_failed"
 	maxSBOMBytes         = 256 << 20
 	monitorMissedFactor  = 1.5
 )
@@ -81,8 +83,12 @@ type Engine struct {
 	// SandboxDegraded says which guarantee the sandbox lacks on this host
 	// (scanner.SandboxDegraded); while set, Preflight keeps scanner_sandbox_degraded open.
 	SandboxDegraded error
-	Now             func() time.Time
-	Log             *slog.Logger
+	// Channels receive the events of each monitoring cycle (docs/adr/0015-notifications.md).
+	Channels []notify.Channel
+	// DueSoon is how long before its remediation deadline a finding is due soon.
+	DueSoon time.Duration
+	Now     func() time.Time
+	Log     *slog.Logger
 }
 
 func (e *Engine) now() time.Time {
@@ -535,24 +541,27 @@ type MonitorSummary struct {
 	Results         []Result
 	Failures        map[string]string // target ref -> error
 	ExpiredDecision []int64
+	// Notified counts the events sent per channel; NotifyFailures holds failed channels.
+	Notified       map[string]int
+	NotifyFailures map[string]string
 }
 
 // Monitor runs one ConMon cycle over every target: check the schedule, expire
 // decisions, preflight (sandbox posture, DB updates), then scan (resolve + rematch,
-// pulling only new digests).
+// pulling only new digests), and notify.
 func (e *Engine) Monitor(ctx context.Context) (MonitorSummary, error) {
 	sum := MonitorSummary{Failures: map[string]string{}}
 	now := e.now()
+	last, lastErr := e.Store.LastMonitorRun(ctx)
+	if lastErr != nil && !errors.Is(lastErr, store.ErrNotFound) {
+		return sum, lastErr
+	}
 	if e.MonitorInterval > 0 {
-		last, err := e.Store.LastMonitorRun(ctx)
-		switch {
-		case err == nil && now.Sub(last.StartedAt) > time.Duration(float64(e.MonitorInterval)*monitorMissedFactor):
+		if lastErr == nil && now.Sub(last.StartedAt) > time.Duration(float64(e.MonitorInterval)*monitorMissedFactor) {
 			e.health(ctx, CheckMonitorMissed, "schedule", "high",
 				fmt.Errorf("previous monitoring cycle started %s ago (expected every %s)", now.Sub(last.StartedAt).Round(time.Minute), e.MonitorInterval))
-		case err == nil || errors.Is(err, store.ErrNotFound):
+		} else {
 			e.healthy(ctx, CheckMonitorMissed, "schedule")
-		default:
-			return sum, err
 		}
 	}
 	runID, err := e.Store.StartMonitorRun(ctx, now)
@@ -603,10 +612,108 @@ func (e *Engine) Monitor(ctx context.Context) (MonitorSummary, error) {
 	case errCount > 0:
 		sum.Status = "degraded"
 	}
+	if len(e.Channels) > 0 && ctx.Err() == nil {
+		// Findings created since the previous cycle began are new (none before the first).
+		sum.Notified, sum.NotifyFailures, err = e.Notify(ctx, last.StartedAt)
+		if err != nil {
+			e.log().Error("notifications", "err", redact.Error(err))
+			sum.NotifyFailures["*"] = redact.Error(err)
+		}
+		if len(sum.NotifyFailures) > 0 && sum.Status == "ok" {
+			sum.Status = "degraded"
+		}
+	}
 	if err := e.Store.FinishMonitorRun(context.WithoutCancel(ctx), runID, sum.Status, len(targets), errCount, e.now()); err != nil {
 		return sum, err
 	}
 	return sum, ctx.Err()
+}
+
+// Notify sends the events the store warrants to every channel (docs/adr/0015-notifications.md):
+// events are recorded, each channel is sent what it has not been sent, and what was sent is
+// recorded. A failing channel opens a notify_failed health finding and keeps its events for
+// the next cycle. It returns the number of events sent and the failures, per channel.
+func (e *Engine) Notify(ctx context.Context, since time.Time) (map[string]int, map[string]string, error) {
+	sent, failed := map[string]int{}, map[string]string{}
+	now := e.now()
+	in, err := e.notifyInput(ctx, since, now)
+	if err != nil {
+		return sent, failed, err
+	}
+	names := make([]string, 0, len(e.Channels))
+	for _, ch := range e.Channels {
+		names = append(names, ch.Name)
+	}
+	if err := e.Store.RecordNotificationEvents(ctx, notify.Collect(in), names, now); err != nil {
+		return sent, failed, err
+	}
+	for _, ch := range e.Channels {
+		pending, err := e.Store.PendingNotifications(ctx, ch.Name, ch.Kinds)
+		if err != nil {
+			return sent, failed, err
+		}
+		pending = notify.Current(pending, in)
+		if len(pending) == 0 {
+			continue
+		}
+		keys, sendErr := notify.Dispatch(ctx, ch, pending, now)
+		// Recorded even when the cycle is cancelled: those were sent.
+		if err := e.Store.RecordNotifications(context.WithoutCancel(ctx), ch.Name, keys, now); err != nil {
+			return sent, failed, err
+		}
+		sent[ch.Name] = len(keys)
+		if sendErr != nil {
+			failed[ch.Name] = redact.Error(sendErr)
+			e.health(ctx, CheckNotify, ch.Name, "high", fmt.Errorf("%w (%d event(s) wait for the next cycle)", sendErr, len(pending)-len(keys)))
+			continue
+		}
+		e.healthy(ctx, CheckNotify, ch.Name)
+	}
+	return sent, failed, nil
+}
+
+// PendingNotifications returns, per channel, what the next monitoring cycle would send if the
+// store did not change, without recording or sending anything.
+func (e *Engine) PendingNotifications(ctx context.Context) (map[string][]notify.Event, error) {
+	last, err := e.Store.LastMonitorRun(ctx)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, err
+	}
+	in, err := e.notifyInput(ctx, last.StartedAt, e.now())
+	if err != nil {
+		return nil, err
+	}
+	fresh := notify.Collect(in)
+	keys := make([]string, len(fresh))
+	for i, ev := range fresh {
+		keys[i] = ev.Key
+	}
+	known, err := e.Store.NotificationEventsKnown(ctx, keys)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string][]notify.Event{}
+	for _, ch := range e.Channels {
+		pending, err := e.Store.PendingNotifications(ctx, ch.Name, ch.Kinds)
+		if err != nil {
+			return nil, err
+		}
+		for _, ev := range fresh {
+			if !known[ev.Key] && ch.Wants(ev.Kind) {
+				pending = append(pending, ev)
+			}
+		}
+		pending = notify.Current(pending, in)
+		notify.Sort(pending)
+		out[ch.Name] = pending
+	}
+	return out, nil
+}
+
+func (e *Engine) notifyInput(ctx context.Context, since, now time.Time) (notify.Input, error) {
+	in, err := e.Store.NotifyInput(ctx, e.Decisions, since)
+	in.Now, in.Since, in.DueSoon = now, since, e.DueSoon
+	return in, err
 }
 
 // ActorFromEnv returns a default human actor name for manual transitions.

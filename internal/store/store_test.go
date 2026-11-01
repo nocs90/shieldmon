@@ -112,7 +112,7 @@ func TestOpenIsIdempotentAndPrivate(t *testing.T) {
 			t.Fatal(err)
 		}
 		v, err := s.SchemaVersion(ctx)
-		if err != nil || v != 3 {
+		if err != nil || v != 4 {
 			t.Fatalf("schema version = %d, %v", v, err)
 		}
 		s.Close()
