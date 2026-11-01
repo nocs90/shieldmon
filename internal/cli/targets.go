@@ -27,22 +27,32 @@ const (
 // targetsAddCmd registers references as monitoring targets without scanning them: the next
 // `monitor` cycle resolves and scans them (F1).
 func (a *app) targetsAddCmd() *cobra.Command {
-	var file, platform, base, by string
+	var file, manifestsFile, platform, base, by string
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "add [IMAGE...]",
-		Short: "Add image references as monitoring targets (from arguments and/or a file)",
+		Short: "Add image references as monitoring targets (from arguments, a list or manifests)",
 		Long: `Add image references as monitoring targets. Nothing is pulled or scanned now: the
 next 'shieldmon monitor' cycle resolves and scans them.
 
 A file (-f, "-" for stdin) holds one reference per line; blank lines and lines starting
 with # are ignored. Every reference is checked before any is added.
 
+--manifests reads Kubernetes manifests (a rendered Helm chart: 'helm template', a kustomize
+build, 'kubectl get -o yaml|json') and adds the image of every container, init container and
+ephemeral container of their workloads, hooks included. Custom resources are listed: an
+operator may run images for them that the manifests do not show
+(docs/processes/manifest-images.md).
+
 --base records the base image the new targets are built on (see 'targets set-base').`,
 		Example: "  shieldmon targets add alpine:3.20 ghcr.io/org/app:1.4\n  shieldmon targets add -f images.txt --dry-run\n" +
+			"  helm template shop ./charts/shop -f values-prod.yaml | shieldmon targets add --manifests - --dry-run\n" +
 			"  shieldmon targets add ghcr.io/org/api:2.1 --base registry.access.redhat.com/ubi9/nodejs-22-minimal:latest",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			refs := args
+			if file == "-" && manifestsFile == "-" {
+				return errors.New("-f and --manifests cannot both read stdin")
+			}
 			if file != "" {
 				fromFile, err := readTargetsFile(cmd.InOrStdin(), file)
 				if err != nil {
@@ -50,9 +60,19 @@ with # are ignored. Every reference is checked before any is added.
 				}
 				refs = append(refs, fromFile...)
 			}
+			if manifestsFile != "" {
+				fromManifests, err := readManifestImages(cmd, manifestsFile)
+				if err != nil {
+					return err
+				}
+				refs = append(refs, fromManifests...)
+			}
 			switch {
-			case len(refs) == 0 && file == "":
-				return errors.New("give image references or -f FILE")
+			case len(refs) == 0 && file == "" && manifestsFile == "":
+				return errors.New("give image references, -f FILE or --manifests FILE")
+			case len(refs) == 0 && manifestsFile != "":
+				fmt.Fprintf(cmd.OutOrStdout(), "%s: no images, nothing to add\n", manifestsFile)
+				return nil
 			case len(refs) == 0:
 				// A declarative list may be empty for a while (a deployment's targets file).
 				fmt.Fprintf(cmd.OutOrStdout(), "%s: no image references, nothing to add\n", file)
@@ -76,6 +96,7 @@ with # are ignored. Every reference is checked before any is added.
 		},
 	}
 	cmd.Flags().StringVarP(&file, "file", "f", "", `file with one reference per line ("-" for stdin)`)
+	cmd.Flags().StringVar(&manifestsFile, "manifests", "", `Kubernetes manifests whose images to add ("-" for stdin)`)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be added, add nothing")
 	cmd.Flags().StringVar(&base, "base", "", "base image tag the new targets are built on (docs/adr/0022-base-image-lineage.md)")
 	cmd.Flags().StringVar(&by, "by", engine.ActorFromEnv(), "who records the base")

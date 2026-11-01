@@ -41,6 +41,7 @@ FUZZ_TARGETS := \
 	FuzzCanonicalVulnID:./internal/normalize \
 	FuzzString:./internal/redact \
 	FuzzParseReference:./internal/oci \
+	FuzzParseManifests:./internal/manifests \
 	FuzzBaseAnnotations:./internal/oci \
 	FuzzParse:./internal/vex \
 	FuzzParseCycloneDX:./internal/sbom \
