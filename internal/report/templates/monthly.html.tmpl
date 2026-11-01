@@ -179,6 +179,15 @@ footer{margin-top:28px;color:var(--muted);font-size:12px}
   {{else}}<p class="empty">Nothing fixed in this period.</p>{{end}}
 </section>
 
+{{if .Runtime}}<section class="card">
+  <h2>Runtime context</h2>
+  {{with .RuntimeTotals}}<p>Open findings in images running in the clusters below: <strong>{{.Running}}</strong>, reachable from outside a cluster: <strong>{{.Exposed}}</strong>.</p>{{end}}
+  <div class="tbl"><table>
+    <tr><th>Cluster</th><th>Inventory taken</th><th class="num">Images running</th><th>Applied</th></tr>
+    {{range .Runtime}}<tr><td class="mono">{{.Cluster}}</td><td>{{if .Taken.IsZero}}—{{else}}{{stamp .Taken}}{{end}}</td><td class="num">{{.Images}}</td><td>{{if .Applied}}yes{{else}}<span class="muted">no ({{.Reason}})</span>{{end}}</td></tr>{{end}}
+  </table></div>
+</section>{{end}}
+
 <section class="card">
   <h2>Monitoring health</h2>
   {{if .HealthOpen}}<div class="tbl"><table>

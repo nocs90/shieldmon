@@ -13,6 +13,7 @@ import (
 	"github.com/nocs90/shieldmon/internal/lineage"
 	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/priority"
+	"github.com/nocs90/shieldmon/internal/runtimectx"
 	"github.com/nocs90/shieldmon/internal/store"
 )
 
@@ -96,6 +97,9 @@ type Row struct {
 	Remedy string `json:"remedy,omitempty"`
 	// Owners are the teams owning its targets, "-" for none (docs/adr/0024-ownership.md).
 	Owners []string `json:"owners,omitempty"`
+	// Runtime is where its image runs, from the cluster inventories (AddRuntime,
+	// docs/adr/0029-runtime-context.md); nil when it runs in none of them.
+	Runtime *runtimectx.Context `json:"runtime,omitempty"`
 }
 
 // DecisionInfo summarizes a decision for reports.
@@ -155,6 +159,8 @@ type Monthly struct {
 	// Owners sums open findings per team, as configured when the report was generated
 	// (AddOwners).
 	Owners []OwnerSummary `json:"owners,omitempty"`
+	// Runtime lists the cluster inventories considered (AddRuntime).
+	Runtime []RuntimeSource `json:"runtime,omitempty"`
 }
 
 // AgingBuckets are the age buckets for open findings, in days.
@@ -373,12 +379,24 @@ func row(f store.Finding, st model.State, asOf time.Time, sla config.SLA) Row {
 		rw.SLADue = f.FirstDetected.AddDate(0, 0, days)
 		rw.SLABreached = end.After(rw.SLADue)
 	}
-	p := priority.Compute(priority.Input{
-		Severity: f.Severity, CVSS: f.CVSSScore, EPSS: f.EPSS, KEV: f.KEV, Fixable: len(f.FixVersions) > 0,
-		SLADue: rw.SLADue, Now: end,
-	})
-	rw.Priority, rw.PriorityReasons = p.Value, p.Reasons
+	rw.prioritize(end)
 	return rw
+}
+
+// prioritize computes the row's priority as of now, with its runtime context if any.
+func (rw *Row) prioritize(now time.Time) {
+	in := priority.Input{
+		Severity: model.ParseSeverity(rw.Severity), CVSS: rw.CVSS, EPSS: rw.EPSS, KEV: rw.KEV,
+		Fixable: len(rw.FixVersions) > 0, SLADue: rw.SLADue, Now: now,
+	}
+	if rt := rw.Runtime; rt != nil {
+		in.RunningPods = rt.Pods
+		if len(rt.Exposure) > 0 {
+			in.Exposure = rt.Exposure[0]
+		}
+	}
+	p := priority.Compute(in)
+	rw.Priority, rw.PriorityReasons = p.Value, p.Reasons
 }
 
 func agingBucket(days int) string {

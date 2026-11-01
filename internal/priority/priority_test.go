@@ -32,6 +32,9 @@ func TestCompute(t *testing.T) {
 		"everything, capped":        {Input{Severity: model.SeverityCritical, CVSS: 10, KEV: true, Fixable: true, SLADue: now.Add(-time.Hour), Now: now}, 100},
 		"hostile CVSS ignored":      {Input{Severity: model.SeverityLow, CVSS: math.NaN(), Now: now}, 10},
 		"out-of-range CVSS ignored": {Input{Severity: model.SeverityLow, CVSS: 99, EPSS: math.NaN(), Now: now}, 10},
+		"running":                   {Input{Severity: model.SeverityMedium, CVSS: 5, RunningPods: 2, Now: now}, 25},
+		"running and exposed":       {Input{Severity: model.SeverityMedium, CVSS: 5, RunningPods: 2, Exposure: "prod: Service a/b (LoadBalancer)", Now: now}, 35},
+		"exposure needs a pod":      {Input{Severity: model.SeverityMedium, CVSS: 5, Exposure: "stale", Now: now}, 20},
 	} {
 		if got := Compute(c.in); got.Value != c.want {
 			t.Errorf("%s: %d %q, want %d", what, got.Value, got.Reasons, c.want)
@@ -43,6 +46,14 @@ func TestReasonsExplainTheScore(t *testing.T) {
 	s := Compute(Input{Severity: model.SeverityHigh, CVSS: 8.1, KEV: true, Fixable: true, SLADue: now.AddDate(0, 0, 2), Now: now})
 	want := []string{"impact: CVSS 8.1 (+32)", "known exploited (CISA KEV) (+30)", "fix available (+10)", "remediation due within 7 days (+15)"}
 	if s.Value != 87 || strings.Join(s.Reasons, "|") != strings.Join(want, "|") {
+		t.Errorf("%d %q", s.Value, s.Reasons)
+	}
+}
+
+func TestRuntimeReasons(t *testing.T) {
+	s := Compute(Input{Severity: model.SeverityLow, CVSS: 2.5, RunningPods: 3, Exposure: "prod: Ingress shop/web → Service shop/web", Now: now})
+	want := []string{"impact: CVSS 2.5 (+10)", "running in 3 pod(s) (+5)", "reachable from outside the cluster: prod: Ingress shop/web → Service shop/web (+10)"}
+	if s.Value != 25 || strings.Join(s.Reasons, "|") != strings.Join(want, "|") {
 		t.Errorf("%d %q", s.Value, s.Reasons)
 	}
 }
