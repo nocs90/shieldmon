@@ -35,7 +35,8 @@ FUZZ_TARGETS := \
 	FuzzCanonicalPURL:./internal/normalize \
 	FuzzCanonicalVulnID:./internal/normalize \
 	FuzzString:./internal/redact \
-	FuzzParseReference:./internal/oci
+	FuzzParseReference:./internal/oci \
+	FuzzParse:./internal/vex
 
 # Parsers of hostile input: run every fuzz target for FUZZTIME each.
 fuzz:

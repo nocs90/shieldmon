@@ -110,8 +110,8 @@ func applyPlan(ctx context.Context, tx *sql.Tx, a ReconcileArgs, p lifecycle.Pla
 		}
 		if c.PredecessorID != 0 && c.State.Suppressed() {
 			// The decision follows the problem to the successor digest.
-			if _, err := tx.ExecContext(ctx, `INSERT INTO decisions (finding_id, state, deviation, justification, author, created_at, expires_at)
-				SELECT ?, state, deviation, justification, author, ?, expires_at FROM decisions WHERE finding_id = ? ORDER BY id DESC LIMIT 1`,
+			if _, err := tx.ExecContext(ctx, `INSERT INTO decisions (finding_id, state, deviation, justification, author, created_at, expires_at, vex_statement_id)
+				SELECT ?, state, deviation, justification, author, ?, expires_at, vex_statement_id FROM decisions WHERE finding_id = ? ORDER BY id DESC LIMIT 1`,
 				id, now, c.PredecessorID); err != nil {
 				return err
 			}
@@ -194,42 +194,54 @@ func (s *Store) Transition(ctx context.Context, id int64, to model.State, actor,
 // is filled from the policy; the applied decision is returned.
 func (s *Store) ApplyDecision(ctx context.Context, id int64, d lifecycle.Decision, p lifecycle.Policy, now time.Time) (lifecycle.Decision, error) {
 	err := s.tx(ctx, func(tx *sql.Tx) error {
-		var state, sev, first, fixVersions, fixSt string
-		err := tx.QueryRowContext(ctx, `SELECT state, severity, first_detected_at, fix_versions, fix_state FROM findings WHERE id = ?`, id).
-			Scan(&state, &sev, &first, &fixVersions, &fixSt)
-		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("finding #%d: %w", id, ErrNotFound)
-		}
-		if err != nil {
-			return err
-		}
-		m := model.Match{FixVersions: parseList(fixVersions), FixState: model.FixState(fixSt)}
-		subj := lifecycle.Subject{
-			State: model.State(state), Severity: model.ParseSeverity(sev), FirstDetected: parseTS(first),
-			Fixable: m.Fixable(), FixVersions: m.FixVersions,
-		}
-		if d.ExpiresAt.IsZero() {
-			d.ExpiresAt = p.DefaultExpiry(d, subj, now)
-		}
-		if err := p.Validate(d, subj, now); err != nil {
-			return err
-		}
-		res, err := tx.ExecContext(ctx, `INSERT INTO decisions (finding_id, state, deviation, justification, author, created_at, expires_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`, id, string(d.State), string(d.Deviation), d.Justification, d.Author, ts(now), nullTS(d.ExpiresAt))
-		if err != nil {
-			return err
-		}
-		did, _ := res.LastInsertId()
-		reason := fmt.Sprintf("decision #%d: %s", did, d.Justification)
-		if d.Deviation != lifecycle.DeviationNone {
-			reason = fmt.Sprintf("decision #%d (%s): %s", did, d.Deviation, d.Justification)
-		}
-		if subj.State == d.State {
-			return insertEvent(ctx, tx, id, subj.State, d.State, d.Author, reason, 0, now)
-		}
-		return setState(ctx, tx, id, subj.State, d.State, d.Author, reason, 0, now)
+		var err error
+		d, _, err = applyDecisionTx(ctx, tx, id, d, 0, p, now)
+		return err
 	})
 	return d, err
+}
+
+// applyDecisionTx is ApplyDecision inside tx, for the VEX statement vexStatement (0: a
+// decision taken by hand); it also returns the decision's id.
+func applyDecisionTx(ctx context.Context, tx *sql.Tx, id int64, d lifecycle.Decision, vexStatement int64, p lifecycle.Policy, now time.Time) (lifecycle.Decision, int64, error) {
+	var state, sev, first, fixVersions, fixSt string
+	err := tx.QueryRowContext(ctx, `SELECT state, severity, first_detected_at, fix_versions, fix_state FROM findings WHERE id = ?`, id).
+		Scan(&state, &sev, &first, &fixVersions, &fixSt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return d, 0, fmt.Errorf("finding #%d: %w", id, ErrNotFound)
+	}
+	if err != nil {
+		return d, 0, err
+	}
+	m := model.Match{FixVersions: parseList(fixVersions), FixState: model.FixState(fixSt)}
+	subj := lifecycle.Subject{
+		State: model.State(state), Severity: model.ParseSeverity(sev), FirstDetected: parseTS(first),
+		Fixable: m.Fixable(), FixVersions: m.FixVersions,
+	}
+	if d.ExpiresAt.IsZero() {
+		d.ExpiresAt = p.DefaultExpiry(d, subj, now)
+	}
+	if err := p.Validate(d, subj, now); err != nil {
+		return d, 0, err
+	}
+	var stmt any
+	if vexStatement != 0 {
+		stmt = vexStatement
+	}
+	res, err := tx.ExecContext(ctx, `INSERT INTO decisions (finding_id, state, deviation, justification, author, created_at, expires_at, vex_statement_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, id, string(d.State), string(d.Deviation), d.Justification, d.Author, ts(now), nullTS(d.ExpiresAt), stmt)
+	if err != nil {
+		return d, 0, err
+	}
+	did, _ := res.LastInsertId()
+	reason := fmt.Sprintf("decision #%d: %s", did, d.Justification)
+	if d.Deviation != lifecycle.DeviationNone {
+		reason = fmt.Sprintf("decision #%d (%s): %s", did, d.Deviation, d.Justification)
+	}
+	if subj.State == d.State {
+		return d, did, insertEvent(ctx, tx, id, subj.State, d.State, d.Author, reason, 0, now)
+	}
+	return d, did, setState(ctx, tx, id, subj.State, d.State, d.Author, reason, 0, now)
 }
 
 // ExpireDecisions reopens suppressed findings whose latest decision expired.

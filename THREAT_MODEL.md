@@ -31,6 +31,7 @@ not be falsifiable.
 | S | Registry serves different bytes than the requested digest. | Fetch by digest only; ggcr verifies manifest and blob digests; explicit digest re-check ✅ |
 | S | Malicious scanner release (cf. trivy v0.69.4, CVE-2026-33634). | Optional SHA-256 pin per binary, mismatch aborts + health finding ✅; checksum-verified installer ✅; CI actions pinned by SHA ✅; signature verification ⬜ |
 | **T**ampering | Someone edits history to hide a finding or backdate a fix. | Append-only triggers on events/observations/decisions ✅; DB file 0600 ✅; hash-chained audit log + signed report exports ⬜ |
+| T | A forged or careless VEX document suppresses real findings. | VEX is imported only by an explicit operator step, with `--dry-run`; every statement needs an author and a justification, records who imported it, is append-only and scoped; expired statements are refused; parsers bounded and fuzzed ✅; signed VEX verification ⬜ |
 | T | Hostile image makes a scanner emit forged/huge output. | Output byte limit with process-tree kill ✅; SBOM size + shape validation ✅; JSON decoding into typed structs ✅ |
 | T | Partial scan (one scanner down) closes findings by absence. | Absence counts only from *complete* scans ✅ |
 | **R**epudiation | "I didn't accept that risk." | Decisions require author + justification, stored append-only with timestamps ✅; authenticated identities (OIDC) in server mode ⬜ |

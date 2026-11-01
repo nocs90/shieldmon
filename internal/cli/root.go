@@ -81,7 +81,7 @@ when a later scan provides evidence.`,
 	)
 	for group, cmds := range map[string][]*cobra.Command{
 		"monitor": {a.scanCmd(), a.monitorCmd(), a.rematchCmd(), a.targetsCmd()},
-		"triage":  {a.findingsCmd(), a.healthCmd(), a.reportCmd(), a.sbomCmd()},
+		"triage":  {a.findingsCmd(), a.vexCmd(), a.healthCmd(), a.reportCmd(), a.sbomCmd()},
 		"setup":   {a.initCmd(), a.doctorCmd(), a.dbCmd(), a.pluginsCmd(), a.versionCmd()},
 	} {
 		for _, c := range cmds {
@@ -148,6 +148,10 @@ func (a *app) setup(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
+	policy, err := cfg.Policy()
+	if err != nil {
+		return err
+	}
 	a.engine = &engine.Engine{
 		Store:           st,
 		Scanners:        set,
@@ -157,6 +161,7 @@ func (a *app) setup(cmd *cobra.Command) error {
 		DataDir:         cfg.DataDir,
 		DBMaxAge:        cfg.Health.DBMaxAge.Duration,
 		MonitorInterval: cfg.Health.MonitorInterval.Duration,
+		Decisions:       policy,
 		Log:             a.log,
 	}
 	return nil

@@ -12,6 +12,7 @@ require (
 	github.com/awslabs/amazon-ecr-credential-helper/ecr-login v0.12.0
 	github.com/google/go-containerregistry v0.22.1
 	github.com/package-url/packageurl-go v0.1.7
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sys v0.48.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -46,6 +47,7 @@ require (
 	github.com/spf13/pflag v1.0.10 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/text v0.14.0 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 	modernc.org/libc v1.77.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect

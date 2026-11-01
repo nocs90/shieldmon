@@ -38,6 +38,33 @@ it needs a deviation, recorded on the decision and shown in reports
   vendor dependency is refused when a fixed version is known: upgrade instead.
 - Decisions follow the problem to successor digests (same package + vulnerability).
 
+## VEX statements
+
+A vendor or another team saying "not affected" sends a VEX document (OpenVEX or CycloneDX
+VEX). Review it, then import it ([ADR 0014](../adr/0014-vex.md)):
+
+```sh
+shieldmon vex import vendor.openvex.json --dry-run     # what would be recorded, what is skipped and why
+shieldmon vex import vendor.openvex.json               # record; --author if the document names none
+```
+
+- Only `not_affected` statements with an author and a justification (or impact statement)
+  are recorded; expired ones, and other statuses, are listed as skipped.
+- A statement is scoped to an image digest, or to a whole repository, and optionally to one
+  package (any version when the PURL has none). It becomes a not_affected decision by its
+  author on matching findings — now, and on findings later scans detect. Statements for
+  images not scanned yet are kept and reported.
+- It ends at its expiry; there is no other way to withdraw it, so review before importing.
+
+To give consumers and auditors ShieldMon's not_affected decisions:
+
+```sh
+shieldmon vex export --author "Platform Security <sec@example.com>" -o shieldmon.openvex.json
+```
+
+The export holds the statements in force and the not_affected decisions taken by hand, as
+OpenVEX 0.2.0; risk acceptances are not VEX and are not exported.
+
 ## What the engine does on its own
 
 | Observation | Transition |
@@ -46,4 +73,5 @@ it needs a deviation, recorded on the decision and shown in reports
 | Still present in successor digest | predecessor → superseded; successor inherits state, decision and first-detection date |
 | Gone from the same digest after a DB update (complete scan) | → withdrawn (not counted as a fix) |
 | Seen again / regression / decision expired | → reopened |
+| New finding matched by a VEX statement in force | → not_affected (decision by the statement's author) |
 | Partial scan (a matcher failed) | nothing is closed |
