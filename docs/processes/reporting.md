@@ -36,6 +36,7 @@ risk-accepted item as of the end of the month, soonest scheduled completion firs
 | `scheduled_completion` | the deadline, or for a risk acceptance its expiry (when it must be fixed or decided again) |
 | `milestones` | dated steps (detected, due, decision expiry or vendor review), then the upgrade when a fix exists |
 | `fix_available`, `fixed_versions` | `yes`, `no` or `wont_fix` (the vendor says it will not fix) |
+| `priority` | remediation priority 0–100 as of the report ([ADR 0020](../adr/0020-priority-score.md)); `priority_reasons` in JSON |
 | `deviation` | why it may outlive its deadline: `risk_acceptance`, `vendor_dependency`, `operational_requirement`; empty for open items |
 | `decision`, `decision_author`, `decision_justification`, `decision_expires` | the latest decision on the finding |
 

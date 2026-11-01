@@ -249,9 +249,11 @@ func applyDecisionTx(ctx context.Context, tx *sql.Tx, id int64, d lifecycle.Deci
 func (s *Store) ExpireDecisions(ctx context.Context, now time.Time) ([]int64, error) {
 	var reopened []int64
 	err := s.tx(ctx, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, `SELECT f.id, f.state, d.id FROM findings f
+		// Expiry is compared as time, not text: RFC 3339 strings with fractional seconds do
+		// not sort as text within a second (#67).
+		rows, err := tx.QueryContext(ctx, `SELECT f.id, f.state, d.id, d.expires_at FROM findings f
 			JOIN decisions d ON d.id = (SELECT max(id) FROM decisions WHERE finding_id = f.id)
-			WHERE f.state IN ('risk_accepted', 'not_affected') AND d.expires_at IS NOT NULL AND d.expires_at <= ?`, ts(now))
+			WHERE f.state IN ('risk_accepted', 'not_affected') AND d.expires_at IS NOT NULL`)
 		if err != nil {
 			return err
 		}
@@ -262,10 +264,13 @@ func (s *Store) ExpireDecisions(ctx context.Context, now time.Time) ([]int64, er
 		var list []exp
 		for rows.Next() {
 			var e exp
-			var st string
-			if err := rows.Scan(&e.id, &st, &e.did); err != nil {
+			var st, expires string
+			if err := rows.Scan(&e.id, &st, &e.did, &expires); err != nil {
 				rows.Close()
 				return err
+			}
+			if parseTS(expires).After(now) {
+				continue
 			}
 			e.state = model.State(st)
 			list = append(list, e)

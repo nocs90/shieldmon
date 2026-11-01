@@ -11,6 +11,7 @@ import (
 
 	"github.com/nocs90/shieldmon/internal/config"
 	"github.com/nocs90/shieldmon/internal/model"
+	"github.com/nocs90/shieldmon/internal/priority"
 	"github.com/nocs90/shieldmon/internal/store"
 )
 
@@ -86,6 +87,9 @@ type Row struct {
 	ClosedAt      time.Time `json:"closed_at,omitzero"`
 	// Decision is the latest risk acceptance / not-affected statement, if any.
 	Decision *DecisionInfo `json:"decision,omitempty"`
+	// Priority is the remediation priority as of the report (docs/adr/0020-priority-score.md).
+	Priority        int      `json:"priority"`
+	PriorityReasons []string `json:"priority_reasons,omitempty"`
 }
 
 // DecisionInfo summarizes a decision for reports.
@@ -340,6 +344,11 @@ func row(f store.Finding, st model.State, asOf time.Time, sla config.SLA) Row {
 		rw.SLADue = f.FirstDetected.AddDate(0, 0, days)
 		rw.SLABreached = end.After(rw.SLADue)
 	}
+	p := priority.Compute(priority.Input{
+		Severity: f.Severity, CVSS: f.CVSSScore, EPSS: f.EPSS, KEV: f.KEV, Fixable: len(f.FixVersions) > 0,
+		SLADue: rw.SLADue, Now: end,
+	})
+	rw.Priority, rw.PriorityReasons = p.Value, p.Reasons
 	return rw
 }
 
