@@ -228,9 +228,11 @@ type Chart struct {
 	// Profiles are the ways the chart is installed, each rendered on its own; none: one,
 	// "default", with the chart's own values.
 	Profiles []ChartProfile `yaml:"profiles,omitempty"`
-	// AddTargets makes monitor add the images of the newest release as targets
+	// AddTargets makes monitor add the images of the newest release as targets, at most
+	// MaxNewTargets new ones per release (0: 50); more are left to 'targets add --chart'
 	// (docs/adr/0034-chart-tracking.md).
-	AddTargets bool `yaml:"add_targets,omitempty"`
+	AddTargets    bool `yaml:"add_targets,omitempty"`
+	MaxNewTargets int  `yaml:"max_new_targets,omitempty"`
 }
 
 // ChartProfile is one installation of a chart: its release, namespace and values
@@ -409,6 +411,8 @@ func (c Config) Validate() error {
 			return fmt.Errorf("charts[%d]: name %q: lowercase letters, digits, '.', '_', '-' (at most 100)", i, id)
 		case chartNames[id]:
 			return fmt.Errorf("charts[%d]: name %q is listed twice (give one a name:)", i, id)
+		case ch.MaxNewTargets < 0 || ch.MaxNewTargets > 1000:
+			return fmt.Errorf("charts[%d]: max_new_targets %d: want 1 to 1000 (0: 50)", i, ch.MaxNewTargets)
 		}
 		chartNames[id] = true
 		profiles := map[string]bool{}
@@ -724,7 +728,9 @@ charts: []
   #   profiles:
   #     - { name: prod, namespace: ingress, values_files: [/etc/shieldmon/values/ingress-prod.yaml] }
   #     - { name: mirror, values: { global: { image: { registry: mirror.example.com } } }, kube_version: "1.33" }
-  #   add_targets: true   # monitor adds the images of each new release as targets
+  #   add_targets: true   # monitor adds the images of each new release as targets: at most
+  #                       # max_new_targets (50) per release, on public registries or those
+  #                       # configured in registries:
 
 # When a followed chart is neglected ('shieldmon charts status'): its newest release ships a
 # finding with a fix of at least min_severity detected more than fixable_after ago, or it has

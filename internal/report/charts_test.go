@@ -2,6 +2,7 @@ package report
 
 import (
 	"bytes"
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -62,5 +63,34 @@ func TestChartIssueDraft(t *testing.T) {
 	}
 	if err := ChartIssueDraft(&buf, sts[1], time.Now()); err == nil {
 		t.Error("nothing overdue, nothing to draft")
+	}
+
+	// Terminal escapes, bidi overrides and invisible characters are written out. The runes
+	// are built here, not written in the source, so that the source stays plain ASCII.
+	hiddenRunes := []rune{0x1b, 0x9b, 0x202e, 0x2066, 0x200b, 0}
+	hidden, written := string(hiddenRunes), "1.0"
+	for _, r := range hiddenRunes {
+		written += fmt.Sprintf("\\u%04x", r)
+	}
+	sts[0].Assessment.Overdue[0].Version = "1.0" + hidden
+	buf.Reset()
+	if err := ChartIssueDraft(&buf, sts[0], time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if out := buf.String(); strings.ContainsAny(out, hidden) || !strings.Contains(out, written) {
+		t.Errorf("invisible characters in the draft, or not written out as %s:\n%q", written, out)
+	}
+	buf.Reset()
+	if err := ChartsMarkdown(&buf, sts, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if out := buf.String(); strings.ContainsAny(out, hidden) {
+		t.Errorf("invisible characters in the status table:\n%q", out)
+	}
+}
+
+func TestMarkdownBackslashCannotEndACell(t *testing.T) {
+	if got := mdEscape(`a\|b`); got != `a\\\|b` {
+		t.Errorf("mdEscape = %s", got)
 	}
 }

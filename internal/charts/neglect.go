@@ -54,6 +54,20 @@ type Assessment struct {
 	Overdue []Fixable `json:"overdue,omitempty"`
 	// Stale is true when it has not released for longer than the policy allows.
 	Stale bool `json:"stale,omitempty"`
+	// Unmonitored counts the release's images without scan evidence: a chart that is not
+	// neglected may still ship vulnerable images there.
+	Unmonitored int `json:"unmonitored,omitempty"`
+}
+
+// Verdict is the assessment in a few words: neglected and why, unknown, or no.
+func (a Assessment) Verdict() string {
+	switch {
+	case a.Neglected:
+		return "yes: " + strings.Join(a.Reasons, "; ")
+	case a.Unmonitored > 0:
+		return fmt.Sprintf("unknown: %d image(s) not monitored", a.Unmonitored)
+	}
+	return "no"
 }
 
 // Status is what a followed chart's newest recorded release runs, what ShieldMon knows of its
@@ -119,6 +133,7 @@ func Assess(r Release, p NeglectPolicy, now time.Time) Assessment {
 		a.Reasons = append(a.Reasons, fmt.Sprintf("no release since %s (%d days)", r.ReleasedAt.Format(time.DateOnly), days(now.Sub(r.ReleasedAt))))
 	}
 	a.Neglected = len(a.Reasons) > 0
+	a.Unmonitored = len(r.Unmonitored)
 	return a
 }
 

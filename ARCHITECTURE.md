@@ -129,6 +129,7 @@ artifacts(digest PK, repository, platform)       immutable things we scanned
 target_bases (APPEND-ONLY)                       base tag configured per target
 image_inspections (APPEND-ONLY)                  layers + base annotations, once per digest
 base_observations (APPEND-ONLY)                  every digest a base tag pointed to
+chart_renders (APPEND-ONLY)                      what each chart version runs, per profile
 health_findings(check, subject)                  self-health
 monitor_runs                                     cadence for missed-schedule detection
 ```

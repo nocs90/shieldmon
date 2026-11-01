@@ -131,6 +131,8 @@ type Engine struct {
 	ChartRendererErr error
 	// ChartPolicy says when a followed chart is neglected.
 	ChartPolicy charts.NeglectPolicy
+	// ChartTimeout bounds the time one chart takes in a cycle (0: DefaultChartTimeout).
+	ChartTimeout time.Duration
 
 	// observedBases are the base references observed in the running monitor cycle: each is
 	// resolved once per cycle, however many targets share it.

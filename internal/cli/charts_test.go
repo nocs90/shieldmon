@@ -212,7 +212,8 @@ func TestChartsImages(t *testing.T) {
 		t.Errorf("add_targets: the release's images are targets:\n%s", out)
 	}
 	out, _, code = runc("charts", "status")
-	if code != 0 || !regexp.MustCompile(`web\s+1\.2\.0\s+-\s+3\s+0\s+0\s+no`).MatchString(out) {
+	// Targets added but not scanned yet: not known to be clean.
+	if code != 0 || !regexp.MustCompile(`web\s+1\.2\.0\s+-\s+3\s+0\s+0\s+unknown: 3 image\(s\) not monitored`).MatchString(out) {
 		t.Errorf("status:\n%s", out)
 	}
 	if out, _, code := runc("charts", "status", "web", "-o", "md"); code != 0 || !strings.Contains(out, "| web | 1.2.0 |") {

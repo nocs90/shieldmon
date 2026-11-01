@@ -32,18 +32,32 @@
   `chart_failed` for that chart and degrades the cycle; the targets are still monitored, and
   the next success resolves it. `shieldmon charts track` does the same on demand.
 - `add_targets: true` on a chart makes the images of its newest release targets (for the
-  configured platform). Images a later release drops stay targets: retiring them is an
-  operator's decision with its own record (ADR 0017); `charts history` shows what changed.
+  configured platform). The chart's publisher chooses those images, so ShieldMon then
+  contacts registries it names, with the operator's credentials: an image is added only when
+  its registry looks public (not a loopback, private, link-local or CGNAT literal, not
+  `localhost`, not a single-label name, not `.local`, `.internal`, `.svc`, `.cluster.local`,
+  `.lan`, `.home.arpa`, `.corp`, `.intranet`) or matches a host the operator configured in
+  `registries:`; the others are recorded but not added, and named in `chart_failed`. A release
+  adding more than `max_new_targets` (50) new targets adds none: a person reviews them with
+  `targets add --chart NAME --dry-run`. Images a later release drops stay targets: retiring
+  them is an operator's decision with its own record (ADR 0017); `charts history` shows what
+  changed.
+- Remote content cannot hold or flood the record: each chart has 10 minutes per cycle
+  (listing, download, every profile's render), a version listed twice by an index keeps its
+  first entry everywhere (so it does not look changed on every read), a render records at
+  most 10,000 images of at most 512 bytes each, and a release time more than a day in the
+  future is recorded as unknown. Only the latest render per profile is read each cycle.
 - **Neglected** is a verdict on the newest recorded release, from evidence only
   (`charts.Assess`, pure): an active finding with a fix (a fixed version or a `fixed` state),
   of at least `chart_policy.min_severity` (high), detected more than
   `chart_policy.fixable_after` ago (30 days), in an image of the release; or no release for
   `chart_policy.stale_after` (180 days) when the source dates releases. Images that are not
-  scanned targets are reported as unmonitored, not as clean. `shieldmon charts status`
+  scanned targets are reported as unmonitored: a chart with some is "unknown", not clean. `shieldmon charts status`
   (table, JSON, Markdown) shows it.
 - **Upstream drafts are drafts**: `shieldmon charts draft-issue NAME` prints a Markdown issue
   for the chart's maintainers with the overdue findings (at most 50), every value from
-  scanners or sources in a code span (no markup, links or mentions). ShieldMon never
+  scanners or sources in a code span (no markup, links or mentions), with control,
+  bidirectional and invisible characters written out as `\uXXXX`. ShieldMon never
   submits anything: the person who submits it follows the project's contribution guidelines,
   searches for an existing issue and decides. Submission through an API (deduplication, rate
   limits, approval records) is left to #37.

@@ -21,6 +21,7 @@ import (
 	"github.com/nocs90/shieldmon/internal/config"
 	"github.com/nocs90/shieldmon/internal/engine"
 	"github.com/nocs90/shieldmon/internal/manifests"
+	"github.com/nocs90/shieldmon/internal/model"
 	"github.com/nocs90/shieldmon/internal/oci"
 	"github.com/nocs90/shieldmon/internal/redact"
 	"github.com/nocs90/shieldmon/internal/report"
@@ -222,13 +223,32 @@ func (a *app) followCharts(warn io.Writer) {
 	if len(a.cfg.Charts) == 0 || a.engine.Charts != nil {
 		return
 	}
+	// Targets are keyed by the platform's canonical form, as targets add stores it.
 	platform := a.cfg.Platform
+	if p, err := model.ParsePlatform(platform); err == nil {
+		platform = p.String()
+	}
+	// Registries the operator configured may be internal: images on them may become targets.
+	var internal []string
+	for _, r := range a.cfg.Registries {
+		internal = append(internal, r.Hosts...)
+	}
 	for _, c := range a.cfg.Charts {
-		f := engine.FollowedChart{ID: c.ID(), Chart: c.Chart, AddTargets: c.AddTargets, Platform: platform}
+		f := engine.FollowedChart{
+			ID: c.ID(), Chart: c.Chart, AddTargets: c.AddTargets, Platform: platform,
+			MaxNewTargets: c.MaxNewTargets, InternalRegistries: internal,
+		}
 		src, err := a.chartSource(c)
 		if err == nil {
 			f.Source = src
 			f.Profiles, err = chartProfiles(c, "")
+		}
+		if err != nil {
+			// The profiles' names still say what was recorded (status, draft-issue).
+			f.Profiles = nil
+			for _, p := range c.RenderProfiles() {
+				f.Profiles = append(f.Profiles, charts.Profile{Name: p.Name})
+			}
 		}
 		f.Err = err
 		a.engine.Charts = append(a.engine.Charts, f)
@@ -340,9 +360,9 @@ track' or 'shieldmon monitor' records releases.`,
 				if !s.ReleasedAt.IsZero() {
 					released = s.ReleasedAt.Format(time.DateOnly)
 				}
-				neglected := "no"
-				if s.Assessment.Neglected {
-					neglected = "yes: " + strings.Join(s.Assessment.Reasons, "; ")
+				neglected := "-"
+				if s.Version != "" {
+					neglected = s.Assessment.Verdict()
 				}
 				fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%d\t%s\n", s.Chart, orDash(printable(s.Version)), released, len(s.Images), monitored, fixable, printable(neglected))
 			}

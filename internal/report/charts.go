@@ -30,8 +30,8 @@ func ChartsMarkdown(w io.Writer, sts []charts.Status, generated time.Time) error
 			version = "not rendered yet"
 		}
 		neglected := ""
-		if s.Assessment.Neglected {
-			neglected = "yes: " + mdEscape(strings.Join(s.Assessment.Reasons, "; "))
+		if s.Version != "" {
+			neglected = mdEscape(s.Assessment.Verdict())
 		}
 		fmt.Fprintf(b, "| %s | %s | %s | %d (%d) | %d | %s |\n", mdEscape(s.Chart), version, dateOrEmpty(s.ReleasedAt),
 			len(s.Images), monitored, fixable, neglected)
@@ -105,12 +105,15 @@ func ChartIssueDraft(w io.Writer, s charts.Status, generated time.Time) error {
 	return err
 }
 
-// code is s as a Markdown code span: no markup, links or mentions inside, on one line.
+// code is s as a Markdown code span: no markup, links or mentions inside, on one line, with
+// control and bidirectional characters written out (they would drive a terminal, or reorder
+// the text of the issue).
 func code(s string) string {
 	s = strings.NewReplacer("`", "'", "\n", " ", "\r", " ").Replace(s)
 	if len(s) > 200 {
 		s = strings.ToValidUTF8(s[:200], "") + "…"
 	}
+	s = visible(s)
 	if s == "" {
 		s = "-"
 	}

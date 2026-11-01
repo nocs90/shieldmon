@@ -1818,9 +1818,14 @@ type fakeChartSource struct {
 	t        *testing.T
 	versions []charts.Version
 	fail     error
+	hang     bool // answers only when the context ends
 }
 
-func (s *fakeChartSource) Versions(context.Context, string) ([]charts.Version, error) {
+func (s *fakeChartSource) Versions(ctx context.Context, _ string) ([]charts.Version, error) {
+	if s.hang {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	return s.versions, s.fail
 }
 
@@ -1964,5 +1969,60 @@ func TestChartTracking(t *testing.T) {
 	st = status()
 	if !st.Assessment.Neglected || !st.Assessment.Stale {
 		t.Errorf("a chart that stopped releasing: %+v", st.Assessment)
+	}
+}
+
+// TestChartTrackingBoundsRemoteContent: the images of a chart are chosen by its publisher, so
+// add_targets never makes ShieldMon contact registries that are not public unless the operator
+// configured them, never adds more than a bounded number of targets per release unattended,
+// and a source that does not answer cannot hold the cycle (docs/adr/0034-chart-tracking.md).
+func TestChartTrackingBoundsRemoteContent(t *testing.T) {
+	h := newHarness(t)
+	day := 24 * time.Hour
+	src := &fakeChartSource{t: t, versions: []charts.Version{{Version: "1.0.0", Created: h.clock.Add(365 * day)}}}
+	rend := &fakeRenderer{images: map[string][]string{"1.0.0/default": {
+		"registry.test/app:1", "10.0.0.12:2379/etcd/x:1", "localhost:9200/a:b", "kubernetes.default.svc/x:1", "harbor.corp/team/app:1",
+	}}}
+	h.eng.Charts = []engine.FollowedChart{{
+		ID: "web", Chart: "web", Source: src, Profiles: []charts.Profile{{Name: "default"}}, AddTargets: true, Platform: "linux/amd64",
+		InternalRegistries: []string{"harbor.corp"},
+	}}
+	h.eng.ChartRenderer = rend
+	sum := h.monitor()
+	targets, _ := h.store.ListTargets(h.ctx)
+	var refs []string
+	for _, tg := range targets {
+		refs = append(refs, tg.Ref)
+	}
+	if !slices.Equal(refs, []string{"registry.test/app:1", "harbor.corp/team/app:1"}) {
+		t.Errorf("only public and configured registries become targets: %v", refs)
+	}
+	if msg := sum.ChartFailures["web"]; !strings.Contains(msg, "3 image(s) on registries that are not public") {
+		t.Errorf("the refused images are reported: %q", msg)
+	}
+	if r, _ := h.store.LatestChartRenders(h.ctx, "web"); len(r) != 1 || len(r[0].Images) != 5 || !r[0].ReleasedAt.IsZero() {
+		t.Errorf("the render records every image; a release time in the future is not believed: %+v", r)
+	}
+
+	// A release with more new images than the bound adds none of them.
+	var many []string
+	for i := range engine.DefaultMaxNewTargets + 1 {
+		many = append(many, fmt.Sprintf("registry.test/flood-%d:1", i))
+	}
+	src.versions = []charts.Version{{Version: "1.1.0"}}
+	rend.images["1.1.0/default"] = many
+	h.advance(day)
+	sum = h.monitor()
+	if after, _ := h.store.ListTargets(h.ctx); len(after) != len(targets) || !strings.Contains(sum.ChartFailures["web"], "none added") {
+		t.Errorf("a flood of images is left to a person: %d targets, %q", len(after), sum.ChartFailures["web"])
+	}
+
+	// A source that never answers is cut off, and the targets are still scanned.
+	src.hang = true
+	h.eng.ChartTimeout = 50 * time.Millisecond
+	h.advance(day)
+	sum = h.monitor()
+	if tried := len(sum.Results) + len(sum.Failures); !strings.Contains(sum.ChartFailures["web"], "not done within 50ms") || tried != len(targets) {
+		t.Errorf("a hanging source: %q, %d targets tried", sum.ChartFailures["web"], tried)
 	}
 }

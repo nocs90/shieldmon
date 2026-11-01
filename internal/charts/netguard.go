@@ -93,6 +93,37 @@ func publicHost(hostport string) bool {
 	return true
 }
 
+// internalSuffixes are DNS names that only resolve inside a network: cluster services,
+// mDNS, and names reserved for private use.
+var internalSuffixes = []string{".local", ".internal", ".svc", ".cluster.local", ".lan", ".home.arpa", ".corp", ".intranet"}
+
+// PublicRegistry reports whether a registry host[:port] that remote content names (an image
+// of a chart) looks public: not what publicHost refuses, not a single-label name, and not a
+// name reserved for internal networks (docs/adr/0034-chart-tracking.md). Like publicHost, it
+// cannot see where a public name resolves.
+func PublicRegistry(hostport string) bool {
+	if !publicHost(hostport) {
+		return false
+	}
+	host := hostport
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		host = h
+	}
+	host = strings.ToLower(strings.Trim(host, "[]"))
+	if net.ParseIP(host) != nil {
+		return true // publicHost judged the literal
+	}
+	if !strings.Contains(host, ".") {
+		return false
+	}
+	for _, s := range internalSuffixes {
+		if strings.HasSuffix(host, s) {
+			return false
+		}
+	}
+	return true
+}
+
 // derivedURL checks a URL taken from remote content: https, no credentials, not an internal
 // host.
 func derivedURL(raw string) (*url.URL, error) {

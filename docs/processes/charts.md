@@ -95,7 +95,11 @@ by hand.
 release (not a pre-release, not deprecated) is rendered with each profile the first time, and
 again only when its archive or a profile changes; every render is recorded (append-only,
 audited). With `add_targets: true` the release's images become targets and are scanned in the
-same cycle; without it, add them with `targets add --chart`.
+same cycle; without it, add them with `targets add --chart`. The chart's publisher chooses those
+images, so `add_targets` adds only images on public registries or on registries you configured
+in `registries:` (an internal mirror: configure it there), and at most `max_new_targets` (50)
+new ones per release; anything else opens `chart_failed` with the images named, for you to
+review with `targets add --chart NAME --dry-run`.
 
 ```sh
 shieldmon charts track                 # the same, now, without scanning
@@ -116,8 +120,8 @@ shieldmon charts status ingress-nginx -o md > charts.md
 A chart is **neglected** when its newest release ships an image with an active finding that
 has a fix, of at least `chart_policy.min_severity` (`high`), detected more than
 `chart_policy.fixable_after` ago (`720h`), or when it has not released for
-`chart_policy.stale_after` (`4320h`) and its source dates releases. Images that are not scanned
-targets show as not monitored: they are not known to be clean.
+`chart_policy.stale_after` (`4320h`) and its source dates releases. A chart with images that
+are not scanned targets is `unknown`, not clean: add them, or wait for the next cycle.
 
 What to do with a neglected chart, in order:
 

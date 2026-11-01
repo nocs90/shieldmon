@@ -136,8 +136,12 @@ func (h *httpSource) index(ctx context.Context, chart string) ([]indexEntry, err
 		return nil, fmt.Errorf("%s: chart %q has %d entries in the index, more than %d", h.base.Host, truncate(chart), len(entries), maxIndexEntries)
 	}
 	valid := make([]indexEntry, 0, len(entries))
+	seen := map[string]bool{}
 	for _, e := range entries {
-		if validVersion(e.Version) {
+		// A version listed twice keeps its first entry, everywhere: two digests for one
+		// version must not make it look changed on every read.
+		if validVersion(e.Version) && !seen[e.Version] {
+			seen[e.Version] = true
 			valid = append(valid, e)
 		}
 	}

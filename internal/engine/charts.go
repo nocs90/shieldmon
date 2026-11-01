@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/nocs90/shieldmon/internal/charts"
 	"github.com/nocs90/shieldmon/internal/manifests"
@@ -28,22 +29,43 @@ type FollowedChart struct {
 	ID, Chart string
 	Source    charts.Source
 	Profiles  []charts.Profile
-	// AddTargets makes the images of its newest release targets, for Platform.
-	AddTargets bool
-	Platform   string
+	// AddTargets makes the images of its newest release targets, for Platform, at most
+	// MaxNewTargets new ones per release (0: DefaultMaxNewTargets). Images on registries that
+	// do not look public are added only when InternalRegistries (host patterns: the
+	// registries the operator configured) names them.
+	AddTargets         bool
+	Platform           string
+	MaxNewTargets      int
+	InternalRegistries []string
 	// Err says why it cannot be followed (its configuration: a values file unreadable).
 	Err error
 }
 
-// maxAppVersion bounds the app version recorded from a chart's Chart.yaml.
-const maxAppVersion = 256
+const (
+	// maxAppVersion bounds the app version recorded from a chart's Chart.yaml.
+	maxAppVersion = 256
+	// maxImageRef bounds an image reference recorded from a render; longer ones are counted
+	// as invalid.
+	maxImageRef = 512
+	// DefaultMaxNewTargets bounds the targets one release of a chart adds unattended.
+	DefaultMaxNewTargets = 50
+	// DefaultChartTimeout bounds the time one chart takes in a cycle: listing, download and
+	// every profile's render.
+	DefaultChartTimeout = 10 * time.Minute
+	// releaseSkew is how far in the future a release time may be before it is not believed.
+	releaseSkew = 24 * time.Hour
+)
 
 // FollowCharts brings the record of every followed chart (only those in ids, when given) up
 // to its newest release: a version is rendered with each profile the first time, and again
-// when its archive or the profile changes. It returns the failures by chart; each opens or
-// resolves a chart_failed health finding.
+// when its archive or the profile changes. Each chart has ChartTimeout. It returns the
+// failures by chart; each opens or resolves a chart_failed health finding.
 func (e *Engine) FollowCharts(ctx context.Context, ids ...string) map[string]string {
 	failures := map[string]string{}
+	timeout := e.ChartTimeout
+	if timeout <= 0 {
+		timeout = DefaultChartTimeout
+	}
 	for _, c := range e.Charts {
 		if len(ids) > 0 && !slices.Contains(ids, c.ID) {
 			continue
@@ -51,7 +73,13 @@ func (e *Engine) FollowCharts(ctx context.Context, ids ...string) map[string]str
 		if ctx.Err() != nil {
 			break
 		}
-		if err := e.followChart(ctx, c); err != nil {
+		cctx, cancel := context.WithTimeout(ctx, timeout)
+		err := e.followChart(cctx, c)
+		if err != nil && errors.Is(cctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+			err = fmt.Errorf("not done within %s: %w", timeout, err)
+		}
+		cancel()
+		if err != nil {
 			failures[c.ID] = redact.Error(err)
 			e.health(ctx, CheckChart, c.ID, "medium", err)
 			continue
@@ -79,17 +107,18 @@ func (e *Engine) followChart(ctx context.Context, c FollowedChart) error {
 	if newest == "" {
 		return errors.New("no released version")
 	}
+	// The first entry of a version, as sources fetch it.
 	var v charts.Version
-	for _, x := range vs {
-		if x.Version == newest {
-			v = x
-		}
+	if i := slices.IndexFunc(vs, func(x charts.Version) bool { return x.Version == newest }); i >= 0 {
+		v = vs[i]
 	}
-	renders, err := e.Store.ChartRenders(ctx, c.ID)
+	if v.Created.After(e.now().Add(releaseSkew)) {
+		v.Created = time.Time{} // a release from the future: its time is not known
+	}
+	latest, err := e.latestRenders(ctx, c.ID)
 	if err != nil {
 		return err
 	}
-	latest := store.LatestChartRenders(renders)[c.ID]
 	var need []charts.Profile
 	for _, p := range c.Profiles {
 		r, ok := latest[p.Name]
@@ -121,34 +150,101 @@ func (e *Engine) followChart(ctx context.Context, c FollowedChart) error {
 	}
 	if c.AddTargets {
 		if latest == nil {
-			if renders, err = e.Store.ChartRenders(ctx, c.ID); err != nil {
+			if latest, err = e.latestRenders(ctx, c.ID); err != nil {
 				return err
 			}
-			latest = store.LatestChartRenders(renders)[c.ID]
 		}
-		for _, p := range c.Profiles {
-			r, ok := latest[p.Name]
-			if !ok || r.Version != newest {
-				continue
-			}
-			for _, img := range r.Images {
-				if _, err := e.Store.UpsertTarget(ctx, img.Ref, c.Platform, e.now()); err != nil {
-					return err
-				}
-			}
+		if err := e.addChartTargets(ctx, c, newest, latest); err != nil {
+			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
 }
 
-// ChartStatuses returns the status of every followed chart (only those in ids, when given),
-// judged by ChartPolicy at the current time. A chart never rendered has no version.
-func (e *Engine) ChartStatuses(ctx context.Context, ids ...string) ([]charts.Status, error) {
-	all, err := e.Store.ChartRenders(ctx, "")
+func (e *Engine) latestRenders(ctx context.Context, chart string) (map[string]store.ChartRender, error) {
+	rs, err := e.Store.LatestChartRenders(ctx, chart)
 	if err != nil {
 		return nil, err
 	}
-	latest := store.LatestChartRenders(all)
+	out := map[string]store.ChartRender{}
+	for _, r := range rs {
+		out[r.Profile] = r
+	}
+	return out, nil
+}
+
+// addChartTargets makes the images of version (the newest release) targets. Remote content
+// chooses them, so only registries that look public, or that the operator configured, are
+// contacted; and a release adding more than MaxNewTargets is left to a person
+// ('targets add --chart NAME --dry-run'): nothing of it is added.
+func (e *Engine) addChartTargets(ctx context.Context, c FollowedChart, version string, latest map[string]store.ChartRender) error {
+	targets, err := e.Store.ListTargets(ctx)
+	if err != nil {
+		return err
+	}
+	have := map[string]bool{}
+	for _, t := range targets {
+		if t.Platform == c.Platform {
+			have[t.Ref] = true
+		}
+	}
+	var add, refused []string
+	seen := map[string]bool{}
+	for _, p := range c.Profiles {
+		r, ok := latest[p.Name]
+		if !ok || r.Version != version {
+			continue
+		}
+		for _, img := range r.Images {
+			if seen[img.Ref] || have[img.Ref] {
+				continue
+			}
+			seen[img.Ref] = true
+			ref, err := oci.ParseReference(img.Ref, false)
+			if err != nil {
+				continue // recorded as valid, so this does not happen
+			}
+			if host := ref.Context().RegistryStr(); !charts.PublicRegistry(host) && !oci.MatchHost(c.InternalRegistries, host) {
+				refused = append(refused, img.Ref)
+				continue
+			}
+			add = append(add, img.Ref)
+		}
+	}
+	limit := c.MaxNewTargets
+	if limit <= 0 {
+		limit = DefaultMaxNewTargets
+	}
+	if len(add) > limit {
+		return fmt.Errorf("%s %s would add %d new targets, more than %d: none added; review them with 'shieldmon targets add --chart %s --dry-run'",
+			c.ID, version, len(add), limit, c.ID)
+	}
+	for _, ref := range add {
+		if _, err := e.Store.UpsertTarget(ctx, ref, c.Platform, e.now()); err != nil {
+			return err
+		}
+	}
+	if len(refused) > 0 {
+		return fmt.Errorf("%s %s: %d image(s) on registries that are not public and not configured in registries:, not added: %s",
+			c.ID, version, len(refused), strings.Join(refused[:min(len(refused), 5)], ", "))
+	}
+	return nil
+}
+
+// ChartStatuses returns the status of every followed chart (only those in ids, when given),
+// judged by ChartPolicy at the current time. A chart never rendered has no version.
+func (e *Engine) ChartStatuses(ctx context.Context, ids ...string) ([]charts.Status, error) {
+	rs, err := e.Store.LatestChartRenders(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	latest := map[string]map[string]store.ChartRender{}
+	for _, r := range rs {
+		if latest[r.Chart] == nil {
+			latest[r.Chart] = map[string]store.ChartRender{}
+		}
+		latest[r.Chart][r.Profile] = r
+	}
 	targets, err := e.Store.ListTargets(ctx)
 	if err != nil {
 		return nil, err
@@ -264,7 +360,7 @@ func chartRender(id, version string, meta charts.Meta, v charts.Version, digest 
 	seen := map[string]bool{}
 	for _, img := range res.Images {
 		parsed, err := oci.ParseReference(img.Ref, false)
-		if err != nil {
+		if err != nil || len(parsed.Name()) > maxImageRef {
 			r.Invalid++
 			continue
 		}

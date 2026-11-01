@@ -43,9 +43,18 @@ func TestChartRenders(t *testing.T) {
 		t.Errorf("no images, no release time: %+v", web[1:])
 	}
 	all, _ := s.ChartRenders(ctx, "")
-	latest := LatestChartRenders(all)
-	if len(all) != 4 || latest["web"]["prod"].Version != "1.1.0" || latest["web"]["dev"].Version != "1.0.0" || len(latest["api"]) != 1 {
-		t.Errorf("latest: %+v", latest)
+	latest, err := s.LatestChartRenders(ctx, "")
+	if err != nil || len(all) != 4 || len(latest) != 3 {
+		t.Fatalf("latest: %+v %v", latest, err)
+	}
+	if got := latest[1]; got.Chart != "web" || got.Profile != "prod" || got.Version != "1.1.0" {
+		t.Errorf("latest of web/prod: %+v", got)
+	}
+	if web, _ := s.LatestChartRenders(ctx, "web"); len(web) != 2 || web[0].Profile != "dev" || web[0].Version != "1.0.0" {
+		t.Errorf("latest of web: %+v", web)
+	}
+	if _, err := s.RecordChartRender(ctx, ChartRender{Chart: "web", Version: "9", Digest: "d", Profile: "p", Images: make([]ChartImage, MaxChartRenderImages+1)}); err == nil {
+		t.Error("a render with more images than the bound is refused")
 	}
 
 	if _, err := s.db.ExecContext(ctx, `UPDATE chart_renders SET images = '[]'`); err == nil || !strings.Contains(err.Error(), "append-only") {
