@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -168,6 +169,24 @@ type Config struct {
 		// validated by lineage.NewSuccessors.
 		Successors []Successor `yaml:"successors,omitempty"`
 	} `yaml:"bases"`
+
+	// Runtime is where images run, from cluster exports (docs/adr/0029-runtime-context.md).
+	Runtime struct {
+		// Inventories are `kubectl get pods,services,ingresses,httproutes -A -o json` files,
+		// one per cluster.
+		Inventories []RuntimeInventory `yaml:"inventories,omitempty"`
+		// MaxAge is how old an export may be before it is ignored (0: no limit).
+		MaxAge Duration `yaml:"max_age"`
+	} `yaml:"runtime"`
+}
+
+// clusterName bounds cluster names, which appear in reports and priority reasons.
+var clusterName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
+
+// RuntimeInventory is one cluster's export.
+type RuntimeInventory struct {
+	Cluster string `yaml:"cluster"`
+	Path    string `yaml:"path"`
 }
 
 // Successor names the base that succeeds the bases matching From.
@@ -207,6 +226,7 @@ func Default() Config {
 	c.Notifications.DueSoonDays = 7
 	c.Gate = DefaultGate()
 	c.Bases.MaxAge = Duration{90 * 24 * time.Hour}
+	c.Runtime.MaxAge = Duration{48 * time.Hour}
 	return c
 }
 
@@ -272,6 +292,21 @@ func (c Config) Validate() error {
 	}
 	if !(c.Limits.RegistryRPS >= 0) { // NaN too
 		return fmt.Errorf("limits.registry_rps must not be negative (0: unlimited)")
+	}
+	if c.Runtime.MaxAge.Duration < 0 {
+		return fmt.Errorf("runtime.max_age must not be negative (0: no limit)")
+	}
+	clusters := map[string]bool{}
+	for i, inv := range c.Runtime.Inventories {
+		switch {
+		case !clusterName.MatchString(inv.Cluster):
+			return fmt.Errorf("runtime.inventories[%d].cluster %q: want letters, digits, '.', '_' or '-' (at most 63)", i, inv.Cluster)
+		case clusters[inv.Cluster]:
+			return fmt.Errorf("runtime.inventories[%d]: cluster %q is listed twice", i, inv.Cluster)
+		case inv.Path == "":
+			return fmt.Errorf("runtime.inventories[%d].path is required", i)
+		}
+		clusters[inv.Cluster] = true
 	}
 	if c.Bases.MaxAge.Duration < 0 {
 		return fmt.Errorf("bases.max_age must not be negative (0 disables base_unmaintained)")
@@ -520,6 +555,15 @@ bases:
   # (first match wins; 'from' is a reference pattern like owners' targets).
   successors: []
   # - { from: "registry.access.redhat.com/ubi9/nodejs-20-minimal", to: "registry.access.redhat.com/ubi9/nodejs-22-minimal:latest" }
+
+# Where images run (docs/processes/runtime-context.md): read-only cluster exports, written by
+# a scheduled job with view rights, e.g.
+#   kubectl get pods,services,ingresses,httproutes -A -o json > /var/lib/shieldmon/runtime/prod.json
+# Findings of running images rank higher, of exposed ones higher still; nothing else changes.
+runtime:
+  max_age: 48h     # an older export is left out, with a warning; 0: no limit
+  inventories: []
+  # - { cluster: prod, path: /var/lib/shieldmon/runtime/prod.json }
 `
 
 // Policy builds the decision policy from configuration.

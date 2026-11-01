@@ -24,6 +24,11 @@ type Input struct {
 	// SLADue is the remediation deadline under the policy profile; zero when none.
 	SLADue time.Time
 	Now    time.Time
+	// Runtime context (docs/adr/0029-runtime-context.md), from the configured cluster
+	// inventories: running pods using the image, and how one is reachable from outside the
+	// cluster ("" when none is).
+	RunningPods int
+	Exposure    string
 }
 
 // Score is the priority and its parts, highest first.
@@ -41,6 +46,8 @@ const (
 	breachedPoints = 20
 	dueWeekPoints  = 15
 	dueMonthPoints = 8
+	runningPoints  = 5  // ADR 0029: the image runs in a monitored cluster
+	exposedPoints  = 10 // … and a pod using it is reachable from outside the cluster
 )
 
 // severityCVSS stands in for a missing CVSS score.
@@ -85,6 +92,12 @@ func Compute(in Input) Score {
 			add(dueWeekPoints, "remediation due within 7 days")
 		case left <= 30*24*time.Hour:
 			add(dueMonthPoints, "remediation due within 30 days")
+		}
+	}
+	if in.RunningPods > 0 {
+		add(runningPoints, fmt.Sprintf("running in %d pod(s)", in.RunningPods))
+		if in.Exposure != "" {
+			add(exposedPoints, "reachable from outside the cluster: "+in.Exposure)
 		}
 	}
 	s.Value = min(s.Value, 100)

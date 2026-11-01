@@ -208,6 +208,7 @@ func renderMarkdown(w io.Writer, r Monthly) error {
 				o.BySev["critical"], o.BySev["high"], o.Breached, o.KEV)
 		}
 	}
+	renderRuntimeMarkdown(b, r)
 	b.WriteString("\n## Aging of open findings\n\n| Age (days) | Open |\n|---|---:|\n")
 	for _, bk := range AgingBuckets {
 		fmt.Fprintf(b, "| %s | %d |\n", bk.Label, r.Aging[bk.Label])

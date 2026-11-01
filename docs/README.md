@@ -27,6 +27,7 @@ not described, describe it (that is part of the change).
 | CI gate: pass, warn or fail an image on policy | [processes/ci-gate.md](processes/ci-gate.md) |
 | Base images: rebuild available, unmaintained bases | [processes/base-images.md](processes/base-images.md) |
 | Ownership: teams, their findings and their channels | [processes/ownership.md](processes/ownership.md) |
+| Runtime context: which images run in a cluster, which are exposed | [processes/runtime-context.md](processes/runtime-context.md) |
 | Exports to Dependency-Track and DefectDojo | [processes/exports.md](processes/exports.md) |
 | Notifications (webhook, e-mail, chat, issue trackers) | [processes/notifications.md](processes/notifications.md) |
 | Registries and credentials (Docker Hub, ECR, GCR/Artifact Registry, …) | [processes/registries.md](processes/registries.md) |
