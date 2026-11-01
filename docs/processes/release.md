@@ -15,6 +15,11 @@ builds and signs everything, and leaves a draft for a maintainer to publish.
    git tag -s v0.4.0 -m "v0.4.0" && git push origin v0.4.0
    ```
 
+   Only repository admins can create `v*` tags, and nobody can move or delete one (rulesets,
+   [quality-gates.md](quality-gates.md#repository-settings-maintainer-checklist)): check the
+   commit before pushing. A release candidate is `v0.4.0-rc.1`; a broken release is fixed by
+   the next version, never by re-tagging.
+
 4. The workflow runs two jobs:
    - **binaries**: goreleaser (pinned, v2.18.3) builds `shieldmon` for linux and darwin, amd64
      and arm64, reproducibly (`-trimpath`, no build ID, timestamps from the commit), archives

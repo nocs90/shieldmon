@@ -61,6 +61,8 @@ jobs:
       - uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
         with:
           fail-on-severity: moderate
-          # AGPL-3.0 project: block licenses incompatible with redistribution under AGPL.
-          deny-licenses: SSPL-1.0, BUSL-1.1, Elastic-2.0, Commons-Clause
+          # AGPL-3.0 project: block licenses incompatible with redistribution under AGPL. SPDX
+          # identifiers only (the action refuses others; Commons Clause has none and is caught
+          # by the license review of new dependencies).
+          deny-licenses: SSPL-1.0, BUSL-1.1, Elastic-2.0
           comment-summary-in-pr: on-failure
