@@ -28,6 +28,7 @@ not described, describe it (that is part of the change).
 | Base images: rebuild available, unmaintained bases | [processes/base-images.md](processes/base-images.md) |
 | Ownership: teams, their findings and their channels | [processes/ownership.md](processes/ownership.md) |
 | Runtime context: which images run in a cluster, which are exposed | [processes/runtime-context.md](processes/runtime-context.md) |
+| Images of Helm charts and Kubernetes manifests | [processes/manifest-images.md](processes/manifest-images.md) |
 | Exports to Dependency-Track and DefectDojo | [processes/exports.md](processes/exports.md) |
 | Notifications (webhook, e-mail, chat, issue trackers) | [processes/notifications.md](processes/notifications.md) |
 | Registries and credentials (Docker Hub, ECR, GCR/Artifact Registry, …) | [processes/registries.md](processes/registries.md) |
