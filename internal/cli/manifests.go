@@ -30,6 +30,12 @@ func readManifestImages(cmd *cobra.Command, path string) ([]string, error) {
 		// Parse errors quote names from the manifests: escape them for the terminal.
 		return nil, fmt.Errorf("%s: %s", path, printable(err.Error()))
 	}
+	return manifestRefs(cmd, path, res)
+}
+
+// manifestRefs returns the references of what manifests (named label in messages) run, and
+// prints to stderr what they cannot show.
+func manifestRefs(cmd *cobra.Command, label string, res manifests.Result) ([]string, error) {
 	w := cmd.ErrOrStderr()
 	var refs, bad []string
 	for _, img := range res.Images {
@@ -43,7 +49,7 @@ func readManifestImages(cmd *cobra.Command, path string) ([]string, error) {
 		}
 	}
 	if len(bad) > 0 {
-		return nil, fmt.Errorf("%s: %d image(s) are not valid references, nothing added: %s", path, len(bad), firstOf(bad, maxListed))
+		return nil, fmt.Errorf("%s: %d image(s) are not valid references, nothing added: %s", printable(label), len(bad), firstOf(bad, maxListed))
 	}
 	for i, o := range res.Opaque {
 		if i == maxListed {
@@ -57,7 +63,7 @@ func readManifestImages(cmd *cobra.Command, path string) ([]string, error) {
 		fmt.Fprintf(w, "warning: %s %s (%s) is a custom resource: images its operator runs are not in the manifests; add them by hand\n",
 			printable(o.Kind), printable(name), printable(o.APIVersion))
 	}
-	fmt.Fprintf(w, "%s: %d image(s) in %d workload(s) of %d object(s)\n", path, len(refs), res.Workloads, res.Objects)
+	fmt.Fprintf(w, "%s: %d image(s) in %d workload(s) of %d object(s)\n", printable(label), len(refs), res.Workloads, res.Objects)
 	return refs, nil
 }
 
