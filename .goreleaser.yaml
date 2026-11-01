@@ -3,6 +3,10 @@
 version: 2
 project_name: shieldmon
 
+before:
+  hooks:
+    - scripts/third-party-licenses.sh THIRD_PARTY_LICENSES
+
 builds:
   - id: shieldmon
     main: ./cmd/shieldmon
@@ -27,6 +31,9 @@ archives:
       - src: README.md
         info: { mtime: "{{ .CommitDate }}" }
       - src: SECURITY.md
+        info: { mtime: "{{ .CommitDate }}" }
+      # Written by the before hook: the licenses of the Go modules linked in.
+      - src: THIRD_PARTY_LICENSES
         info: { mtime: "{{ .CommitDate }}" }
 
 checksum:

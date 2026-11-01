@@ -35,6 +35,7 @@ go.work.sum
 # Build output
 bin/
 dist/
+THIRD_PARTY_LICENSES
 
 # Local ShieldMon data
 *.db
