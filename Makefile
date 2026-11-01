@@ -43,6 +43,7 @@ FUZZ_TARGETS := \
 	FuzzParseReference:./internal/oci \
 	FuzzParseInventory:./internal/runtimectx \
 	FuzzParseManifests:./internal/manifests \
+	FuzzCheckArchive:./internal/charts \
 	FuzzBaseAnnotations:./internal/oci \
 	FuzzParse:./internal/vex \
 	FuzzParseCycloneDX:./internal/sbom \

@@ -170,6 +170,10 @@ type Config struct {
 		Successors []Successor `yaml:"successors,omitempty"`
 	} `yaml:"bases"`
 
+	// Charts are the Helm charts followed (docs/adr/0032-chart-sources.md); sources and
+	// options are validated by charts.New.
+	Charts []Chart `yaml:"charts,omitempty"`
+
 	// Runtime is where images run, from cluster exports (docs/adr/0029-runtime-context.md).
 	Runtime struct {
 		// Inventories are `kubectl get pods,services,ingresses,httproutes -A -o json` files,
@@ -180,8 +184,28 @@ type Config struct {
 	} `yaml:"runtime"`
 }
 
+// chartID bounds the names charts are known by in ShieldMon.
+var chartID = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,99}$`)
+
+// ID is the name the chart is known by in ShieldMon.
+func (c Chart) ID() string {
+	if c.Name != "" {
+		return c.Name
+	}
+	return c.Chart
+}
+
 // clusterName bounds cluster names, which appear in reports and priority reasons.
 var clusterName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
+
+// Chart is one followed Helm chart: Name identifies it in ShieldMon (default the chart's
+// name), Chart is its name in the source.
+type Chart struct {
+	Name    string         `yaml:"name"`
+	Chart   string         `yaml:"chart"`
+	Source  string         `yaml:"source"`
+	Options map[string]any `yaml:"options,omitempty"`
+}
 
 // RuntimeInventory is one cluster's export.
 type RuntimeInventory struct {
@@ -295,6 +319,22 @@ func (c Config) Validate() error {
 	}
 	if c.Runtime.MaxAge.Duration < 0 {
 		return fmt.Errorf("runtime.max_age must not be negative (0: no limit)")
+	}
+	chartNames := map[string]bool{}
+	for i, ch := range c.Charts {
+		id := ch.Name
+		if id == "" {
+			id = ch.Chart
+		}
+		switch {
+		case ch.Chart == "" || ch.Source == "":
+			return fmt.Errorf("charts[%d]: chart and source are required", i)
+		case !chartID.MatchString(id):
+			return fmt.Errorf("charts[%d]: name %q: lowercase letters, digits, '.', '_', '-' (at most 100)", i, id)
+		case chartNames[id]:
+			return fmt.Errorf("charts[%d]: name %q is listed twice (give one a name:)", i, id)
+		}
+		chartNames[id] = true
 	}
 	clusters := map[string]bool{}
 	for i, inv := range c.Runtime.Inventories {
@@ -564,6 +604,14 @@ runtime:
   max_age: 48h     # an older export is left out, with a warning; 0: no limit
   inventories: []
   # - { cluster: prod, path: /var/lib/shieldmon/runtime/prod.json }
+
+# Helm charts followed (docs/processes/charts.md): sources are http (a chart repository's
+# index.yaml), oci (a registry, with the registries' credentials) and artifacthub. 'shieldmon
+# plugins' lists them.
+charts: []
+  # - { chart: ingress-nginx, source: http, options: { url: https://kubernetes.github.io/ingress-nginx } }
+  # - { chart: nginx, source: oci, options: { repository: registry-1.docker.io/bitnamicharts } }
+  # - { name: podinfo, chart: podinfo, source: artifacthub, options: { repository: podinfo } }
 `
 
 // Policy builds the decision policy from configuration.
