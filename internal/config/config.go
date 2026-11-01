@@ -374,7 +374,8 @@ const Template = `# ShieldMon configuration. All keys are optional; defaults sho
 platform: linux/amd64
 
 scanners:
-  # Each matcher implies its SBOM generator: grype -> syft, trivy -> trivy.
+  # Each matcher implies its SBOM generator: grype -> syft, trivy -> trivy,
+  # osv-scanner -> syft (optional; docs/adr/0028-osv-scanner-matcher.md).
   matchers: [grype, trivy]
   timeout: 30m
   max_output_bytes: 536870912
@@ -387,6 +388,9 @@ scanners:
     syft:  { path: "", sha256: "" }
     grype: { path: "", sha256: "", options: { db_auto_update: true } }
     trivy: { path: "", sha256: "", options: { skip_db_update: false, offline_scan: false } }
+    # osv-scanner downloads the OSV database of each listed ecosystem (default: all it
+    # knows); an SBOM package of an ecosystem left out fails the match.
+    # osv-scanner: { path: "", sha256: "", options: { db_auto_update: true, ecosystems: [Alpine, Debian, npm, PyPI, Go] } }
   # Confinement for scanner processes, which parse hostile image content:
   #   bwrap     Linux hosts with bubblewrap installed (Ubuntu >= 23.10 also needs the
   #             AppArmor profile from deploy/apparmor/README.md)

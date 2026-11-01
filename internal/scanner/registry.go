@@ -47,6 +47,30 @@ func (o Options) Bool(key string, def bool) (bool, error) {
 	return b, nil
 }
 
+// Strings returns a list-of-strings option or def when unset.
+func (o Options) Strings(key string, def []string) ([]string, error) {
+	v, ok := o[key]
+	if !ok {
+		return def, nil
+	}
+	list, ok := v.([]any)
+	if !ok {
+		if s, isStrings := v.([]string); isStrings {
+			return s, nil
+		}
+		return nil, fmt.Errorf("option %s: want a list of strings, got %T", key, v)
+	}
+	out := make([]string, 0, len(list))
+	for _, e := range list {
+		s, ok := e.(string)
+		if !ok {
+			return nil, fmt.Errorf("option %s: want a list of strings, got a %T element", key, e)
+		}
+		out = append(out, s)
+	}
+	return out, nil
+}
+
 var (
 	mu      sync.RWMutex
 	plugins = map[string]Plugin{}
@@ -183,6 +207,32 @@ func init() {
 				return nil, err
 			}
 			return &Trivy{Bin: s.Bin, Runner: s.Runner, SkipDBUpdate: skip, OfflineScan: offline}, nil
+		},
+	})
+	Register(Plugin{
+		Name:        "osv-scanner",
+		Description: "Google OSV-Scanner matcher on syft SBOMs, offline against per-ecosystem OSV databases",
+		Options:     []string{"db_auto_update", "ecosystems"},
+		New: func(s Spec) (any, error) {
+			auto, err := s.Options.Bool("db_auto_update", true)
+			if err != nil {
+				return nil, err
+			}
+			ecosystems, err := s.Options.Strings("ecosystems", DefaultOSVEcosystems())
+			if err != nil {
+				return nil, err
+			}
+			if len(ecosystems) == 0 {
+				return nil, fmt.Errorf("option ecosystems: name at least one of %s", strings.Join(DefaultOSVEcosystems(), ", "))
+			}
+			seen := map[string]bool{}
+			for _, e := range ecosystems {
+				if _, ok := OSVEcosystems[e]; !ok || seen[e] {
+					return nil, fmt.Errorf("option ecosystems: %q is unknown or repeated (known: %s)", e, strings.Join(DefaultOSVEcosystems(), ", "))
+				}
+				seen[e] = true
+			}
+			return &OSV{Bin: s.Bin, Runner: s.Runner, DBAutoUpdate: auto, Ecosystems: ecosystems}, nil
 		},
 	})
 }

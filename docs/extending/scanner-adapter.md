@@ -1,5 +1,10 @@
 # Writing a scanner adapter
 
+The sketch below is simplified. The shipped `osv-scanner` adapter (`internal/scanner/osv.go`,
+[ADR 0028](../adr/0028-osv-scanner-matcher.md)) shows the full pattern for a matcher whose tool
+would otherwise go online: offline matching on a private copy of the SBOM, a check that every
+database the result depends on was there, and a DB update that never sees an image's SBOM.
+
 ## 1. Implement the interfaces
 
 ```go

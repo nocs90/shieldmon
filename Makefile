@@ -26,7 +26,7 @@ test-race:
 
 # Real syft/grype/trivy against a pinned image digest. Needs network.
 test-integration:
-	$(GO) test -tags integration -run 'TestRealScanners|TestHostile' -count=1 -timeout 30m ./internal/engine
+	$(GO) test -tags integration -run 'TestRealScanners|TestHostile|TestOSVParity' -count=1 -timeout 50m ./internal/engine
 
 FUZZTIME ?= 20s
 # Minimizing each new interesting input takes up to 60s by default: with realistic seeds
@@ -37,6 +37,7 @@ FUZZMINIMIZE ?= 100x
 FUZZ_TARGETS := \
 	FuzzParseGrype:./internal/scanner \
 	FuzzParseTrivy:./internal/scanner \
+	FuzzParseOSV:./internal/scanner \
 	FuzzCanonicalPURL:./internal/normalize \
 	FuzzCanonicalVulnID:./internal/normalize \
 	FuzzString:./internal/redact \
