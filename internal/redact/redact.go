@@ -24,6 +24,8 @@ var patterns = []struct {
 	{regexp.MustCompile(`\b(ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{20,}\b`), "[REDACTED-GITHUB-TOKEN]"},
 	// Webhook signing secrets (Standard Webhooks).
 	{regexp.MustCompile(`\bwhsec_[A-Za-z0-9+/=]{16,}`), "[REDACTED-WEBHOOK-SECRET]"},
+	// ShieldMon API tokens ('shieldmon serve token').
+	{regexp.MustCompile(`\bsmt_[A-Za-z0-9_-]{20,}`), "[REDACTED-SHIELDMON-TOKEN]"},
 	// Chat credentials: Slack and Mattermost incoming webhook URLs, Slack and Matrix tokens.
 	{regexp.MustCompile(`(hooks\.slack\.com/(?:services|workflows|triggers)/)[^\s"'<>]+`), "${1}[REDACTED]"},
 	{regexp.MustCompile(`(/hooks/)[a-z0-9]{26}\b`), "${1}[REDACTED]"},

@@ -15,11 +15,15 @@ func init() {
 	RegisterFormat(Format{
 		Name:        "remediation-plan",
 		Description: "remediation plan: one row per open or risk-accepted item, with schedule, milestones and deviation (CSV)",
+		MediaType:   "text/csv; charset=utf-8",
+		Download:    true,
 		Render:      func(w io.Writer, r Monthly) error { return renderPlan(w, r, false) },
 	})
 	RegisterFormat(Format{
 		Name:        "remediation-plan-excel",
 		Description: "remediation-plan for spreadsheets: UTF-8 with BOM, CRLF line endings",
+		MediaType:   "text/csv; charset=utf-8",
+		Download:    true,
 		Render:      func(w io.Writer, r Monthly) error { return renderPlan(w, r, true) },
 	})
 }

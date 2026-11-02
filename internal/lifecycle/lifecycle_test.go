@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -196,6 +197,7 @@ func TestDecisionPolicy(t *testing.T) {
 		{"no expiry", accept(time.Time{}, DeviationNone, why), high, false},
 		{"past expiry", accept(now.Add(-time.Hour), DeviationNone, why), high, false},
 		{"no author", Decision{State: model.StateRiskAccepted, Justification: why, ExpiresAt: now.AddDate(0, 0, 5)}, high, false},
+		{"the engine as author", Decision{State: model.StateNotAffected, Justification: "vulnerable_code_not_present", Author: ActorEngine}, high, false},
 		{"short reason", accept(now.AddDate(0, 0, 5), DeviationNone, "nope"), high, false},
 		{"not affected without expiry", Decision{State: model.StateNotAffected, Justification: "vulnerable_code_not_present", Author: "a"}, overdue, true},
 		{"not affected with deviation", Decision{State: model.StateNotAffected, Deviation: DeviationVendorDependency, Justification: "vulnerable_code_not_present", Author: "a"}, high, false},
@@ -204,8 +206,8 @@ func TestDecisionPolicy(t *testing.T) {
 	}
 	for _, tc := range cases {
 		err := standard.Validate(tc.d, tc.s, now)
-		if (err == nil) != tc.ok {
-			t.Errorf("%s: ok=%t, err=%v", tc.name, tc.ok, err)
+		if (err == nil) != tc.ok || err != nil && !errors.Is(err, ErrRefused) {
+			t.Errorf("%s: ok=%t, err=%v (a refusal is ErrRefused)", tc.name, tc.ok, err)
 		}
 	}
 }

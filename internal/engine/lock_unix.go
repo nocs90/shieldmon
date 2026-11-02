@@ -23,7 +23,7 @@ func Lock(dataDir string) (unlock func(), err error) {
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		f.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) {
-			return nil, fmt.Errorf("another shieldmon process holds %s", f.Name())
+			return nil, fmt.Errorf("%w: another shieldmon process holds %s", ErrLocked, f.Name())
 		}
 		return nil, err
 	}

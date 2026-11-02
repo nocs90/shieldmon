@@ -84,6 +84,7 @@ GitLab project pass; no long-lived credentials anywhere in config or CI.
 
 - PostgreSQL backend sharing the schema; migration tests on both engines.
 - `shieldmon serve`: scheduler, API, OIDC auth, RBAC (decisions need a role), web UI.
+  Done (ADR 0031): scheduler, read and decision API, roles, API tokens; next: OIDC, web UI.
 - Export to OWASP Dependency-Track (portfolio, trends) and DefectDojo instead of
   rebuilding them (ADR 0001).
 

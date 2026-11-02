@@ -23,6 +23,16 @@ type VEXStatement struct {
 // AddVEXStatements stores the statements not stored yet (same content, whatever document it
 // came in) and returns how many were new.
 func (s *Store) AddVEXStatements(ctx context.Context, stmts []vex.Statement, by string, now time.Time) (int, error) {
+	// Statements become decisions authored by their author: a document must not pass for the
+	// API (docs/adr/0031-server-mode.md).
+	if lifecycle.ReservedAuthor(by) {
+		return 0, fmt.Errorf("importer %q: names starting with %q are reserved for the API", by, lifecycle.APIActorPrefix)
+	}
+	for _, st := range stmts {
+		if lifecycle.ReservedAuthor(st.Author) {
+			return 0, fmt.Errorf("VEX statement %s: author %q: names starting with %q are reserved for the API", st.VulnID, st.Author, lifecycle.APIActorPrefix)
+		}
+	}
 	added := 0
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		for _, st := range stmts {
