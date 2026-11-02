@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -222,6 +223,8 @@ func (a *app) cycle(ctx context.Context) (engine.MonitorSummary, error) {
 		return engine.MonitorSummary{}, err
 	}
 	defer unlock()
+	// Followed charts come first in the cycle (docs/adr/0034-chart-tracking.md); read once.
+	a.followCharts(os.Stderr)
 	return a.engine.Monitor(ctx)
 }
 
