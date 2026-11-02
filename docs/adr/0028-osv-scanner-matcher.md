@@ -61,11 +61,11 @@
   that normalization maps it to its CVE; severity from the group's `max_severity` CVSS score,
   else the database's label; fixed versions from the affected entry of the package's ecosystem
   release.
-- `scripts/install-scanners.sh` pins it by SHA-256 and verifies its SLSA provenance with cosign;
-  it installs it only when asked (`SCANNERS="syft grype trivy osv-scanner"`). The container
-  image does not ship it. (Prepared as `.git/task-patches/39-osv-installer-and-ci.patch` with the
-  CI integration job change and the ADR 0006, quality-gates and threat-model updates: those
-  files need a maintainer's review before they change.)
+- `scripts/install-scanners.sh` pins it by SHA-256 and verifies its SLSA provenance with cosign
+  (ADR 0006): the provenance must be signed by the SLSA generator for `google/osv-scanner` at
+  the pinned tag, and name the pinned binary. It installs it only when asked
+  (`SCANNERS="syft grype trivy osv-scanner"`); the CI integration job does. The container image
+  does not ship it.
 
 ## Parity
 

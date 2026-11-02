@@ -30,7 +30,7 @@ not be falsifiable.
 | **S**poofing | Tag swapped to a different image between scans. | Identity is the digest; tags resolved every cycle, every change appended to `target_digests` ✅ |
 | S | Registry serves different bytes than the requested digest. | Fetch by digest only; ggcr verifies manifest and blob digests; explicit digest re-check ✅ |
 | S | A spoofed or truncated KEV feed (mirror, proxy) hides exploited vulnerabilities or floods findings. | HTTPS only (redirects to https, at most 3); size, entry and field validation; a catalog much smaller than the known one, inconsistent with its `count`, or largely malformed is refused and the previous data kept; enrichers only add facts; staleness and failures are health findings; cache outside the scanners' writable paths (ADR 0019) ✅ |
-| S | Malicious scanner release (cf. trivy v0.69.4, CVE-2026-33634). | Optional SHA-256 pin per binary, mismatch aborts + health finding ✅; checksum-verified installer ✅; CI actions pinned by SHA ✅; release signatures verified with a pinned cosign against the exact release-workflow identities, the pinned SHA-256 required in the signed checksums, all-or-nothing installation (ADR 0006) ✅ |
+| S | Malicious scanner release (cf. trivy v0.69.4, CVE-2026-33634). | Optional SHA-256 pin per binary, mismatch aborts + health finding ✅; checksum-verified installer ✅; CI actions pinned by SHA ✅; release signatures verified with a pinned cosign against the exact release-workflow identities, the pinned SHA-256 required in the signed checksums (osv-scanner: in its signed SLSA provenance, for its repository and tag), all-or-nothing installation (ADR 0006, ADR 0028) ✅ |
 | **T**ampering | Someone edits history to hide a finding or backdate a fix. | Append-only triggers on events/observations/decisions ✅; DB file 0600 ✅; hash-chained audit trail sealed in every write transaction, verified by monitor, anchored by exported digests and by every report (ADR 0018) ✅; reports and digests signed with minisign or cosign (documented, docs/processes/audit.md) ✅ |
 | S/I | A hostile chart index or Artifact Hub entry sends ShieldMon to internal addresses (SSRF: cloud metadata, admin ports, cluster services). | URLs from remote content: HTTPS only, fetched by a client that dials public addresses only (checked on the dialled address), registry references to internal literals refused; configured URLs only follow at most 5 HTTPS redirects (ADR 0032) ✅; a public name resolving to an internal registry is a residual risk |
 | T/D | A hostile chart archive (links, escaping paths, appended or nested archives, zip bombs, Chart.yaml readers disagree) misleads or exhausts what renders it. | `CheckArchive` before any rendering, subcharts included, on one budget: regular files only, no escape, no duplicates, 10,000 entries, 64 MiB unpacked (headers counted), depth 3, no trailing data, case-folded Chart.yaml keys refused; index and archive sizes bounded; digests verified (ADR 0032) ✅ |
@@ -81,5 +81,7 @@ not be falsifiable.
 - `bwrap` on a kernel without Landlock cannot stop a scanner from executing files it
   writes; a `scanner_sandbox_degraded` health finding stays open while it runs so.
 - Vulnerability DB integrity relies on the scanners' own verification.
-- Integrity of `install-scanners.sh` pins relies on the release's checksum file
-  (same trust domain as the artifact); cosign/sigstore verification is planned.
+- Integrity of `install-scanners.sh` pins relies on each project's release workflow identity
+  (Sigstore keyless signatures verified by a pinned cosign, ADR 0006; helm's maintainer key,
+  ADR 0033): a compromised release workflow or signing identity of a scanner project is not
+  detected.
