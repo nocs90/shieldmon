@@ -120,6 +120,9 @@ type Runner struct {
 	// TempDir is where every process gets a private scratch directory (TMPDIR), removed
 	// when it exits. Empty leaves TMPDIR alone.
 	TempDir string
+	// ScratchHome makes the scratch directory the process's HOME even without a sandbox
+	// (the backends always do), for tools that keep state under HOME, such as helm.
+	ScratchHome bool
 	// ScratchQuota bounds the disk space and entries of a process's scratch directory
 	// (0: unbounded); a backend that can also bounds each file the process writes.
 	// Exceeding it kills the process tree with ErrScratchQuota.
@@ -204,6 +207,9 @@ func (r Runner) prepare(p Policy) (Policy, []string, func(), error) {
 		cleanup = func() { _ = os.RemoveAll(scratch) }
 		p.Scratch = scratch
 		env = append(env, "TMPDIR="+scratch)
+		if r.ScratchHome {
+			env = append(env, "HOME="+scratch)
+		}
 	}
 	if r.ScratchQuota > 0 && !p.Network {
 		// No single file can be larger than the quota. DB updates write DBs bigger than a

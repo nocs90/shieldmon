@@ -13,22 +13,31 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
+COPY scripts/third-party-licenses.sh ./scripts/
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
       -ldflags "-s -w -X github.com/nocs90/shieldmon/internal/cli.Version=${VERSION}" \
-      -o /out/shieldmon ./cmd/shieldmon
+      -o /out/shieldmon ./cmd/shieldmon \
+ && mkdir -p /out/licenses \
+ && GOOS=$TARGETOS GOARCH=$TARGETARCH scripts/third-party-licenses.sh /out/licenses/THIRD_PARTY_LICENSES
+COPY LICENSE /out/licenses/LICENSE
 
 FROM --platform=$BUILDPLATFORM debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8 AS scanners
 ARG TARGETOS TARGETARCH
 RUN apt-get update -q \
- && apt-get install -y -q --no-install-recommends bash ca-certificates curl \
+ && apt-get install -y -q --no-install-recommends bash ca-certificates curl gpg \
  && rm -rf /var/lib/apt/lists/*
 COPY scripts/install-scanners.sh /install-scanners.sh
 # Checksums are recorded in the script, not fetched, and each release's signed checksums are
-# verified with a pinned cosign (ADR 0006): a bad download or signature fails the build.
-RUN /install-scanners.sh /out "$TARGETOS/$TARGETARCH" && mkdir /data
+# verified with a pinned cosign (ADR 0006), helm's archive with gpg against its pinned release
+# key (ADR 0033): a bad download or signature fails the build.
+RUN LICENSES=/licenses /install-scanners.sh /out "$TARGETOS/$TARGETARCH" && mkdir /data
 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 COPY --from=build /out/shieldmon /usr/local/bin/shieldmon
+# ShieldMon's license and those of the Go modules it links; the scanners' own are under
+# /usr/share/licenses/<scanner> (their release archives' LICENSE).
+COPY --from=build /out/licenses/ /usr/share/licenses/shieldmon/
+COPY --from=scanners /licenses/ /usr/share/licenses/
 COPY --from=scanners /out/ /usr/local/bin/
 COPY --from=scanners --chown=65532:65532 /data /data
 # Everything ShieldMon and its scanners write goes under /data: the root filesystem can be

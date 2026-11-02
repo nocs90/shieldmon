@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/nocs90/shieldmon/internal/charts"
 	"github.com/nocs90/shieldmon/internal/lifecycle"
 	"github.com/nocs90/shieldmon/internal/model"
 )
@@ -168,6 +171,120 @@ type Config struct {
 		// validated by lineage.NewSuccessors.
 		Successors []Successor `yaml:"successors,omitempty"`
 	} `yaml:"bases"`
+
+	// Charts are the Helm charts followed (docs/adr/0032-chart-sources.md); sources and
+	// options are validated by charts.New.
+	Charts []Chart `yaml:"charts,omitempty"`
+
+	// ChartPolicy says when a followed chart is neglected (docs/adr/0034-chart-tracking.md).
+	ChartPolicy struct {
+		// FixableAfter: a finding with a fix of at least MinSeverity, in an image of the
+		// newest release, detected longer ago than this (0: never).
+		FixableAfter Duration `yaml:"fixable_after"`
+		MinSeverity  string   `yaml:"min_severity"`
+		// StaleAfter: no release for longer than this (0: never).
+		StaleAfter Duration `yaml:"stale_after"`
+	} `yaml:"chart_policy"`
+
+	// Helm renders charts (docs/adr/0033-chart-rendering.md): the binary
+	// scripts/install-scanners.sh installs, run in the scanners' sandbox.
+	Helm struct {
+		Path    string   `yaml:"path,omitempty"`
+		SHA256  string   `yaml:"sha256,omitempty"`
+		Timeout Duration `yaml:"timeout"`
+	} `yaml:"helm"`
+
+	// Runtime is where images run, from cluster exports (docs/adr/0029-runtime-context.md).
+	Runtime struct {
+		// Inventories are `kubectl get pods,services,ingresses,httproutes -A -o json` files,
+		// one per cluster.
+		Inventories []RuntimeInventory `yaml:"inventories,omitempty"`
+		// MaxAge is how old an export may be before it is ignored (0: no limit).
+		MaxAge Duration `yaml:"max_age"`
+	} `yaml:"runtime"`
+}
+
+// chartID bounds the names charts are known by in ShieldMon.
+var chartID = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,99}$`)
+
+// ID is the name the chart is known by in ShieldMon.
+func (c Chart) ID() string {
+	if c.Name != "" {
+		return c.Name
+	}
+	return c.Chart
+}
+
+// clusterName bounds cluster names, which appear in reports and priority reasons.
+var clusterName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
+
+// Chart is one followed Helm chart: Name identifies it in ShieldMon (default the chart's
+// name), Chart is its name in the source.
+type Chart struct {
+	Name    string         `yaml:"name"`
+	Chart   string         `yaml:"chart"`
+	Source  string         `yaml:"source"`
+	Options map[string]any `yaml:"options,omitempty"`
+	// Profiles are the ways the chart is installed, each rendered on its own; none: one,
+	// "default", with the chart's own values.
+	Profiles []ChartProfile `yaml:"profiles,omitempty"`
+	// AddTargets makes monitor add the images of the newest release as targets, at most
+	// MaxNewTargets new ones per release (0: 50); more are left to 'targets add --chart'
+	// (docs/adr/0034-chart-tracking.md).
+	AddTargets    bool `yaml:"add_targets,omitempty"`
+	MaxNewTargets int  `yaml:"max_new_targets,omitempty"`
+}
+
+// ChartProfile is one installation of a chart: its release, namespace and values
+// (docs/adr/0033-chart-rendering.md).
+type ChartProfile struct {
+	Name string `yaml:"name"`
+	// Release defaults to the chart's name in ShieldMon, Namespace to "default".
+	Release   string `yaml:"release,omitempty"`
+	Namespace string `yaml:"namespace,omitempty"`
+	// ValuesFiles are applied in order, then Values: later ones win, like helm's -f.
+	ValuesFiles          []string       `yaml:"values_files,omitempty"`
+	Values               map[string]any `yaml:"values,omitempty"`
+	KubeVersion          string         `yaml:"kube_version,omitempty"`
+	APIVersions          []string       `yaml:"api_versions,omitempty"`
+	SkipSchemaValidation bool           `yaml:"skip_schema_validation,omitempty"`
+}
+
+// defaultRelease makes a chart's name in ShieldMon a Helm release name: '.' and '_' become
+// '-', at most 53 characters, ending in a letter or digit (names start with one).
+func defaultRelease(id string) string {
+	r := []byte(id)
+	for i, b := range r {
+		if b == '.' || b == '_' {
+			r[i] = '-'
+		}
+	}
+	return strings.TrimRight(string(r[:min(len(r), 53)]), "-")
+}
+
+// RenderProfiles returns the chart's profiles with their defaults applied.
+func (c Chart) RenderProfiles() []ChartProfile {
+	ps := c.Profiles
+	if len(ps) == 0 {
+		ps = []ChartProfile{{Name: "default"}}
+	}
+	out := make([]ChartProfile, len(ps))
+	for i, p := range ps {
+		if p.Release == "" {
+			p.Release = defaultRelease(c.ID())
+		}
+		if p.Namespace == "" {
+			p.Namespace = "default"
+		}
+		out[i] = p
+	}
+	return out
+}
+
+// RuntimeInventory is one cluster's export.
+type RuntimeInventory struct {
+	Cluster string `yaml:"cluster"`
+	Path    string `yaml:"path"`
 }
 
 // Successor names the base that succeeds the bases matching From.
@@ -207,6 +324,11 @@ func Default() Config {
 	c.Notifications.DueSoonDays = 7
 	c.Gate = DefaultGate()
 	c.Bases.MaxAge = Duration{90 * 24 * time.Hour}
+	c.Runtime.MaxAge = Duration{48 * time.Hour}
+	c.Helm.Timeout = Duration{2 * time.Minute}
+	c.ChartPolicy.FixableAfter = Duration{30 * 24 * time.Hour}
+	c.ChartPolicy.MinSeverity = "high"
+	c.ChartPolicy.StaleAfter = Duration{180 * 24 * time.Hour}
 	return c
 }
 
@@ -272,6 +394,67 @@ func (c Config) Validate() error {
 	}
 	if !(c.Limits.RegistryRPS >= 0) { // NaN too
 		return fmt.Errorf("limits.registry_rps must not be negative (0: unlimited)")
+	}
+	if c.Runtime.MaxAge.Duration < 0 {
+		return fmt.Errorf("runtime.max_age must not be negative (0: no limit)")
+	}
+	chartNames := map[string]bool{}
+	for i, ch := range c.Charts {
+		id := ch.Name
+		if id == "" {
+			id = ch.Chart
+		}
+		switch {
+		case ch.Chart == "" || ch.Source == "":
+			return fmt.Errorf("charts[%d]: chart and source are required", i)
+		case !chartID.MatchString(id):
+			return fmt.Errorf("charts[%d]: name %q: lowercase letters, digits, '.', '_', '-' (at most 100)", i, id)
+		case chartNames[id]:
+			return fmt.Errorf("charts[%d]: name %q is listed twice (give one a name:)", i, id)
+		case ch.MaxNewTargets < 0 || ch.MaxNewTargets > 1000:
+			return fmt.Errorf("charts[%d]: max_new_targets %d: want 1 to 1000 (0: 50)", i, ch.MaxNewTargets)
+		}
+		chartNames[id] = true
+		profiles := map[string]bool{}
+		for j, p := range ch.RenderProfiles() {
+			switch {
+			case !chartID.MatchString(p.Name):
+				return fmt.Errorf("charts[%d].profiles[%d]: name %q: lowercase letters, digits, '.', '_', '-' (at most 100)", i, j, p.Name)
+			case profiles[p.Name]:
+				return fmt.Errorf("charts[%d]: profile %q is listed twice", i, p.Name)
+			case slices.Contains(p.ValuesFiles, "") || slices.Contains(p.ValuesFiles, "-"):
+				return fmt.Errorf("charts[%d].profiles[%d]: values_files entries are file paths", i, j)
+			case len(p.ValuesFiles) >= charts.MaxValuesFiles:
+				return fmt.Errorf("charts[%d].profiles[%d]: at most %d values_files", i, j, charts.MaxValuesFiles-1)
+			}
+			profiles[p.Name] = true
+			// Values files are read when the chart renders; the rest is checked now.
+			cp := charts.Profile{Release: p.Release, Namespace: p.Namespace, KubeVersion: p.KubeVersion, APIVersions: p.APIVersions}
+			if err := cp.Check(); err != nil {
+				return fmt.Errorf("charts[%d] %s profile %s: %w", i, id, p.Name, err)
+			}
+		}
+	}
+	if c.Helm.Timeout.Duration <= 0 {
+		return fmt.Errorf("helm.timeout must be positive")
+	}
+	if c.ChartPolicy.FixableAfter.Duration < 0 || c.ChartPolicy.StaleAfter.Duration < 0 {
+		return fmt.Errorf("chart_policy durations must not be negative (0: never)")
+	}
+	if s := model.ParseSeverity(c.ChartPolicy.MinSeverity); s < model.SeverityLow || s.String() != strings.ToLower(c.ChartPolicy.MinSeverity) {
+		return fmt.Errorf("chart_policy.min_severity %q: want low, medium, high or critical", c.ChartPolicy.MinSeverity)
+	}
+	clusters := map[string]bool{}
+	for i, inv := range c.Runtime.Inventories {
+		switch {
+		case !clusterName.MatchString(inv.Cluster):
+			return fmt.Errorf("runtime.inventories[%d].cluster %q: want letters, digits, '.', '_' or '-' (at most 63)", i, inv.Cluster)
+		case clusters[inv.Cluster]:
+			return fmt.Errorf("runtime.inventories[%d]: cluster %q is listed twice", i, inv.Cluster)
+		case inv.Path == "":
+			return fmt.Errorf("runtime.inventories[%d].path is required", i)
+		}
+		clusters[inv.Cluster] = true
 	}
 	if c.Bases.MaxAge.Duration < 0 {
 		return fmt.Errorf("bases.max_age must not be negative (0 disables base_unmaintained)")
@@ -524,6 +707,49 @@ bases:
   # (first match wins; 'from' is a reference pattern like owners' targets).
   successors: []
   # - { from: "registry.access.redhat.com/ubi9/nodejs-20-minimal", to: "registry.access.redhat.com/ubi9/nodejs-22-minimal:latest" }
+
+# Where images run (docs/processes/runtime-context.md): read-only cluster exports, written by
+# a scheduled job with view rights, e.g.
+#   kubectl get pods,services,ingresses,httproutes -A -o json > /var/lib/shieldmon/runtime/prod.json
+# Findings of running images rank higher, of exposed ones higher still; nothing else changes.
+runtime:
+  max_age: 48h     # an older export is left out, with a warning; 0: no limit
+  inventories: []
+  # - { cluster: prod, path: /var/lib/shieldmon/runtime/prod.json }
+
+# Helm charts followed (docs/processes/charts.md): sources are http (a chart repository's
+# index.yaml), oci (a registry, with the registries' credentials) and artifacthub. 'shieldmon
+# plugins' lists them.
+charts: []
+  # - { chart: ingress-nginx, source: http, options: { url: https://kubernetes.github.io/ingress-nginx } }
+  # - { chart: nginx, source: oci, options: { repository: registry-1.docker.io/bitnamicharts } }
+  # - { name: podinfo, chart: podinfo, source: artifacthub, options: { repository: podinfo } }
+  # Each profile is one installation, rendered on its own with 'helm template' in the
+  # scanners' sandbox (no network, only the archive and the values); none: the chart's defaults.
+  # - chart: ingress-nginx
+  #   source: http
+  #   options: { url: https://kubernetes.github.io/ingress-nginx }
+  #   profiles:
+  #     - { name: prod, namespace: ingress, values_files: [/etc/shieldmon/values/ingress-prod.yaml] }
+  #     - { name: mirror, values: { global: { image: { registry: mirror.example.com } } }, kube_version: "1.33" }
+  #   add_targets: true   # monitor adds the images of each new release as targets: at most
+  #                       # max_new_targets (50) per release, on public registries or those
+  #                       # configured in registries:
+
+# When a followed chart is neglected ('shieldmon charts status'): its newest release ships a
+# finding with a fix of at least min_severity detected more than fixable_after ago, or it has
+# not released for stale_after. 0 disables either.
+chart_policy:
+  fixable_after: 720h
+  min_severity: high
+  stale_after: 4320h
+
+# The helm that renders charts: scripts/install-scanners.sh installs a pinned, signature-verified
+# one. Pin it by SHA-256 like the scanners.
+helm:
+  path: ""
+  sha256: ""
+  timeout: 2m
 `
 
 // Policy builds the decision policy from configuration.

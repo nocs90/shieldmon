@@ -5,10 +5,15 @@ The backlog behind this roadmap (epics and tasks, with acceptance criteria) is i
 **ShieldMon Roadmap** Project by `scripts/github/bootstrap.py`
 (see [docs/processes/issue-management.md](docs/processes/issue-management.md)).
 
+**v0.3.0** (the first public release) contains M1–M5, M3's inputs and providers, and from
+M7 the base-image lineage, runtime context, images of rendered manifests and Helm charts
+(sources, sandboxed rendering, release tracking, neglected charts, upstream drafts)
+([CHANGELOG.md](CHANGELOG.md)). Server mode (M6) and the OSV-Scanner matcher are next.
+
 Each milestone ends with an executable definition of done. A milestone is closed when its
 checks pass in CI and an independent review of the diff (fresh context) finds no blocker.
 
-## M1 — Core ConMon loop ✅ (this version)
+## M1 — Core ConMon loop ✅
 
 Digest identity, SBOM-first pipeline, syft/grype/trivy adapters, normalization and
 dedupe, SQLite with append-only audit, evidence-based lifecycle, decisions with expiry,
@@ -86,13 +91,15 @@ GitLab project pass; no long-lived credentials anywhere in config or CI.
 
 - Base-image upgrade candidates (same lineage, newer tag) with finding diff (as in Snyk).
 - Runtime context for prioritization: is the image running, is it exposed (as in
-  Wiz / Prisma), from a read-only cluster inventory.
+  Wiz / Prisma), from a read-only cluster inventory (ADR 0029).
 - Copacetic patch proposals for OS packages.
 - Helm: ingest charts (HTTP repo, OCI, Artifact Hub), render with values profiles,
   extract every image (containers, initContainers, ephemeral, hook Jobs), flag
-  operator-managed images, track per chart version, detect neglected charts.
-- Upstream-contribution queue: issue/MR drafts with evidence, CONTRIBUTING/DCO aware,
-  deduplicated against existing issues, rate-limited, submitted only after approval.
+  operator-managed images, track per chart version, detect neglected charts ✅ (ADR
+  0030, 0032–0034).
+- Upstream-contribution queue: issue drafts with evidence ✅ (`charts draft-issue`, never
+  submitted); submission through an API, deduplicated against existing issues,
+  rate-limited, after a recorded approval ⬜ (#37).
 
 ## Open questions for the maintainer
 

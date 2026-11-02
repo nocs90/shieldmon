@@ -18,6 +18,29 @@ concurrency:
 # Every gate is documented in docs/processes/quality-gates.md.
 # Actions are pinned by full commit SHA (tag in the comment), never by tag.
 jobs:
+  # The release configuration, checked and built as the release workflow would, without
+  # signing or publishing: a tag must not be the first run of .goreleaser.yaml.
+  release-dry-run:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          distribution: goreleaser
+          version: v2.18.3
+          args: check
+      - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          distribution: goreleaser
+          version: v2.18.3
+          args: release --snapshot --clean --skip=sign,sbom,publish
+
   lint:
     runs-on: ubuntu-24.04
     steps:
@@ -270,15 +293,18 @@ jobs:
           df -h /
       # Dogfooding (#14): ShieldMon's own image, judged by ShieldMon's gate with the built-in
       # policy (fail on CISA KEV and critical findings, warn on high; docs/processes/ci-gate.md).
-      # A matcher failure is indeterminate (exit 3) and fails the job too.
+      # A matcher failure is indeterminate (exit 3) and fails the job too. Findings that do not
+      # apply are exempt only by the reviewed VEX statements in security/vex (never an ignore list).
       - name: Gate ShieldMon's own image and report on it
         if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run/integration')
         run: |
           mkdir -p "$RUNNER_TEMP/dogfood"
           sc() {
             docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
-              --network host -v shieldmon-data:/data localhost:5000/shieldmon:ci "$@"
+              --network host -v shieldmon-data:/data -v "$GITHUB_WORKSPACE/security/vex:/vex:ro" \
+              localhost:5000/shieldmon:ci "$@"
           }
+          sc vex import --by ci /vex/shieldmon-image.openvex.json
           sc report monthly --month "$(date -u +%Y-%m)" -o md > "$RUNNER_TEMP/dogfood/report.md"
           sc report inventory -o md > "$RUNNER_TEMP/dogfood/inventory.md"
           sc gate --no-scan localhost:5000/shieldmon:ci -o sarif > "$RUNNER_TEMP/dogfood/gate.sarif" || true

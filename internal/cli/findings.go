@@ -24,6 +24,7 @@ import (
 	"github.com/nocs90/shieldmon/internal/owners"
 	"github.com/nocs90/shieldmon/internal/priority"
 	"github.com/nocs90/shieldmon/internal/report"
+	"github.com/nocs90/shieldmon/internal/runtimectx"
 	"github.com/nocs90/shieldmon/internal/sbom"
 	"github.com/nocs90/shieldmon/internal/store"
 )
@@ -222,13 +223,17 @@ func (a *app) findingsCmd() *cobra.Command {
 					return !slices.Contains(teams, owner)
 				})
 			}
+			rk, err := a.newRanker(cmd, policy, fs)
+			if err != nil {
+				return err
+			}
 			if sortBy == "priority" {
-				sortByPriority(fs, policy)
+				sortByPriority(fs, rk)
 			}
 			if limit > 0 && len(fs) > limit {
 				fs = fs[:limit]
 			}
-			return printFindings(cmd.OutOrStdout(), fs, format, policy)
+			return printFindings(cmd.OutOrStdout(), fs, format, rk)
 		},
 	}
 	list.Flags().StringVar(&owner, "owner", "", "only findings on targets of this team (- for unowned; docs/adr/0024-ownership.md)")
@@ -469,34 +474,77 @@ func slaDue(p lifecycle.Policy, f store.Finding) time.Time {
 	return p.SLADue(lifecycle.Subject{Severity: f.Severity, FirstDetected: f.FirstDetected})
 }
 
-// findingPriority is a finding's remediation priority now (docs/adr/0020-priority-score.md).
-func findingPriority(policy lifecycle.Policy, f store.Finding) priority.Score {
-	return priority.Compute(priority.Input{
+// ranker scores findings now (docs/adr/0020-priority-score.md), with where their images run
+// in the configured clusters (docs/adr/0029-runtime-context.md).
+type ranker struct {
+	policy  lifecycle.Policy
+	runtime map[string]runtimectx.Context // by digest; missing: not running anywhere known
+}
+
+// newRanker looks up the runtime context of the findings' digests once.
+func (a *app) newRanker(cmd *cobra.Command, policy lifecycle.Policy, fs []store.Finding) (ranker, error) {
+	rk := ranker{policy: policy, runtime: map[string]runtimectx.Context{}}
+	set, _ := a.runtimeSet(cmd)
+	if len(set) == 0 {
+		return rk, nil
+	}
+	lookup := report.RuntimeLookup(cmd.Context(), a.store, set)
+	for _, f := range fs {
+		if _, done := rk.runtime[f.Digest]; done {
+			continue
+		}
+		c, err := lookup(f.Digest)
+		if err != nil {
+			return rk, err
+		}
+		rk.runtime[f.Digest] = c
+	}
+	return rk, nil
+}
+
+func (rk ranker) context(f store.Finding) *runtimectx.Context {
+	if c, ok := rk.runtime[f.Digest]; ok && c.Running {
+		return &c
+	}
+	return nil
+}
+
+func (rk ranker) score(f store.Finding) priority.Score {
+	in := priority.Input{
 		Severity: f.Severity, CVSS: f.CVSSScore, EPSS: f.EPSS, KEV: f.KEV, Fixable: len(f.FixVersions) > 0,
-		SLADue: slaDue(policy, f), Now: time.Now(),
-	})
+		SLADue: slaDue(rk.policy, f), Now: time.Now(),
+	}
+	if c := rk.context(f); c != nil {
+		in.RunningPods = c.Pods
+		if len(c.Exposure) > 0 {
+			in.Exposure = c.Exposure[0]
+		}
+	}
+	return priority.Compute(in)
 }
 
 // sortByPriority orders findings by priority, highest first; ties keep their order.
-func sortByPriority(fs []store.Finding, policy lifecycle.Policy) {
+func sortByPriority(fs []store.Finding, rk ranker) {
 	scores := make(map[int64]int, len(fs))
 	for _, f := range fs {
-		scores[f.ID] = findingPriority(policy, f).Value
+		scores[f.ID] = rk.score(f).Value
 	}
 	slices.SortStableFunc(fs, func(a, b store.Finding) int { return scores[b.ID] - scores[a.ID] })
 }
 
-func printFindings(w io.Writer, fs []store.Finding, format string, policy lifecycle.Policy) error {
+func printFindings(w io.Writer, fs []store.Finding, format string, rk ranker) error {
+	policy := rk.policy
 	switch format {
 	case "json":
 		type row struct {
 			store.Finding
-			Severity string         `json:"severity"`
-			Priority priority.Score `json:"priority"`
+			Severity string              `json:"severity"`
+			Priority priority.Score      `json:"priority"`
+			Runtime  *runtimectx.Context `json:"runtime,omitempty"`
 		}
 		rows := make([]row, 0, len(fs))
 		for _, f := range fs {
-			rows = append(rows, row{Finding: f, Severity: f.Severity.String(), Priority: findingPriority(policy, f)})
+			rows = append(rows, row{Finding: f, Severity: f.Severity.String(), Priority: rk.score(f), Runtime: rk.context(f)})
 		}
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
@@ -512,7 +560,7 @@ func printFindings(w io.Writer, fs []store.Finding, format string, policy lifecy
 			rec := []string{
 				strconv.FormatInt(f.ID, 10), f.Severity.String(), f.VulnID, f.PkgName, f.PkgVersion,
 				strings.Join(f.FixVersions, " "), string(f.FixState), string(f.State), f.FirstDetected.Format(time.RFC3339), due,
-				strings.Join(f.Targets, "; "), f.Digest, f.PURL, strconv.Itoa(findingPriority(policy, f).Value),
+				strings.Join(f.Targets, "; "), f.Digest, f.PURL, strconv.Itoa(rk.score(f).Value),
 			}
 			for i, v := range rec {
 				rec[i] = report.CSVSafe(v)
@@ -540,7 +588,7 @@ func printFindings(w io.Writer, fs []store.Finding, format string, policy lifecy
 					due += " ⚠"
 				}
 			}
-			fmt.Fprintf(tw, "%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%dd\t%s\t%s\n", f.ID, findingPriority(policy, f).Value, f.Severity, vuln, short(printable(f.PkgName), 30),
+			fmt.Fprintf(tw, "%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%dd\t%s\t%s\n", f.ID, rk.score(f).Value, f.Severity, vuln, short(printable(f.PkgName), 30),
 				short(printable(f.PkgVersion), 24), short(printable(fixLabel(f)), 24), f.State,
 				int(time.Since(f.FirstDetected).Hours()/24), due, target)
 		}
@@ -618,6 +666,10 @@ func (a *app) reportCmd() *cobra.Command {
 				return err
 			}
 			report.AddOwners(&r, a.owners)
+			set, failed := a.runtimeSet(cmd)
+			if err := report.AddRuntime(cmd.Context(), a.store, &r, set, failed); err != nil {
+				return err
+			}
 			w, closeOut, err := reportOutput(cmd, out)
 			if err != nil {
 				return err
