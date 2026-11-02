@@ -4,7 +4,8 @@
 #
 # Usage: [PLATFORMS="linux/amd64 darwin/arm64 ..."] scripts/third-party-licenses.sh [OUT]
 #   OUT        default THIRD_PARTY_LICENSES
-#   PLATFORMS  the builds to cover (dependencies differ per OS); default: GOOS/GOARCH.
+#   PLATFORMS  the builds to cover (dependencies differ per OS), separated by spaces or commas
+#              (commas fit goreleaser's hooks, which take no quotes); default: GOOS/GOARCH.
 # Needs the module cache (go mod download). Fails when a module has no license file, so that
 # a dependency without a known license cannot ship unnoticed.
 set -euo pipefail
@@ -15,7 +16,7 @@ trap 'rm -f "$tmp"' EXIT
 
 # Module path, version and directory of every non-main module in the builds of shieldmon.
 platforms="${PLATFORMS:-$(go env GOOS)/$(go env GOARCH)}"
-for p in $platforms; do
+for p in ${platforms//,/ }; do
   GOOS="${p%/*}" GOARCH="${p#*/}" go list -deps \
     -f '{{with .Module}}{{if not .Main}}{{.Path}} {{.Version}} {{.Dir}}{{end}}{{end}}' ./cmd/shieldmon
 done | sort -u > "$tmp"
