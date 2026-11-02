@@ -21,8 +21,8 @@ Designed with a strict **SBOM-first** and **evidence-based resolution** philosop
 > **Status: v0.3.0, pre-1.0.** Monitoring, VEX, prioritization (KEV, priority score, runtime
 > context), base-image lineage, Helm charts (sources, sandboxed rendering, release tracking,
 > neglected charts), CI gate, notifications, exports to Dependency-Track and DefectDojo, and
-> native ECR/GCR/GitLab providers are in; server mode and PostgreSQL are on the
-> [roadmap](ROADMAP.md). [SPEC.md](SPEC.md) says exactly what is
+> native ECR/GCR/GitLab providers are in; `main` adds server mode (API, scheduler, roles) and
+> the OSV-Scanner matcher for v0.4.0; PostgreSQL and OIDC are on the [roadmap](ROADMAP.md). [SPEC.md](SPEC.md) says exactly what is
 > implemented, [CHANGELOG.md](CHANGELOG.md) what changed. Configuration may still change
 > between minor versions.
 
