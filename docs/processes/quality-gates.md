@@ -40,11 +40,12 @@ to a ruleset is a pull request to its file, applied by a maintainer with
 - `main` (the default branch): pull request required, 1 approval, CODEOWNERS review, stale
   approvals dismissed, conversations resolved, squash merges only; the ✱ checks run by GitHub
   Actions required, on a branch up to date with `main`; CodeQL alerts of high severity or
-  errors block; linear history; no deletion, no force push. Repository admins may bypass
-  through a pull request only: while there is one maintainer, who cannot approve their own
-  pull requests, they merge with `gh pr merge --admin` **after** every required check passed
-  (the bypass skips checks too: never use it on a red pull request). With a second maintainer,
-  remove the bypass.
+  errors block; linear history; no deletion, no force push. These rules bind contributors: an
+  outside pull request needs the maintainer's approval as code owner and every check. The
+  maintainer (repository admin) may bypass them: merging without approval
+  (`gh pr merge --admin`, or "merge without waiting for requirements"), and pushing to `main`
+  when needed, though changes go through pull requests as a rule. A bypassed merge skips the
+  checks too; pull requests are merged green.
 - `release tags: created by admins`: only repository admins create `v*` tags.
 - `release tags: immutable`: nobody, admins included, moves or deletes a `v*` tag; a bad
   release is superseded by a new version, never re-tagged.
