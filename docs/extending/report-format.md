@@ -9,6 +9,8 @@ func init() {
 	RegisterFormat(Format{
 		Name:        "junit",
 		Description: "JUnit XML: one failing test case per open finding, for CI dashboards",
+		MediaType:   "application/xml; charset=utf-8", // as served by `shieldmon serve`
+		Download:    false,                            // true: browsers save it (spreadsheets)
 		Render:      renderJUnit,
 	})
 }
@@ -16,7 +18,9 @@ func init() {
 func renderJUnit(w io.Writer, r Monthly) error { … }
 ```
 
-`shieldmon report monthly -o junit` and `shieldmon plugins` pick it up automatically. Built in:
+`shieldmon report monthly -o junit`, `shieldmon plugins` and the server's
+`/api/v1/reports/monthly?format=junit` pick it up automatically (without a `MediaType` it is
+served as `application/octet-stream`). Built in:
 `md`, `json`, `csv`, `html`, `remediation-plan`, `remediation-plan-excel`, `sarif`
 (`render_sarif.go` is a complete example with schema validation in its test).
 

@@ -8,7 +8,7 @@ import (
 )
 
 func TestBuiltinPluginsConform(t *testing.T) {
-	for _, name := range []string{"syft", "grype", "trivy"} {
+	for _, name := range []string{"syft", "grype", "trivy", "osv-scanner"} {
 		t.Run(name, func(t *testing.T) { scannertest.CheckPlugin(t, name) })
 	}
 }

@@ -11,7 +11,7 @@ The core never imports an adapter; adapters never touch the lifecycle or storage
 | Extension point | Interface | Registry | Conformance | Built-in | Status |
 |---|---|---|---|---|---|
 | SBOM generator | `scanner.Generator` | `scanner.Register` | `scannertest.CheckPlugin` | syft, trivy | ✅ |
-| Vulnerability matcher | `scanner.Matcher` | `scanner.Register` | `scannertest.CheckPlugin`, `CheckParser`, `CheckMatcher` | grype, trivy | ✅ |
+| Vulnerability matcher | `scanner.Matcher` | `scanner.Register` | `scannertest.CheckPlugin`, `CheckParser`, `CheckMatcher` | grype, trivy, osv-scanner (optional, [ADR 0028](../adr/0028-osv-scanner-matcher.md)) | ✅ |
 | Report format / exporter | `report.Format` | `report.RegisterFormat` | golden tests | md, json, csv | ✅ |
 | Scanner sandbox | `scanner.Sandbox` | `scanner.RegisterSandbox` | `scannertest.CheckSandbox` | none, bwrap, landlock | ✅ M2, [ADR 0011](../adr/0011-scanner-sandbox.md) |
 | Registry provider | `oci.Provider` (keychain + listing) | `oci.RegisterProvider` | `ocitest.CheckProvider` | docker, ecr, google, gitlab | ✅ M3, [ADR 0013](../adr/0013-registry-providers.md) |

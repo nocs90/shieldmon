@@ -130,6 +130,9 @@ type Runner struct {
 	// MinFreeBytes kills the process tree with ErrDiskSpace when free space on
 	// TempDir's filesystem drops below it (0: no floor).
 	MinFreeBytes int64
+	// OKExitCodes are exit statuses that mean success besides 0, for scanners that report
+	// findings in their status (osv-scanner exits 1 when it found vulnerabilities).
+	OKExitCodes []int
 }
 
 // watchInterval is how often a running process's disk use is checked; between two checks
@@ -336,6 +339,13 @@ func scratchUsage(dir string, quota int64) (used int64, entries int, over bool) 
 
 // Run executes bin with args (never through a shell) and returns stdout.
 func (r Runner) Run(ctx context.Context, bin string, args ...string) ([]byte, error) {
+	out, _, err := r.RunWithStderr(ctx, bin, args...)
+	return out, err
+}
+
+// RunWithStderr is Run that also returns what the process wrote to stderr (bounded, not
+// redacted), for scanners that report errors there while exiting with a declared status.
+func (r Runner) RunWithStderr(ctx context.Context, bin string, args ...string) ([]byte, []byte, error) {
 	var cancel context.CancelFunc
 	if r.Timeout > 0 {
 		ctx, cancel = context.WithTimeout(ctx, r.Timeout)
@@ -349,13 +359,13 @@ func (r Runner) Run(ctx context.Context, bin string, args ...string) ([]byte, er
 	}
 	p, env, cleanup, err := r.prepare(PolicyFrom(ctx))
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", bin, err)
+		return nil, nil, fmt.Errorf("%s: %w", bin, err)
 	}
 	defer cleanup()
 	argv := append([]string{bin}, args...)
 	if r.Sandbox != nil {
 		if argv, err = r.Sandbox.Command(p, bin, args); err != nil {
-			return nil, fmt.Errorf("%s: %w", bin, err)
+			return nil, nil, fmt.Errorf("%s: %w", bin, err)
 		}
 	}
 	// G204 is the point of this function: argv-only exec of a resolved, optionally
@@ -374,20 +384,26 @@ func (r Runner) Run(ctx context.Context, bin string, args ...string) ([]byte, er
 	err = cmd.Run()
 	breach := stop()
 	if stdout.overflow {
-		return nil, fmt.Errorf("%s: %w (%d bytes)", bin, ErrOutputTooLarge, maxOut)
+		return nil, nil, fmt.Errorf("%s: %w (%d bytes)", bin, ErrOutputTooLarge, maxOut)
 	}
-	if err != nil && breach == nil && p.MaxFileBytes > 0 {
+	var exit *exec.ExitError
+	declared := errors.As(err, &exit) && ctx.Err() == nil && slices.Contains(r.OKExitCodes, exit.ExitCode())
+	// The file-size heuristic reads stderr, which may echo hostile input: only for failures.
+	if err != nil && !declared && breach == nil && p.MaxFileBytes > 0 {
 		breach = fileSizeBreach(p, stderr.buf.Bytes())
 	}
 	if breach != nil {
-		return nil, fmt.Errorf("%s: %w", bin, breach)
+		return nil, nil, fmt.Errorf("%s: %w", bin, breach)
+	}
+	if declared {
+		err = nil
 	}
 	if err != nil {
 		if ctx.Err() != nil {
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				return nil, fmt.Errorf("%s: timed out after %s", bin, r.Timeout)
+				return nil, nil, fmt.Errorf("%s: timed out after %s", bin, r.Timeout)
 			}
-			return nil, fmt.Errorf("%s: %w", bin, ctx.Err())
+			return nil, nil, fmt.Errorf("%s: %w", bin, ctx.Err())
 		}
 		msg := redact.String(strings.TrimSpace(stderr.buf.String()))
 		if len(msg) > 2000 {
@@ -397,9 +413,9 @@ func (r Runner) Run(ctx context.Context, bin string, args ...string) ([]byte, er
 		if len(args) > 0 {
 			name += " " + args[0]
 		}
-		return nil, fmt.Errorf("%s: %w: %s", name, err, msg)
+		return nil, nil, fmt.Errorf("%s: %w: %s", name, err, msg)
 	}
-	return stdout.buf.Bytes(), nil
+	return stdout.buf.Bytes(), stderr.buf.Bytes(), nil
 }
 
 // limitedBuffer stops accepting writes past max bytes. The buffer is a named

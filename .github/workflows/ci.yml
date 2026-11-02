@@ -140,6 +140,8 @@ jobs:
         run: |
           scripts/install-scanners.sh "$RUNNER_TEMP/scanners"
           echo "$RUNNER_TEMP/scanners" >> "$GITHUB_PATH"
+        env:
+          SCANNERS: syft grype trivy osv-scanner
       # Real scanners and the hostile fixture suite run in the default sandbox, which picks
       # bwrap here; e2e-ubi9-node installs no bwrap, so it covers landlock.
       - name: Install bubblewrap and allow it to create user namespaces
@@ -150,6 +152,15 @@ jobs:
       - run: make test-integration
         env:
           SHIELDMON_TEST_SANDBOX: bwrap # running unconfined is a failure here
+          SHIELDMON_CAPTURE_DIR: ${{ runner.temp }}/scanner-output
+      # Raw osv-scanner output of the parity images, from which fixtures are refreshed.
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        if: always()
+        with:
+          name: scanner-output
+          path: ${{ runner.temp }}/scanner-output
+          if-no-files-found: ignore
+          retention-days: 14
 
   # End-to-end ConMon scenario on a real multi-stage UBI 9 + Node.js build:
   # scan, triage, remediation decision policy, rebuild, evidence-based closure, reports.

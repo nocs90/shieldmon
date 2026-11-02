@@ -69,7 +69,7 @@ GitLab project pass; no long-lived credentials anywhere in config or CI.
   (as in Kondukto / DefectDojo).
 - Policy-as-code CI gate `shieldmon gate` with configurable exit codes and SARIF (as in
   Anchore Enterprise).
-- OSV-Scanner matcher adapter.
+- OSV-Scanner matcher adapter, offline (ADR 0028).
 
 ## M5 — Compliance profiles (F8)
 
@@ -84,6 +84,7 @@ GitLab project pass; no long-lived credentials anywhere in config or CI.
 
 - PostgreSQL backend sharing the schema; migration tests on both engines.
 - `shieldmon serve`: scheduler, API, OIDC auth, RBAC (decisions need a role), web UI.
+  Done (ADR 0031): scheduler, read and decision API, roles, API tokens; next: OIDC, web UI.
 - Export to OWASP Dependency-Track (portfolio, trends) and DefectDojo instead of
   rebuilding them (ADR 0001).
 

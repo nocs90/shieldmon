@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# Install syft, grype and trivy at pinned versions, and helm (which renders charts), verifying
-# each archive against a SHA-256 recorded in this file (not fetched at install time) and its
-# project's release signature.
+# Install syft, grype and trivy (and osv-scanner on request) at pinned versions, and helm
+# (which renders charts), verifying each download against a SHA-256 recorded in this file (not
+# fetched at install time) and its project's release signature.
 #
 # Why: scanners run with access to image content and are a supply-chain
 # target (e.g. the March 2026 trivy release/tag compromise, CVE-2026-33634).
 # Bumping a version is a reviewed change to this file.
 #
-# Usage: scripts/install-scanners.sh [DEST_DIR] [PLATFORM]
+# Usage: [SCANNERS="syft grype trivy osv-scanner"] scripts/install-scanners.sh [DEST_DIR] [PLATFORM]
 #   DEST_DIR  default ./bin/scanners
 #   PLATFORM  linux/amd64 or linux/arm64; default: this host. Give it to install for another
 #             architecture: the container image build downloads for its target platform.
+#   SCANNERS  (environment) the scanners to install; default "syft grype trivy". osv-scanner is
+#             optional (a matcher you enable in config; ADR 0028).
 #   LICENSES  (environment) a directory to also install each scanner's LICENSE into, as
 #             LICENSES/<scanner>/LICENSE: images that redistribute the binaries must carry it.
 #   HELM      (environment) 0 skips helm: only chart rendering needs it, and verifying it needs gpg.
@@ -20,6 +22,7 @@ set -euo pipefail
 
 DEST="${1:-./bin/scanners}"
 PLATFORM="${2:-}"
+SCANNERS="${SCANNERS:-syft grype trivy}"
 if [[ -z "$PLATFORM" ]]; then
   case "$(uname -s)/$(uname -m)" in
     Linux/x86_64) PLATFORM=linux/amd64 ;;
@@ -31,7 +34,7 @@ if [[ -z "$PLATFORM" ]]; then
   esac
 fi
 
-# platform|name|version|url|sha256
+# platform|name|version|url|sha256 (of the archive, or of the binary when the release ships one)
 PINS=(
   "linux/amd64|syft|1.55.0|https://github.com/anchore/syft/releases/download/v1.55.0/syft_1.55.0_linux_amd64.tar.gz|bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d"
   "linux/amd64|grype|0.121.0|https://github.com/anchore/grype/releases/download/v0.121.0/grype_0.121.0_linux_amd64.tar.gz|64e07133d3486115de647a66581461dccf5c732748a0a3119077395565f15519"
@@ -39,23 +42,40 @@ PINS=(
   "linux/arm64|syft|1.55.0|https://github.com/anchore/syft/releases/download/v1.55.0/syft_1.55.0_linux_arm64.tar.gz|929bd163db2d7cd2255d3bcb8967208079813d7b46b0c952f7b794d8e2c7d304"
   "linux/arm64|grype|0.121.0|https://github.com/anchore/grype/releases/download/v0.121.0/grype_0.121.0_linux_arm64.tar.gz|86f570f75ca947ea3dd6486309232bcff6d78e44ba081ae75ab14eab72be3dae"
   "linux/arm64|trivy|0.76.1|https://github.com/aquasecurity/trivy/releases/download/v0.76.1/trivy_0.76.1_Linux-ARM64.tar.gz|e174dff2a6dba5e3ae41f8d0537a6324405bd08132497340304c6b20e0f16a1f"
+  "linux/amd64|osv-scanner|2.7.0|https://github.com/google/osv-scanner/releases/download/v2.7.0/osv-scanner_linux_amd64|160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b"
+  "linux/arm64|osv-scanner|2.7.0|https://github.com/google/osv-scanner/releases/download/v2.7.0/osv-scanner_linux_arm64|4061ef4c021ed3c47f203b818f337e351336cc5cd67c0274fc36bd1dfc728dd7"
 )
 
-if [[ "$(printf '%s\n' "${PINS[@]}" | grep -c "^$PLATFORM|")" -ne 3 ]]; then
-  echo "install-scanners: no complete set of pins for $PLATFORM" >&2
-  exit 1
-fi
+read -r -a wanted <<<"$SCANNERS"
+[[ ${#wanted[@]} -gt 0 ]] || { echo "install-scanners: SCANNERS names no scanner" >&2; exit 1; }
+for name in "${wanted[@]}"; do
+  [[ "$name" =~ ^[a-z][a-z-]*$ ]] || { echo "install-scanners: bad scanner name in SCANNERS" >&2; exit 1; }
+  n=0
+  for pin in "${PINS[@]}"; do
+    IFS='|' read -r platform pname _ <<<"$pin"
+    [[ "$platform" == "$PLATFORM" && "$pname" == "$name" ]] && n=$((n + 1))
+  done
+  [[ "$n" -eq 1 ]] || { echo "install-scanners: no pin for $name on $PLATFORM" >&2; exit 1; }
+done
 
-# Signatures (ADR 0006): each project signs its release's checksums file in GitHub Actions with
-# Sigstore keyless signing. cosign verifies it against the exact workflow identity below before
-# anything from the release is trusted; the archive must then be listed in that signed file
-# with the SHA-256 pinned here. Two independent anchors: this file and the projects' signers.
+# Signatures (ADR 0006): each project signs its release in GitHub Actions with Sigstore keyless
+# signing. cosign verifies it against the exact workflow identity below before anything from
+# the release is trusted. syft, grype and trivy sign their checksums file, which must list the
+# archive with the SHA-256 pinned here; osv-scanner publishes SLSA provenance, signed by the
+# SLSA generator's workflow on behalf of its repository (both are required), which must name the
+# pinned binary. Two independent anchors: this file and the projects' signers.
 OIDC_ISSUER=https://token.actions.githubusercontent.com
-# name|certificate identity ({v}: the version)|signature material: bundle or sig+pem
+# name|certificate identity ({v}: the version)|signature material: bundle, sig+pem or slsa:<repo>
 SIGNERS=(
   "syft|https://github.com/anchore/syft/.github/workflows/release.yaml@refs/heads/main|bundle"
   "grype|https://github.com/anchore/grype/.github/workflows/release.yaml@refs/heads/main|bundle"
   "trivy|https://github.com/aquasecurity/trivy/.github/workflows/reusable-release.yaml@refs/tags/v{v}|bundle"
+  "osv-scanner|https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@refs/tags/v2.1.0|slsa:google/osv-scanner"
+)
+# name|url|sha256 of the LICENSE of scanners whose release ships a bare binary, at the
+# released commit (osv-scanner v2.7.0 is bfe2f84, named by its provenance).
+LICENSE_PINS=(
+  "osv-scanner|https://raw.githubusercontent.com/google/osv-scanner/bfe2f84abd2f09fe0b83ba7f6dad40d296762f40/LICENSE|cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
 )
 # cosign itself, pinned like the scanners (it runs on this host, whatever PLATFORM is).
 COSIGN_VERSION=3.1.3
@@ -107,53 +127,89 @@ for pin in "${COSIGN_PINS[@]}"; do
 done
 [[ -n "$cosign" ]] || { echo "install-scanners: no cosign pin for $host: signatures cannot be verified" >&2; exit 1; }
 
-verified=()
-for pin in "${PINS[@]}"; do
-  IFS='|' read -r platform name version url sha <<<"$pin"
-  [[ "$platform" == "$PLATFORM" ]] || continue
-  signer="$(printf '%s\n' "${SIGNERS[@]}" | grep "^$name|")" || { echo "install-scanners: no signer for $name" >&2; exit 1; }
-  IFS='|' read -r _ identity material <<<"$signer"
-  identity="${identity//\{v\}/$version}"
-  base="${url%/*}"
-  sums="$tmp/${name}_checksums.txt"
-  fetch "$sums" "$base/${name}_${version}_checksums.txt"
-  case "$material" in
-    bundle)
-      fetch "$sums.sigstore.json" "$base/${name}_${version}_checksums.txt.sigstore.json"
-      sigargs=(--bundle "$sums.sigstore.json") ;;
-    sig+pem)
-      fetch "$sums.sig" "$base/${name}_${version}_checksums.txt.sig"
-      fetch "$sums.pem" "$base/${name}_${version}_checksums.txt.pem"
-      sigargs=(--signature "$sums.sig" --certificate "$sums.pem") ;;
-  esac
-  # Sigstore's TUF and Rekor are on the network: a transient failure is retried; a wrong
-  # signature fails every attempt.
-  ok=""
+# verify NAME VERSION IDENTITY COSIGN-ARGS...: Sigstore's TUF and Rekor are on the network, so a
+# transient failure is retried; a wrong signature fails every attempt.
+verify() {
+  local name="$1" version="$2" identity="$3" out="" attempt
+  shift 3
   for attempt in 1 2 3; do
-    if out="$("$cosign" verify-blob "${sigargs[@]}" --certificate-identity "$identity" --certificate-oidc-issuer "$OIDC_ISSUER" "$sums" 2>&1)"; then
-      ok=1
-      break
+    if out="$("$cosign" "$@" --certificate-identity "$identity" --certificate-oidc-issuer "$OIDC_ISSUER" 2>&1)"; then
+      return 0
     fi
     [[ "$attempt" == 3 ]] || sleep $((attempt * 5))
   done
-  if [[ -z "$ok" ]]; then
-    # cosign says why: a wrong signer, a changed file, or no access to Sigstore (TUF, Rekor).
-    echo "install-scanners: signature of $name $version checksums not verified for $identity:" >&2
-    printf '%s\n' "$out" | grep -v '^WARNING' | tail -3 >&2
-    exit 1
-  fi
-  grep -qxF "$sha  ${url##*/}" "$sums" \
-    || { echo "install-scanners: $name $version: the pinned SHA-256 is not in the signed checksums" >&2; exit 1; }
-  archive="$tmp/$name.tar.gz"
-  fetch "$archive" "$url"
-  [[ "$(sha256 "$archive")" == "$sha" ]] || { echo "checksum mismatch for $name $version" >&2; exit 1; }
-  tar -xzf "$archive" -C "$tmp" "$name"
-  if [[ -n "${LICENSES:-}" ]]; then
-    mkdir -p "$tmp/licenses/$name"
-    tar -xzf "$archive" -C "$tmp/licenses/$name" LICENSE
-  fi
+  # cosign says why: a wrong signer, a changed file, or no access to Sigstore (TUF, Rekor).
+  echo "install-scanners: signature of $name $version not verified for $identity:" >&2
+  printf '%s\n' "$out" | grep -v '^WARNING' | tail -3 >&2
+  exit 1
+}
+
+verified=()
+for pin in "${PINS[@]}"; do
+  IFS='|' read -r platform name version url sha <<<"$pin"
+  [[ "$platform" == "$PLATFORM" ]] && printf '%s\n' "${wanted[@]}" | grep -qxF "$name" || continue
+  signer=""
+  for s in "${SIGNERS[@]}"; do
+    [[ "${s%%|*}" == "$name" ]] && signer="$s"
+  done
+  [[ -n "$signer" ]] || { echo "install-scanners: no signer for $name" >&2; exit 1; }
+  IFS='|' read -r _ identity material <<<"$signer"
+  identity="${identity//\{v\}/$version}"
+  base="${url%/*}"
+  download="$tmp/${url##*/}"
+  case "$material" in
+    slsa:*)
+      # The provenance names the binary itself: download it, check the pin, then the signature
+      # of the provenance, made for this repository and tag, naming this digest.
+      fetch "$download" "$url"
+      [[ "$(sha256 "$download")" == "$sha" ]] || { echo "checksum mismatch for $name $version" >&2; exit 1; }
+      fetch "$tmp/$name.intoto.jsonl" "$base/multiple.intoto.jsonl"
+      verify "$name" "$version" "$identity" verify-blob-attestation --bundle "$tmp/$name.intoto.jsonl" \
+        --type slsaprovenance --certificate-github-workflow-repository "${material#slsa:}" \
+        --certificate-github-workflow-ref "refs/tags/v$version" "$download"
+      install -m 0700 "$download" "$tmp/$name"
+      if [[ -n "${LICENSES:-}" ]]; then
+        # The release ships a bare binary: the license text comes from the released commit,
+        # pinned by SHA-256 like everything else here.
+        lic="$(printf '%s\n' "${LICENSE_PINS[@]}" | grep "^$name|")" \
+          || { echo "install-scanners: no license pin for $name" >&2; exit 1; }
+        IFS='|' read -r _ lurl lsha <<<"$lic"
+        mkdir -p "$tmp/licenses/$name"
+        fetch "$tmp/licenses/$name/LICENSE" "$lurl"
+        [[ "$(sha256 "$tmp/licenses/$name/LICENSE")" == "$lsha" ]] \
+          || { echo "install-scanners: $name LICENSE changed (checksum mismatch)" >&2; exit 1; }
+      fi
+      ;;
+    bundle | sig+pem)
+      sums="$tmp/${name}_checksums.txt"
+      fetch "$sums" "$base/${name}_${version}_checksums.txt"
+      if [[ "$material" == bundle ]]; then
+        fetch "$sums.sigstore.json" "$base/${name}_${version}_checksums.txt.sigstore.json"
+        sigargs=(--bundle "$sums.sigstore.json")
+      else
+        fetch "$sums.sig" "$base/${name}_${version}_checksums.txt.sig"
+        fetch "$sums.pem" "$base/${name}_${version}_checksums.txt.pem"
+        sigargs=(--signature "$sums.sig" --certificate "$sums.pem")
+      fi
+      verify "$name" "$version" "$identity" verify-blob "${sigargs[@]}" "$sums"
+      grep -qxF "$sha  ${url##*/}" "$sums" \
+        || { echo "install-scanners: $name $version: the pinned SHA-256 is not in the signed checksums" >&2; exit 1; }
+      fetch "$download" "$url"
+      [[ "$(sha256 "$download")" == "$sha" ]] || { echo "checksum mismatch for $name $version" >&2; exit 1; }
+      tar -xzf "$download" -C "$tmp" "$name"
+      if [[ -n "${LICENSES:-}" ]]; then
+        mkdir -p "$tmp/licenses/$name"
+        tar -xzf "$download" -C "$tmp/licenses/$name" LICENSE
+      fi
+      ;;
+    *)
+      echo "install-scanners: unknown signature material $material for $name" >&2
+      exit 1
+      ;;
+  esac
   verified+=("$name|$version")
 done
+[[ ${#verified[@]} -eq ${#wanted[@]} ]] || { echo "install-scanners: verified ${#verified[@]} of ${#wanted[@]} requested scanners" >&2; exit 1; }
 
 if [[ "${HELM:-1}" != 0 ]]; then
   command -v gpg >/dev/null \
@@ -197,7 +253,7 @@ if [[ "${HELM:-1}" != 0 ]]; then
   verified+=("helm|$HELM_VERSION")
 fi
 
-# All or nothing: DEST changes only once every scanner verified.
+# All or nothing: DEST changes only once every requested scanner, and helm, verified.
 for v in "${verified[@]}"; do
   IFS='|' read -r name version <<<"$v"
   install -m 0755 "$tmp/$name" "$DEST/$name"

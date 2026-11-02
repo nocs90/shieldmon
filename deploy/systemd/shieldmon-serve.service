@@ -1,0 +1,53 @@
+# ShieldMon in server mode (docs/processes/server.md): the API and a monitoring cycle every
+# health.monitor_interval. Use it instead of shieldmon-monitor.timer, not with it.
+# Install: /etc/systemd/system/, then
+#   systemctl daemon-reload && systemctl enable --now shieldmon-serve.service
+[Unit]
+Description=ShieldMon continuous vulnerability monitoring server
+Documentation=https://github.com/nocs90/shieldmon/blob/main/docs/processes/server.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=shieldmon
+Group=shieldmon
+# /var/lib/shieldmon (0700): database, SBOMs, vulnerability DBs, scratch space.
+StateDirectory=shieldmon
+StateDirectoryMode=0700
+# /etc/shieldmon: config.yaml (server.tokens holds token hashes only) and targets.txt.
+ConfigurationDirectory=shieldmon
+Environment=XDG_CONFIG_HOME=/etc
+# Environment=DOCKER_CONFIG=/etc/shieldmon/docker
+# EnvironmentFile=/etc/shieldmon/secrets.env
+ExecStartPre=/usr/local/bin/shieldmon --data-dir /var/lib/shieldmon targets add -f /etc/shieldmon/targets.txt
+ExecStart=/usr/local/bin/shieldmon --data-dir /var/lib/shieldmon serve --log-format json --log-level info
+Restart=on-failure
+RestartSec=30s
+Nice=10
+IOSchedulingClass=idle
+UMask=0077
+
+# Hardening, as for shieldmon-monitor.service (scanners run in their own sandbox inside).
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RemoveIPC=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

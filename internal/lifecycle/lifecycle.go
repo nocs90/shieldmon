@@ -14,6 +14,7 @@ package lifecycle
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -25,6 +26,24 @@ import (
 // ActorEngine is the actor recorded for automatic transitions.
 const ActorEngine = "engine"
 
+// APIActorPrefix marks the authors of what `shieldmon serve`'s API records, so that the audit
+// trail tells a token's holder from any other name (docs/adr/0031-server-mode.md).
+const APIActorPrefix = "api:"
+
+// ReservedAuthor reports whether a name given outside the API (the command line, a VEX
+// document) could be read as an API identity: "api" followed by anything but a letter, digit,
+// '-' or '_' (a colon, a look-alike colon, a space), whatever the case and surrounding space.
+func ReservedAuthor(name string) bool {
+	n := strings.ToLower(strings.TrimSpace(name))
+	rest, ok := strings.CutPrefix(n, "api")
+	if !ok || rest == "" {
+		return false
+	}
+	r := []rune(rest)[0]
+	nameRune := r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '_'
+	return !nameRune
+}
+
 var manualTransitions = map[model.State][]model.State{
 	model.StateOpen:          {model.StateTriaged, model.StateInRemediation},
 	model.StateReopened:      {model.StateTriaged, model.StateInRemediation},
@@ -33,7 +52,25 @@ var manualTransitions = map[model.State][]model.State{
 }
 
 // CheckManual validates a human-initiated transition.
-func CheckManual(from, to model.State) error {
+func CheckManual(from, to model.State) error { return refuse(checkManual(from, to)) }
+
+// ErrRefused marks a transition or decision the lifecycle rules or the remediation policy
+// refuse, as opposed to a failure to apply it.
+var ErrRefused = errors.New("refused by the lifecycle rules")
+
+type refusal struct{ error }
+
+func (r refusal) Is(target error) bool { return target == ErrRefused }
+func (r refusal) Unwrap() error        { return r.error }
+
+func refuse(err error) error {
+	if err == nil {
+		return nil
+	}
+	return refusal{err}
+}
+
+func checkManual(from, to model.State) error {
 	if slices.Contains(manualTransitions[from], to) {
 		return nil
 	}
@@ -133,6 +170,10 @@ func (p Policy) DefaultExpiry(d Decision, s Subject, now time.Time) time.Time {
 
 // Validate enforces the decision requirements and the remediation policy.
 func (p Policy) Validate(d Decision, s Subject, now time.Time) error {
+	return refuse(p.validate(d, s, now))
+}
+
+func (p Policy) validate(d Decision, s Subject, now time.Time) error {
 	if d.State != model.StateRiskAccepted && d.State != model.StateNotAffected {
 		return fmt.Errorf("decision state must be risk_accepted or not_affected, got %s", d.State)
 	}
@@ -144,6 +185,10 @@ func (p Policy) Validate(d Decision, s Subject, now time.Time) error {
 	}
 	if d.Author == "" {
 		return fmt.Errorf("author is required")
+	}
+	if d.Author == ActorEngine {
+		// The audit trail must tell automatic transitions from accountable people.
+		return fmt.Errorf("author %q is reserved for automatic transitions", ActorEngine)
 	}
 	if !d.ExpiresAt.IsZero() && !d.ExpiresAt.After(now) {
 		return fmt.Errorf("expiry %s is not in the future", d.ExpiresAt.Format(time.DateOnly))

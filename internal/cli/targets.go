@@ -108,6 +108,9 @@ does, and adds the images of every profile.
 				if by == "" {
 					return errors.New("--base needs --by (who; default from $SHIELDMON_ACTOR or $USER)")
 				}
+				if err := cliAuthor(by); err != nil {
+					return err
+				}
 			}
 			return a.addTargets(cmd, refs, platform, base, by, dryRun)
 		},

@@ -90,7 +90,13 @@ func TestKubernetesExample(t *testing.T) {
 }
 
 func TestSystemdExample(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("..", "..", "deploy", "systemd", "shieldmon-monitor.service"))
+	for unit, command := range map[string]string{"shieldmon-monitor.service": " monitor", "shieldmon-serve.service": " serve"} {
+		t.Run(unit, func(t *testing.T) { checkSystemdUnit(t, unit, command) })
+	}
+}
+
+func checkSystemdUnit(t *testing.T, unit, command string) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "deploy", "systemd", unit))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +122,7 @@ func TestSystemdExample(t *testing.T) {
 			t.Errorf("%s breaks the bwrap scanner sandbox", k)
 		}
 	}
-	if !strings.Contains(set["ExecStart"], " monitor") || !strings.Contains(set["ExecStartPre"], "targets add -f") {
+	if !strings.Contains(set["ExecStart"], command) || !strings.Contains(set["ExecStartPre"], "targets add -f") {
 		t.Errorf("ExecStart %q, ExecStartPre %q", set["ExecStart"], set["ExecStartPre"])
 	}
 }
