@@ -20,6 +20,10 @@ builds and signs everything, and leaves a draft for a maintainer to publish.
    commit before pushing. A release candidate is `v0.4.0-rc.1`; a broken release is fixed by
    the next version, never by re-tagging.
 
+   A release candidate may be tagged on a release branch (`release/v0.4.0`) to try the
+   pipeline, and a fix it needs reaches `main` through a pull request; the release itself must
+   point to a commit of `main`, or the workflow stops before building anything.
+
 4. The workflow runs two jobs:
    - **binaries**: goreleaser (pinned, v2.18.3) builds `shieldmon` for linux and darwin, amd64
      and arm64, reproducibly (`-trimpath`, no build ID, timestamps from the commit), archives
