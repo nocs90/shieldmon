@@ -60,6 +60,10 @@ var auditTables = []auditTable{
 		"problems", "inspected_at", "annotated_base_layers",
 	}}},
 	{name: "base_observations", key: []string{"id"}, cols: [][]string{{"id", "base_ref", "platform", "digest", "diff_ids", "created", "observed_at"}}},
+	{name: "chart_renders", key: []string{"id"}, cols: [][]string{{
+		"id", "chart", "version", "app_version", "released_at", "digest", "profile", "profile_hash", "images", "invalid",
+		"opaque", "rendered_at",
+	}}},
 }
 
 func auditTableNamed(name string) (auditTable, bool) {

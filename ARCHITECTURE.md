@@ -95,6 +95,8 @@ matcher runs: SBOM-first is a property of the pipeline, not a separate mode.
 | `internal/owners` | which team owns a target, from reference patterns in the configuration (ADR 0024) | config, oci |
 | `internal/runtimectx` | where images run and whether they are exposed, from read-only `kubectl get -o json` exports; bounded parser of hostile input (ADR 0029) | — |
 | `internal/server` | `shieldmon serve`'s HTTP API: read endpoints, triage and decisions authored by the authenticated identity, roles, API tokens (ADR 0031) | store, lifecycle, report, priority |
+| `internal/manifests` | the images rendered Kubernetes manifests run (Helm, kustomize, kubectl), custom resources flagged; bounded parser of hostile input (ADR 0030) | — |
+| `internal/charts` | chart sources (HTTP repositories, OCI, Artifact Hub) behind a registry with a conformance kit; versions, bounded downloads, archive checks before rendering (ADR 0032); rendering per profile with a pinned helm in the scanners' sandbox, images through `internal/manifests` (ADR 0033); neglected-chart verdicts (`Assess`, pure; ADR 0034) | registry access through `internal/oci`; helm through `scanner.Runner` |
 | `internal/gate` | **pure** policy gate: rules, exemptions by decision, fail-closed verdict, SARIF (ADR 0021) | config, report |
 | `internal/vex` | **pure** OpenVEX / CycloneDX VEX parsing (bounded, fuzzed), OpenVEX export, statement matching | normalize, go-containerregistry |
 | `internal/enrich` | enricher registry, CISA KEV catalog (bounded, validated, fuzzed, cached outside the scanners' reach); `enrichtest` conformance kit | model, redact |
@@ -128,6 +130,7 @@ artifacts(digest PK, repository, platform)       immutable things we scanned
 target_bases (APPEND-ONLY)                       base tag configured per target
 image_inspections (APPEND-ONLY)                  layers + base annotations, once per digest
 base_observations (APPEND-ONLY)                  every digest a base tag pointed to
+chart_renders (APPEND-ONLY)                      what each chart version runs, per profile
 health_findings(check, subject)                  self-health
 monitor_runs                                     cadence for missed-schedule detection
 ```

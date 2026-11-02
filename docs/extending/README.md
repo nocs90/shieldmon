@@ -13,12 +13,12 @@ The core never imports an adapter; adapters never touch the lifecycle or storage
 | SBOM generator | `scanner.Generator` | `scanner.Register` | `scannertest.CheckPlugin` | syft, trivy | ✅ |
 | Vulnerability matcher | `scanner.Matcher` | `scanner.Register` | `scannertest.CheckPlugin`, `CheckParser`, `CheckMatcher` | grype, trivy | ✅ |
 | Report format / exporter | `report.Format` | `report.RegisterFormat` | golden tests | md, json, csv | ✅ |
-| Scanner sandbox | `scanner.Sandbox` | `scanner.RegisterSandbox` | `scannertest.CheckSandbox` | none, bwrap, landlock | 🟡 M2, [ADR 0011](../adr/0011-scanner-sandbox.md) |
+| Scanner sandbox | `scanner.Sandbox` | `scanner.RegisterSandbox` | `scannertest.CheckSandbox` | none, bwrap, landlock | ✅ M2, [ADR 0011](../adr/0011-scanner-sandbox.md) |
 | Registry provider | `oci.Provider` (keychain + listing) | `oci.RegisterProvider` | `ocitest.CheckProvider` | docker, ecr, google, gitlab | ✅ M3, [ADR 0013](../adr/0013-registry-providers.md) |
-| Enricher (EPSS, KEV, CVSS) | `enrich.Enricher` | `enrich.Register` | `enrichtest.CheckEnricher` | kev | 🟡 M4, [ADR 0019](../adr/0019-enrichers.md) |
+| Enricher (EPSS, KEV, CVSS) | `enrich.Enricher` | `enrich.Register` | `enrichtest.CheckEnricher` | kev (EPSS from grype's output) | ✅ M4, [ADR 0019](../adr/0019-enrichers.md) |
 | Notifier | `notify.Notifier` | `notify.RegisterNotifier` | `notifytest.CheckNotifier` | webhook, smtp, slack, mattermost, matrix, github-issues, gitlab-issues | ✅ M4, [ADR 0015](../adr/0015-notifications.md) |
 | Exporter (portfolio tools) | `export.Exporter` | `export.Register` | `exporttest.CheckExporter` | dependency-track, defectdojo | ✅ [ADR 0027](../adr/0027-exporters.md), [exporter.md](exporter.md) |
-| Chart source | `ChartSource` | planned | planned | — | ⬜ M7 |
+| Chart source | `charts.Source` | `charts.Register` | `chartstest.CheckPlugin`, `CheckSource` | http, oci, artifacthub | ✅ M7, [ADR 0032](../adr/0032-chart-sources.md) |
 | Remediation advisor | `RemediationAdvisor` | planned | planned | fixed-in versions | ⬜ M7 |
 
 Planned interfaces are designed in their epic issue before code (see ROADMAP), following
@@ -49,6 +49,7 @@ to keep the trust boundary small. See [ADR 0008](../adr/0008-extension-model.md)
 - [Scanner adapter](scanner-adapter.md)
 - [Report format](report-format.md)
 - [Registry provider](registry-provider.md)
+- [Chart source](chart-source.md)
 - [Notifier](notifier.md)
 - [Enricher](enricher.md)
 - [Conformance kit](conformance.md)

@@ -3,3 +3,6 @@
 
 # A fake GitHub token the notifier configuration must refuse without repeating it.
 224f8104986b206719225c2e550a2c062511d372:internal/cli/cli_test.go:github-pat:360
+
+# The SHA-256 pin of Helm's public KEYS file, under a name with "KEYS" in it (renamed since).
+7d6107d6a31752f6428d08c59af2c18f595079fa:scripts/install-scanners.sh:generic-api-key:79

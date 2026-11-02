@@ -12,22 +12,33 @@ Designed with a strict **SBOM-first** and **evidence-based resolution** philosop
 
 - 🔑 **Digest-Based Identity:** Tracks findings strictly by `Image Digest + PURL + Vulnerability ID`, eliminating ambiguity caused by mutable Docker tags.
 - 📄 **SBOM-First Continuous Monitoring:** Generates an SBOM once per image digest and re-evaluates it daily against updated vulnerability feeds — saving bandwidth, disk I/O, and compute time.
-- 📜 **Open VEX Standards:** Expresses *False Positives* and *Not Applicable* states natively via OpenVEX/CSAF standards instead of proprietary database flags.
+- 📜 **Open VEX Standards:** Imports and exports *Not Affected* statements as OpenVEX and CycloneDX VEX, scoped to an image, a repository or a package, instead of proprietary database flags.
 - 🔄 **Multi-Scanner Deduplication:** Normalizes and deduplicates results across scanners (Grype, Trivy) by mapping aliases (CVE, GHSA, Distro-specific IDs).
 - ✅ **Evidence-Based Finding Resolution:** Findings are closed **only** when subsequent scans confirm the package fix/removal — no manual "click-to-close" shortcuts.
 - 🔒 **Zero-Trust Input Threat Model:** Treats image contents as hostile input, processing and parsing layer artifacts in isolated sandboxes.
-- 📊 **Automated Reporting:** Generates clear weekly and monthly security posture reports to track mean-time-to-remediate (MTTR) and posture trends over time.
+- 📊 **Automated Reporting:** Generates monthly security posture reports (Markdown, HTML, JSON, CSV, SARIF, remediation plan) to track mean-time-to-remediate (MTTR), SLA breaches and posture trends over time.
 
-> **Status: M1 (early, pre-1.0).** The core monitoring loop works end to end; VEX
-> import/export, native ECR/GitLab providers, Helm, notifications and compliance export
-> profiles are on the [roadmap](ROADMAP.md). See [SPEC.md](SPEC.md) for exactly
-> what is implemented.
+> **Status: v0.3.0, pre-1.0.** Monitoring, VEX, prioritization (KEV, priority score, runtime
+> context), base-image lineage, Helm charts (sources, sandboxed rendering, release tracking,
+> neglected charts), CI gate, notifications, exports to Dependency-Track and DefectDojo, and
+> native ECR/GCR/GitLab providers are in; server mode and PostgreSQL are on the
+> [roadmap](ROADMAP.md). [SPEC.md](SPEC.md) says exactly what is
+> implemented, [CHANGELOG.md](CHANGELOG.md) what changed. Configuration may still change
+> between minor versions.
+
+## Install
+
+Release binaries (linux and darwin, amd64 and arm64) and the container image
+`ghcr.io/nocs90/shieldmon` are signed in this repository's release workflow; verify them
+before use ([docs/processes/release.md](docs/processes/release.md#verifying-a-release)). The
+scanners, and helm for Helm charts, come from `scripts/install-scanners.sh` (Linux: pinned,
+signature-verified) or your package manager; the container image bundles them. Or build from source with Go ≥ 1.27.
 
 ## Quick start
 
 Requirements: Go ≥ 1.27 to build; [syft](https://github.com/anchore/syft),
 [grype](https://github.com/anchore/grype) and [trivy](https://github.com/aquasecurity/trivy)
-in `PATH` (or `scripts/install-scanners.sh` on linux/amd64 for checksum-pinned versions).
+in `PATH` (or `scripts/install-scanners.sh` on Linux for pinned, signature-verified versions).
 No Docker daemon.
 
 ```sh
@@ -119,7 +130,7 @@ tag ──resolve──► digest ──(first time only) fetch → syft/trivy S
 - [docs/](docs/README.md) — every process: monitoring cycle, triage, reporting, health,
   contribution workflow, quality gates, issue management, releases, security response
 - [docs/extending/](docs/extending/README.md) — plugin framework: scanners, report formats,
-  and upcoming providers/notifiers/enrichers, with a conformance kit
+  registry providers, notifiers, enrichers and exporters, each with a conformance kit
 
 ## Development
 

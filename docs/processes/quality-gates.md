@@ -26,13 +26,31 @@ Every gate runs in CI and can be run locally. Required checks on `main` are mark
 | ✱ Conventional PR title | — | pr-hygiene | title format |
 | ✱ DCO sign-off | `git log` | pr-hygiene | a commit lacks `Signed-off-by` |
 | Supply chain pinning | review | review | actions not pinned by SHA, scanners not pinned by checksum |
-| Dogfooding: ShieldMon's own image | — | ci/image (main, nightly, PRs labelled `run/integration`) | `shieldmon gate` with the built-in policy finds a CISA KEV or critical finding in the image just built (scanner binaries included), or cannot prove a pass; the Markdown report, inventory, gate output and SARIF are uploaded as `dogfood-report`. A finding that does not apply gets a reviewed VEX statement, never an ignore list ([ci-gate.md](ci-gate.md)) |
-| ✱ Scanner release signatures | `scripts/install-scanners.sh DIR` | every job that installs scanners (ci/integration, ci/image) | a release's checksums file is not signed by the pinned workflow identity, or does not list the pinned SHA-256 (ADR 0006) |
+| Dogfooding: ShieldMon's own image | — | ci/image (main, nightly, PRs labelled `run/integration`) | `shieldmon gate` with the built-in policy finds a CISA KEV or critical finding in the image just built (scanner binaries included), or cannot prove a pass; the Markdown report, inventory, gate output and SARIF are uploaded as `dogfood-report`. A finding that does not apply gets a reviewed VEX statement in `security/vex/shieldmon-image.openvex.json` (scoped to the exact package version, with an expiry), imported before the gate; never an ignore list ([ci-gate.md](ci-gate.md)) |
+| ✱ Scanner release signatures | `scripts/install-scanners.sh DIR` | every job that installs scanners (ci/integration, ci/image) | a release's checksums file is not signed by the pinned workflow identity, or does not list the pinned SHA-256 (ADR 0006); helm's archive does not match its pinned SHA-256 or is not signed by the pinned maintainer key (ADR 0033) |
 
 ## Repository settings (maintainer checklist)
 
-- Branch protection on `main`: PR required, 1 approval, CODEOWNERS review, dismiss stale
-  approvals, required status checks = the ✱ rows, linear history, no force pushes.
-- Enable: private vulnerability reporting, Dependabot alerts, secret scanning + push
-  protection, Discussions.
+Repository rulesets are kept as code in [`.github/rulesets/`](../../.github/rulesets): a change
+to a ruleset is a pull request to its file, applied by a maintainer with
+`gh api -X PUT repos/nocs90/shieldmon/rulesets/ID --input .github/rulesets/FILE.json`
+(`gh api repos/nocs90/shieldmon/rulesets` lists the IDs). Active since 2026-11-01:
+
+- `main` (the default branch): pull request required, 1 approval, CODEOWNERS review, stale
+  approvals dismissed, conversations resolved, squash merges only; the ✱ checks run by GitHub
+  Actions required, on a branch up to date with `main`; CodeQL alerts of high severity or
+  errors block; linear history; no deletion, no force push. Repository admins may bypass
+  through a pull request only: while there is one maintainer, who cannot approve their own
+  pull requests, they merge with `gh pr merge --admin` **after** every required check passed
+  (the bypass skips checks too: never use it on a red pull request). With a second maintainer,
+  remove the bypass.
+- `release tags: created by admins`: only repository admins create `v*` tags.
+- `release tags: immutable`: nobody, admins included, moves or deletes a `v*` tag; a bad
+  release is superseded by a new version, never re-tagged.
+
+Also enabled: private vulnerability reporting ([SECURITY.md](../../SECURITY.md)), Dependabot
+alerts (updates come from Renovate, not Dependabot), secret scanning with push protection,
+Actions pinned to full commit SHAs (repository setting; nested actions included), workflow
+token read-only by default, approval for workflows of first-time contributors. Discussions are
+off until the launch announcement.
 - Install the Renovate app (config in `renovate.json`; 14-day minimum release age).

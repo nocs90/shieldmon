@@ -30,8 +30,8 @@ GitLab credentials.
 A checksum recorded in this repository proves that an archive did not change since it was
 pinned, not that the project released it: the checksums file comes from the same release as
 the archive. Each project signs that file in GitHub Actions with Sigstore keyless signing
-(syft and trivy: a Sigstore bundle; grype: a signature and a certificate), an anchor
-independent of this repository.
+(a Sigstore bundle; grype before 0.121.0 published a signature and a certificate, which
+the installer still verifies), an anchor independent of this repository.
 
 - `scripts/install-scanners.sh` verifies each release's signed checksums file with cosign
   against the **exact** certificate identity of the release workflow and the GitHub Actions

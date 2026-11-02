@@ -1,7 +1,10 @@
-# The image is built from cmd/, internal/, go.mod, go.sum and the scanner installer only.
+# The image is built from cmd/, internal/, go.mod, go.sum, the scanner installer, and the
+# license files it must carry.
 *
 !cmd/
 !internal/
 !go.mod
 !go.sum
 !scripts/install-scanners.sh
+!scripts/third-party-licenses.sh
+!LICENSE

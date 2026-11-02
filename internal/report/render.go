@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/nocs90/shieldmon/internal/lineage"
 )
@@ -178,10 +179,32 @@ func writeMonthlyBases(b *strings.Builder, r Monthly) {
 	b.WriteString("\n")
 }
 
-// mdEscape keeps hostile strings from breaking table layout or injecting markup.
+// mdEscape keeps hostile strings from breaking table layout or injecting markup. A backslash
+// is escaped too, or `a\|b` would end the cell.
 func mdEscape(s string) string {
-	r := strings.NewReplacer("|", "\\|", "\n", " ", "\r", " ", "<", "&lt;", ">", "&gt;", "`", "'", "[", "\\[", "]", "\\]")
-	return r.Replace(s)
+	r := strings.NewReplacer("\\", "\\\\", "|", "\\|", "\n", " ", "\r", " ", "<", "&lt;", ">", "&gt;", "`", "'", "[", "\\[", "]", "\\]")
+	return visible(r.Replace(s))
+}
+
+// visible writes control, bidirectional and other invisible format characters as \uXXXX: in
+// a terminal they drive it, in a rendered page they reorder or hide text.
+func visible(s string) string {
+	if !strings.ContainsFunc(s, invisible) {
+		return s
+	}
+	var b strings.Builder
+	for _, r := range s {
+		if invisible(r) {
+			fmt.Fprintf(&b, "\\u%04x", r)
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+func invisible(r rune) bool {
+	return unicode.IsControl(r) || unicode.In(r, unicode.Bidi_Control, unicode.Cf, unicode.Zl, unicode.Zp)
 }
 
 func renderMarkdown(w io.Writer, r Monthly) error {

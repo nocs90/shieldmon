@@ -18,6 +18,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/nocs90/shieldmon/internal/charts"
 	"github.com/nocs90/shieldmon/internal/config"
 	"github.com/nocs90/shieldmon/internal/engine"
 	"github.com/nocs90/shieldmon/internal/enrich"
@@ -96,7 +97,7 @@ when a later scan provides evidence.`,
 		&cobra.Group{ID: "setup", Title: "Setup:"},
 	)
 	for group, cmds := range map[string][]*cobra.Command{
-		"monitor": {a.scanCmd(), a.gateCmd(), a.monitorCmd(), a.serveCmd(), a.rematchCmd(), a.targetsCmd()},
+		"monitor": {a.scanCmd(), a.gateCmd(), a.monitorCmd(), a.serveCmd(), a.rematchCmd(), a.targetsCmd(), a.chartsCmd()},
 		"triage":  {a.findingsCmd(), a.vexCmd(), a.healthCmd(), a.reportCmd(), a.sbomCmd(), a.componentsCmd(), a.notifyCmd(), a.exportCmd(), a.auditCmd()},
 		"setup":   {a.initCmd(), a.doctorCmd(), a.dbCmd(), a.pluginsCmd(), a.versionCmd()},
 	} {
@@ -231,6 +232,10 @@ func (a *app) setup(cmd *cobra.Command) error {
 		Owners:              own,
 		Concurrency:         cfg.Scanners.Concurrency,
 		Log:                 a.log,
+		ChartPolicy: charts.NeglectPolicy{
+			FixableAfter: cfg.ChartPolicy.FixableAfter.Duration, MinSeverity: model.ParseSeverity(cfg.ChartPolicy.MinSeverity),
+			StaleAfter: cfg.ChartPolicy.StaleAfter.Duration,
+		},
 	}
 	return nil
 }
@@ -252,20 +257,9 @@ func (a *app) ociOptions() oci.Options {
 // scannerSet builds the configured scanners and returns the sandbox they run in.
 func (a *app) scannerSet() (scanner.Set, scanner.Sandbox, error) {
 	sc := a.cfg.Scanners
-	_, sandbox, err := scanner.SelectSandbox(sc.Sandbox.Backend)
+	r, err := a.scannerRunner()
 	if err != nil {
 		return scanner.Set{}, nil, err
-	}
-	// Scanner DBs, caches and scratch space live in the data dir, so that a sandbox can
-	// expose them without the user's home directory.
-	data, err := filepath.Abs(a.cfg.DataDir)
-	if err != nil {
-		return scanner.Set{}, nil, err
-	}
-	r := scanner.Runner{
-		Timeout: sc.Timeout.Duration, MaxOutput: sc.MaxOutputBytes, Sandbox: sandbox,
-		CacheDir: filepath.Join(data, "cache"), TempDir: filepath.Join(data, "tmp"),
-		ScratchQuota: a.cfg.Limits.MaxScratchBytes, MinFreeBytes: a.cfg.Limits.MinFreeDiskBytes,
 	}
 	specs := map[string]scanner.Spec{}
 	for name, t := range sc.Tools {
@@ -276,7 +270,28 @@ func (a *app) scannerSet() (scanner.Set, scanner.Sandbox, error) {
 		}
 	}
 	set, err := scanner.Build(sc.Matchers, specs, r)
-	return set, sandbox, err
+	return set, r.Sandbox, err
+}
+
+// scannerRunner is how scanners, and helm rendering charts, run: in the configured sandbox,
+// bounded in time, output and disk.
+func (a *app) scannerRunner() (scanner.Runner, error) {
+	sc := a.cfg.Scanners
+	_, sandbox, err := scanner.SelectSandbox(sc.Sandbox.Backend)
+	if err != nil {
+		return scanner.Runner{}, err
+	}
+	// Scanner DBs, caches and scratch space live in the data dir, so that a sandbox can
+	// expose them without the user's home directory.
+	data, err := filepath.Abs(a.cfg.DataDir)
+	if err != nil {
+		return scanner.Runner{}, err
+	}
+	return scanner.Runner{
+		Timeout: sc.Timeout.Duration, MaxOutput: sc.MaxOutputBytes, Sandbox: sandbox,
+		CacheDir: filepath.Join(data, "cache"), TempDir: filepath.Join(data, "tmp"),
+		ScratchQuota: a.cfg.Limits.MaxScratchBytes, MinFreeBytes: a.cfg.Limits.MinFreeDiskBytes,
+	}, nil
 }
 
 // preflight records the sandbox posture and refreshes vulnerability DBs before a
@@ -404,23 +419,13 @@ func (a *app) doctorCmd() *cobra.Command {
 			sort.Strings(names)
 			for _, name := range names {
 				tool := a.cfg.Scanners.Tools[name]
-				path, err := scanner.Binary{Name: name, Path: tool.Path}.Resolve()
-				if err != nil {
-					fmt.Fprintf(w, "✗ %-6s %v\n", name, err)
+				if !doctorBinary(w, name, tool.Path, tool.SHA256, "scanners.tools."+name+".sha256") {
 					problems++
-					continue
 				}
-				sum, _ := scanner.FileSHA256(path)
-				pin := "not pinned (set scanners.tools." + name + ".sha256)"
-				if tool.SHA256 != "" {
-					if tool.SHA256 == sum {
-						pin = "pin OK"
-					} else {
-						pin = "PIN MISMATCH"
-						problems++
-					}
-				}
-				fmt.Fprintf(w, "• %-6s %s\n         sha256 %s — %s\n", name, path, sum, pin)
+			}
+			// helm renders the configured charts (docs/adr/0033-chart-rendering.md).
+			if len(a.cfg.Charts) > 0 && !doctorBinary(w, "helm", a.cfg.Helm.Path, a.cfg.Helm.SHA256, "helm.sha256") {
+				problems++
 			}
 			type tooler interface {
 				Tool(context.Context) (model.Tool, error)
@@ -463,6 +468,32 @@ func (a *app) doctorCmd() *cobra.Command {
 
 // doctorScratch reports the filesystem of the scanners' scratch space. A dedicated one is
 // recommended, not required, so this only prints information and warnings.
+// doctorBinary reports where a tool's binary is and whether it matches its pin; false is a
+// problem.
+func doctorBinary(w io.Writer, name, path, pinned, pinKey string) bool {
+	path, err := scanner.Binary{Name: name, Path: path}.Resolve()
+	if err != nil {
+		fmt.Fprintf(w, "✗ %-6s %v\n", name, err)
+		return false
+	}
+	sum, err := scanner.FileSHA256(path)
+	if err != nil {
+		fmt.Fprintf(w, "✗ %-6s %v\n", name, err)
+		return false
+	}
+	pin, ok := "not pinned (set "+pinKey+")", true
+	if pinned != "" {
+		// As Binary.Resolve compares.
+		if strings.EqualFold(pinned, sum) {
+			pin = "pin OK"
+		} else {
+			pin, ok = "PIN MISMATCH", false
+		}
+	}
+	fmt.Fprintf(w, "• %-6s %s\n         sha256 %s — %s\n", name, path, sum, pin)
+	return ok
+}
+
 func (a *app) doctorScratch(w io.Writer) {
 	dir := filepath.Join(a.cfg.DataDir, "tmp")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -575,6 +606,8 @@ func (a *app) monitorCmd() *cobra.Command {
 				return err
 			}
 			defer unlock()
+			// Followed charts come first in the cycle (docs/adr/0034-chart-tracking.md).
+			a.followCharts(cmd.ErrOrStderr())
 			sum, err := a.engine.Monitor(cmd.Context())
 			if err != nil {
 				return err
@@ -590,7 +623,8 @@ func (a *app) monitorCmd() *cobra.Command {
 					Expired  []int64           `json:"expired_decisions,omitempty"`
 					Notified map[string]int    `json:"notified,omitempty"`
 					NotifyKO map[string]string `json:"notify_failures,omitempty"`
-				}{sum.RunID, sum.Status, toResultJSON(sum.Results), sum.Failures, sum.ExpiredDecision, sum.Notified, sum.NotifyFailures})
+					ChartsKO map[string]string `json:"chart_failures,omitempty"`
+				}{sum.RunID, sum.Status, toResultJSON(sum.Results), sum.Failures, sum.ExpiredDecision, sum.Notified, sum.NotifyFailures, sum.ChartFailures})
 				if err != nil {
 					return err
 				}
@@ -609,6 +643,10 @@ func (a *app) monitorCmd() *cobra.Command {
 				}
 				for _, ch := range slices.Sorted(maps.Keys(sum.NotifyFailures)) {
 					fmt.Fprintf(cmd.ErrOrStderr(), "notification channel %s: %s\n", ch, sum.NotifyFailures[ch])
+				}
+				for _, c := range slices.Sorted(maps.Keys(sum.ChartFailures)) {
+					// Chart sources and helm answer with hostile text.
+					fmt.Fprintf(cmd.ErrOrStderr(), "chart %s: %s\n", c, printable(sum.ChartFailures[c]))
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "monitor run #%d: %s\n", sum.RunID, sum.Status)
 			}
@@ -741,6 +779,10 @@ func (a *app) pluginsCmd() *cobra.Command {
 			fmt.Fprintln(w, "Exporters:")
 			for _, x := range export.Plugins() {
 				fmt.Fprintf(w, "  %-16s %s (options: %s)\n", x.Name, x.Description, strings.Join(x.Options, ", "))
+			}
+			fmt.Fprintln(w, "Chart sources:")
+			for _, s := range charts.Plugins() {
+				fmt.Fprintf(w, "  %-12s %s (options: %s)\n", s.Name, s.Description, strings.Join(s.Options, ", "))
 			}
 			fmt.Fprintln(w, "Enrichers:")
 			for _, p := range enrich.Plugins() {
