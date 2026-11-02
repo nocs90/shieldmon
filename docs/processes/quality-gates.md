@@ -23,6 +23,7 @@ Every gate runs in CI and can be run locally. Required checks on `main` are mark
 | ✱ Secret scanning (gitleaks, `.gitleaks.toml`) | `gitleaks detect` | security/secrets | secret in history; synthetic test credentials are allowlisted by path only |
 | ✱ Dependency review | — | security/dependency-review (PR, public repo only) | vulnerable (≥ moderate) or AGPL-incompatible dependency |
 | OpenSSF Scorecard | — | scorecard (public repo only) | tracked, not blocking |
+| Release dry run | `goreleaser check`; `goreleaser release --snapshot --clean --skip=sign,sbom,publish` | ci/release-dry-run | `.goreleaser.yaml` invalid, or the release build (binaries, third-party licenses, archives) fails |
 | ✱ Conventional PR title | — | pr-hygiene | title format |
 | ✱ DCO sign-off | `git log` | pr-hygiene | a commit lacks `Signed-off-by` |
 | Supply chain pinning | review | review | actions not pinned by SHA, scanners not pinned by checksum |
