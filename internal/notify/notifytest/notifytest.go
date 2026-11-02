@@ -259,6 +259,9 @@ func NewReceiver(t *testing.T, mode Mode) *Receiver {
 			case <-req.Context().Done():
 			case <-stop:
 			}
+			// Never answer, however the wait ended: returning would send an implicit
+			// 200 OK, and a sender whose request ended early would see a success.
+			panic(http.ErrAbortHandler)
 		case Redirect:
 			http.Redirect(w, req, r.other.URL+req.URL.Path, http.StatusTemporaryRedirect) //nolint:gosec // G710: redirects to the fake's own second server
 		}
