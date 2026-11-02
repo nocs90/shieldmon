@@ -368,6 +368,9 @@ func (a *app) transitionCmd(use string, to model.State, short string) *cobra.Com
 			if actor == "" {
 				actor = engine.ActorFromEnv()
 			}
+			if err := cliAuthor(actor); err != nil {
+				return err
+			}
 			for _, id := range ids {
 				if err := a.store.Transition(cmd.Context(), id, to, actor, note, time.Now()); err != nil {
 					return fmt.Errorf("finding #%d: %w", id, err)
@@ -402,6 +405,9 @@ func (a *app) decisionCmd(use string, st model.State, short string) *cobra.Comma
 			}
 			policy, err := a.cfg.Policy()
 			if err != nil {
+				return err
+			}
+			if err := cliAuthor(author); err != nil {
 				return err
 			}
 			d := lifecycle.Decision{State: st, Deviation: dev, Justification: justification, Author: author}
@@ -484,7 +490,7 @@ type ranker struct {
 // newRanker looks up the runtime context of the findings' digests once.
 func (a *app) newRanker(cmd *cobra.Command, policy lifecycle.Policy, fs []store.Finding) (ranker, error) {
 	rk := ranker{policy: policy, runtime: map[string]runtimectx.Context{}}
-	set, _ := a.runtimeSet(cmd)
+	set, _ := a.runtimeSet(cmd.ErrOrStderr())
 	if len(set) == 0 {
 		return rk, nil
 	}
@@ -510,11 +516,16 @@ func (rk ranker) context(f store.Finding) *runtimectx.Context {
 }
 
 func (rk ranker) score(f store.Finding) priority.Score {
+	return findingScore(rk.policy, f, rk.context(f), time.Now())
+}
+
+// findingScore is a finding's priority at now, with where its image runs (nil: nowhere known).
+func findingScore(policy lifecycle.Policy, f store.Finding, c *runtimectx.Context, now time.Time) priority.Score {
 	in := priority.Input{
 		Severity: f.Severity, CVSS: f.CVSSScore, EPSS: f.EPSS, KEV: f.KEV, Fixable: len(f.FixVersions) > 0,
-		SLADue: slaDue(rk.policy, f), Now: time.Now(),
+		SLADue: slaDue(policy, f), Now: now,
 	}
-	if c := rk.context(f); c != nil {
+	if c != nil {
 		in.RunningPods = c.Pods
 		if len(c.Exposure) > 0 {
 			in.Exposure = c.Exposure[0]
@@ -653,21 +664,8 @@ func (a *app) reportCmd() *cobra.Command {
 				}
 				ref = t
 			}
-			sla, err := config.SLAProfile(a.cfg.SLA.Profile, a.cfg.SLA.Days)
+			r, err := a.monthlyReport(cmd.Context(), cmd.ErrOrStderr(), ref, now)
 			if err != nil {
-				return err
-			}
-			r, err := report.BuildMonthly(cmd.Context(), a.store, report.MonthPeriod(ref), a.cfg.SLA.Profile, sla, now)
-			if err != nil {
-				return err
-			}
-			read := func(b store.SBOM) ([]byte, error) { return a.engine.ReadSBOM(b, sbom.MaxBytes) }
-			if err := report.AddBaseLineage(cmd.Context(), a.store, &r, a.engine.Bases, read); err != nil {
-				return err
-			}
-			report.AddOwners(&r, a.owners)
-			set, failed := a.runtimeSet(cmd)
-			if err := report.AddRuntime(cmd.Context(), a.store, &r, set, failed); err != nil {
 				return err
 			}
 			w, closeOut, err := reportOutput(cmd, out)

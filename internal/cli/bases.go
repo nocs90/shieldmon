@@ -43,6 +43,9 @@ TARGET is a target ID or the image reference of a target on one platform.`,
 			if by == "" {
 				return errors.New("--by is required (who; default from $SHIELDMON_ACTOR or $USER)")
 			}
+			if err := cliAuthor(by); err != nil {
+				return err
+			}
 			var base string
 			switch {
 			case none && len(args) == 2, !none && len(args) == 1:

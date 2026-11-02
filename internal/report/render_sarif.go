@@ -16,6 +16,7 @@ func init() {
 	RegisterFormat(Format{
 		Name:        "sarif",
 		Description: "SARIF 2.1.0: open findings as results, risk acceptances as suppressed results",
+		MediaType:   "application/sarif+json",
 		Render:      renderSARIF,
 	})
 }

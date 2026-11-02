@@ -27,6 +27,8 @@ not be falsifiable.
 
 | Threat | Scenario | Mitigation (status) |
 |---|---|---|
+| S | A stolen or guessed API token (`shieldmon serve`) records decisions in someone's name. | 256-bit random secrets, only their SHA-256 configured, constant-time comparison; roles (viewer, triager, admin); the author is the authenticated name, never a request field; no clear-text listener beyond loopback; secrets redacted from logs and errors; revocation by removing the entry (ADR 0031) ✅; OIDC ⬜ |
+| D | Slow or oversized requests exhaust the server. | Header, read, write and idle timeouts; 32 KiB headers, 64 KiB bodies; list limits; one monitoring cycle at a time (ADR 0031) ✅ |
 | **S**poofing | Tag swapped to a different image between scans. | Identity is the digest; tags resolved every cycle, every change appended to `target_digests` ✅ |
 | S | Registry serves different bytes than the requested digest. | Fetch by digest only; ggcr verifies manifest and blob digests; explicit digest re-check ✅ |
 | S | A spoofed or truncated KEV feed (mirror, proxy) hides exploited vulnerabilities or floods findings. | HTTPS only (redirects to https, at most 3); size, entry and field validation; a catalog much smaller than the known one, inconsistent with its `count`, or largely malformed is refused and the previous data kept; enrichers only add facts; staleness and failures are health findings; cache outside the scanners' writable paths (ADR 0019) ✅ |
