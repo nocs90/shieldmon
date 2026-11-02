@@ -23,6 +23,7 @@ Every gate runs in CI and can be run locally. Required checks on `main` are mark
 | ✱ Secret scanning (gitleaks, `.gitleaks.toml`) | `gitleaks detect` | security/secrets | secret in history; synthetic test credentials are allowlisted by path only |
 | ✱ Dependency review | — | security/dependency-review (PR, public repo only) | vulnerable (≥ moderate) or AGPL-incompatible dependency |
 | OpenSSF Scorecard | — | scorecard (public repo only) | tracked, not blocking |
+| Release dry run | `goreleaser check`; `goreleaser release --snapshot --clean --skip=sign,sbom,publish` | ci/release-dry-run | `.goreleaser.yaml` invalid, or the release build (binaries, third-party licenses, archives) fails |
 | ✱ Conventional PR title | — | pr-hygiene | title format |
 | ✱ DCO sign-off | `git log` | pr-hygiene | a commit lacks `Signed-off-by` |
 | Supply chain pinning | review | review | actions not pinned by SHA, scanners not pinned by checksum |
@@ -39,11 +40,12 @@ to a ruleset is a pull request to its file, applied by a maintainer with
 - `main` (the default branch): pull request required, 1 approval, CODEOWNERS review, stale
   approvals dismissed, conversations resolved, squash merges only; the ✱ checks run by GitHub
   Actions required, on a branch up to date with `main`; CodeQL alerts of high severity or
-  errors block; linear history; no deletion, no force push. Repository admins may bypass
-  through a pull request only: while there is one maintainer, who cannot approve their own
-  pull requests, they merge with `gh pr merge --admin` **after** every required check passed
-  (the bypass skips checks too: never use it on a red pull request). With a second maintainer,
-  remove the bypass.
+  errors block; linear history; no deletion, no force push. These rules bind contributors: an
+  outside pull request needs the maintainer's approval as code owner and every check. The
+  maintainer (repository admin) may bypass them: merging without approval
+  (`gh pr merge --admin`, or "merge without waiting for requirements"), and pushing to `main`
+  when needed, though changes go through pull requests as a rule. A bypassed merge skips the
+  checks too; pull requests are merged green.
 - `release tags: created by admins`: only repository admins create `v*` tags.
 - `release tags: immutable`: nobody, admins included, moves or deletes a `v*` tag; a bad
   release is superseded by a new version, never re-tagged.

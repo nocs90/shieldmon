@@ -5,10 +5,9 @@ project_name: shieldmon
 
 before:
   hooks:
-    # The licenses of every module linked into any of the builds below.
-    - cmd: scripts/third-party-licenses.sh THIRD_PARTY_LICENSES
-      env:
-        - PLATFORMS=linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
+    # The licenses of every module linked into any of the builds below. Global hooks are plain
+    # commands (no cmd/env objects outside GoReleaser Pro), hence env(1) and commas.
+    - env PLATFORMS=linux/amd64,linux/arm64,darwin/amd64,darwin/arm64 scripts/third-party-licenses.sh THIRD_PARTY_LICENSES
 
 builds:
   - id: shieldmon
