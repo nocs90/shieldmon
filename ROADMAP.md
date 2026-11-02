@@ -8,7 +8,8 @@ The backlog behind this roadmap (epics and tasks, with acceptance criteria) is i
 **v0.3.0** (the first public release) contains M1–M5, M3's inputs and providers, and from
 M7 the base-image lineage, runtime context, images of rendered manifests and Helm charts
 (sources, sandboxed rendering, release tracking, neglected charts, upstream drafts)
-([CHANGELOG.md](CHANGELOG.md)). Server mode (M6) and the OSV-Scanner matcher are next.
+([CHANGELOG.md](CHANGELOG.md)). **v0.4.0** adds server mode (M6: scheduler, API, roles and
+tokens) and the OSV-Scanner matcher, both on `main`; PostgreSQL, OIDC and a web UI follow.
 
 Each milestone ends with an executable definition of done. A milestone is closed when its
 checks pass in CI and an independent review of the diff (fresh context) finds no blocker.
@@ -69,7 +70,7 @@ GitLab project pass; no long-lived credentials anywhere in config or CI.
   (as in Kondukto / DefectDojo).
 - Policy-as-code CI gate `shieldmon gate` with configurable exit codes and SARIF (as in
   Anchore Enterprise).
-- OSV-Scanner matcher adapter, offline (ADR 0028).
+- OSV-Scanner matcher adapter, offline (ADR 0028) ✅ (v0.4.0).
 
 ## M5 — Compliance profiles (F8)
 

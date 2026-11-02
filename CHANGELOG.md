@@ -4,7 +4,32 @@ All notable changes are listed here; release notes on GitHub add the full list o
 pull requests. Versioning follows [SemVer](https://semver.org): before 1.0, a minor release
 may change configuration and JSON output (called out under "Breaking changes").
 
-## [0.3.0] — unreleased
+## [Unreleased]
+
+### Server mode
+
+- `shieldmon serve`: a built-in scheduler (the monitoring cycle, charts first, every
+  `health.monitor_interval`, retried a minute later when a command holds the data directory)
+  and an HTTPS API to read findings, targets, health and reports and to triage and decide.
+  Roles (viewer, triager, admin) and API tokens, stored as SHA-256 hashes; decisions are
+  authored `api:<token name>`, a prefix no other author can take (command line, VEX). TLS
+  required beyond loopback; bounded requests and lists (ADR 0031,
+  docs/processes/server.md).
+
+### Matchers
+
+- OSV-Scanner as an optional third matcher, offline: databases per ecosystem refreshed by the
+  separate update step, results refused unless complete (every package it was given comes
+  back, no vulnerability outside a group, no unlisted ecosystem), so absence never closes a
+  finding on a partial result. `scripts/install-scanners.sh` installs it on request with its
+  SLSA provenance verified (ADR 0028).
+
+### Release
+
+- A release is cut from `main` only; release candidates may be tagged on a release branch.
+  CI builds the release configuration on every pull request (`release-dry-run`).
+
+## [0.3.0] — 2026-11-02
 
 The first public release. ShieldMon monitors container images continuously: it resolves tags
 to digests, generates SBOMs once per digest, re-matches them against fresh vulnerability data
