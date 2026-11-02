@@ -18,10 +18,11 @@ Designed with a strict **SBOM-first** and **evidence-based resolution** philosop
 - 🔒 **Zero-Trust Input Threat Model:** Treats image contents as hostile input, processing and parsing layer artifacts in isolated sandboxes.
 - 📊 **Automated Reporting:** Generates monthly security posture reports (Markdown, HTML, JSON, CSV, SARIF, remediation plan) to track mean-time-to-remediate (MTTR), SLA breaches and posture trends over time.
 
-> **Status: v0.2.0, pre-1.0.** Monitoring, VEX, prioritization (KEV, priority score, runtime
-> context), base-image lineage, CI gate, notifications, exports to Dependency-Track and
-> DefectDojo, and native ECR/GCR/GitLab providers are in; server mode, PostgreSQL and Helm
-> chart sources are on the [roadmap](ROADMAP.md). [SPEC.md](SPEC.md) says exactly what is
+> **Status: v0.3.0, pre-1.0.** Monitoring, VEX, prioritization (KEV, priority score, runtime
+> context), base-image lineage, Helm charts (sources, sandboxed rendering, release tracking,
+> neglected charts), CI gate, notifications, exports to Dependency-Track and DefectDojo, and
+> native ECR/GCR/GitLab providers are in; server mode and PostgreSQL are on the
+> [roadmap](ROADMAP.md). [SPEC.md](SPEC.md) says exactly what is
 > implemented, [CHANGELOG.md](CHANGELOG.md) what changed. Configuration may still change
 > between minor versions.
 
@@ -30,8 +31,8 @@ Designed with a strict **SBOM-first** and **evidence-based resolution** philosop
 Release binaries (linux and darwin, amd64 and arm64) and the container image
 `ghcr.io/nocs90/shieldmon` are signed in this repository's release workflow; verify them
 before use ([docs/processes/release.md](docs/processes/release.md#verifying-a-release)). The
-scanners come from `scripts/install-scanners.sh` (Linux: pinned, signature-verified) or your
-package manager; the container image bundles them. Or build from source with Go ≥ 1.27.
+scanners, and helm for Helm charts, come from `scripts/install-scanners.sh` (Linux: pinned,
+signature-verified) or your package manager; the container image bundles them. Or build from source with Go ≥ 1.27.
 
 ## Quick start
 
