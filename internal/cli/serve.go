@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -89,8 +88,8 @@ configuration.`,
 // cliAuthor refuses, on the command line, the names the API records for token holders: the
 // audit trail must tell them apart (docs/adr/0031-server-mode.md).
 func cliAuthor(name string) error {
-	if strings.HasPrefix(name, server.ActorPrefix) {
-		return fmt.Errorf("author %q: the %q prefix is reserved for decisions made through the API", name, server.ActorPrefix)
+	if lifecycle.ReservedAuthor(name) {
+		return fmt.Errorf("author %q: names starting with %q are reserved for what the API records", name, server.ActorPrefix)
 	}
 	return nil
 }
@@ -101,7 +100,7 @@ func (a *app) serverTokens() (server.Tokens, error) {
 		return nil, errors.New("server.tokens is empty: make one with 'shieldmon serve token NAME --role ROLE'")
 	}
 	var ts server.Tokens
-	seen := map[string]bool{}
+	seen, hashes := map[string]bool{}, map[string]bool{}
 	for i, t := range a.cfg.Server.Tokens {
 		tok, err := server.NewToken(t.Name, t.Role, t.SHA256)
 		if err != nil {
@@ -110,6 +109,12 @@ func (a *app) serverTokens() (server.Tokens, error) {
 		if seen[t.Name] {
 			return nil, fmt.Errorf("server.tokens[%d]: name %q is listed twice", i, t.Name)
 		}
+		// One secret for two entries would match both, and authenticate neither.
+		h := strings.ToLower(t.SHA256)
+		if hashes[h] {
+			return nil, fmt.Errorf("server.tokens[%d]: %s has the sha256 of another token: make each one with 'shieldmon serve token'", i, t.Name)
+		}
+		hashes[h] = true
 		seen[t.Name] = true
 		ts = append(ts, tok)
 	}
@@ -223,8 +228,9 @@ func (a *app) cycle(ctx context.Context) (engine.MonitorSummary, error) {
 		return engine.MonitorSummary{}, err
 	}
 	defer unlock()
-	// Followed charts come first in the cycle (docs/adr/0034-chart-tracking.md); read once.
-	a.followCharts(os.Stderr)
+	// Followed charts come first in the cycle (docs/adr/0034-chart-tracking.md); their
+	// configuration is read once, at the first cycle.
+	a.followCharts(logWriter{a.log})
 	return a.engine.Monitor(ctx)
 }
 
@@ -251,10 +257,11 @@ func (s *scheduler) status() server.Status {
 
 // start asks for a cycle now; false when one is running or already asked for.
 func (s *scheduler) start() bool {
+	// Checked and asked under the lock, so that a cycle starting meanwhile is not followed by
+	// a second one at once.
 	s.mu.Lock()
-	running := s.st.Running
-	s.mu.Unlock()
-	if running {
+	defer s.mu.Unlock()
+	if s.st.Running {
 		return false
 	}
 	select {
@@ -271,20 +278,27 @@ func (s *scheduler) wait() { s.done.Wait() }
 func (s *scheduler) run(ctx context.Context) {
 	defer s.done.Done()
 	var timer <-chan time.Time
-	next := func() {
+	// next waits the interval, or lockRetry when the cycle found the data directory locked by
+	// a command: losing a whole interval to a short 'vex import' would delay scanning by a day.
+	next := func(locked bool) {
 		if !s.enabled || s.interval <= 0 {
 			return
 		}
-		t := time.NewTimer(s.interval)
+		d := s.interval
+		if locked {
+			d = min(lockRetry, s.interval)
+		}
+		t := time.NewTimer(d)
 		timer = t.C
 		s.mu.Lock()
-		s.st.NextAt = time.Now().Add(s.interval).UTC()
+		s.st.NextAt = time.Now().Add(d).UTC()
 		s.mu.Unlock()
 	}
+	locked := false
 	if s.enabled {
-		s.runOnce(ctx)
+		locked = errors.Is(s.runOnce(ctx), engine.ErrLocked)
 	}
-	next()
+	next(locked)
 	for {
 		select {
 		case <-ctx.Done():
@@ -292,12 +306,14 @@ func (s *scheduler) run(ctx context.Context) {
 		case <-timer:
 		case <-s.trigger:
 		}
-		s.runOnce(ctx)
-		next()
+		next(errors.Is(s.runOnce(ctx), engine.ErrLocked))
 	}
 }
 
-func (s *scheduler) runOnce(ctx context.Context) {
+// lockRetry is how soon a cycle that found the data directory locked is tried again.
+const lockRetry = time.Minute
+
+func (s *scheduler) runOnce(ctx context.Context) error {
 	s.mu.Lock()
 	s.st.Running, s.st.LastStarted, s.st.LastError = true, time.Now().UTC(), ""
 	s.mu.Unlock()
@@ -313,6 +329,7 @@ func (s *scheduler) runOnce(ctx context.Context) {
 		s.st.LastStatus, s.st.LastRunID = sum.Status, sum.RunID
 		s.log.Info("monitoring cycle done", "run", sum.RunID, "status", sum.Status)
 	}
+	return err
 }
 
 // scorer ranks findings with the runtime context of the configured clusters, read again at

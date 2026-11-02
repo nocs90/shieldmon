@@ -35,8 +35,11 @@
   Roles include the ones below them. No endpoint closes a finding: closure needs scan
   evidence (`lifecycle.Reconcile`).
 - The author of a transition or decision is the authenticated identity, recorded as
-  `api:<name>`; a request cannot name one (unknown fields are refused), and the command line
-  refuses authors with that prefix, so the audit trail tells a token holder from a typed name.
+  `api:<name>`; a request cannot name one (unknown fields are refused), and every other way to
+  name an author (the command line's `--author` and `--by`, the authors of VEX statements and
+  their importer) refuses names that could read as one (`lifecycle.ReservedAuthor`: "api"
+  then anything but a letter, digit, `-` or `_`, whatever the case or surrounding space, so
+  look-alike colons too), so the audit trail tells a token holder from any other name.
   `engine`, the actor of automatic transitions, is no token name and no decision author.
 - Refusals by the lifecycle rules or the decision policy (`lifecycle.ErrRefused`) are answered
   with their reason (409/422); any other failure is a logged 500 without details.

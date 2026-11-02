@@ -68,6 +68,21 @@ func TestServe(t *testing.T) {
 	if _, errOut, code := runc("serve", "--listen", "0.0.0.0:0"); code == 0 || !strings.Contains(errOut, "not a loopback address") {
 		t.Errorf("clear-text tokens beyond loopback: %s", errOut)
 	}
+	// One secret listed twice would authenticate neither entry.
+	twice := strings.Replace(conf, "    "+entry+"\n", "    "+entry+"\n    "+strings.Replace(entry, "alice", "bob", 1)+"\n", 1)
+	if err := os.WriteFile(cfg, []byte(twice), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, code := runc("serve", "--listen", "127.0.0.1:0"); code == 0 || !strings.Contains(errOut, "sha256 of another token") {
+		t.Errorf("a duplicate secret: %s", errOut)
+	}
+	if err := os.WriteFile(cfg, []byte(conf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Names the API records cannot be typed elsewhere.
+	if _, errOut, code := runc("targets", "retire", "1", "--reason", "x", "--by", "API: alice"); code == 0 || !strings.Contains(errOut, "reserved") {
+		t.Errorf("an API name on the command line: %s", errOut)
+	}
 	withTLS := strings.Replace(conf, "  tls_cert: \"\"\n  tls_key: \"\"\n", "  tls_cert: /nonexistent.crt\n  tls_key: /nonexistent.key\n", 1)
 	if err := os.WriteFile(cfg, []byte(withTLS), 0o600); err != nil {
 		t.Fatal(err)

@@ -26,6 +26,24 @@ import (
 // ActorEngine is the actor recorded for automatic transitions.
 const ActorEngine = "engine"
 
+// APIActorPrefix marks the authors of what `shieldmon serve`'s API records, so that the audit
+// trail tells a token's holder from any other name (docs/adr/0031-server-mode.md).
+const APIActorPrefix = "api:"
+
+// ReservedAuthor reports whether a name given outside the API (the command line, a VEX
+// document) could be read as an API identity: "api" followed by anything but a letter, digit,
+// '-' or '_' (a colon, a look-alike colon, a space), whatever the case and surrounding space.
+func ReservedAuthor(name string) bool {
+	n := strings.ToLower(strings.TrimSpace(name))
+	rest, ok := strings.CutPrefix(n, "api")
+	if !ok || rest == "" {
+		return false
+	}
+	r := []rune(rest)[0]
+	nameRune := r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '_'
+	return !nameRune
+}
+
 var manualTransitions = map[model.State][]model.State{
 	model.StateOpen:          {model.StateTriaged, model.StateInRemediation},
 	model.StateReopened:      {model.StateTriaged, model.StateInRemediation},

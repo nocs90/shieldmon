@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nocs90/shieldmon/internal/lifecycle"
@@ -93,7 +94,29 @@ func Handler(d Deps) http.Handler {
 
 type api struct {
 	Deps
-	heavy chan struct{}
+	heavy   chan struct{}
+	authLog throttle
+}
+
+// throttle lets one event through a second and counts the others.
+type throttle struct {
+	mu         sync.Mutex
+	last       time.Time
+	suppressed int
+}
+
+// allow reports whether an event at now is let through, and how many were held back since
+// the last one that was.
+func (t *throttle) allow(now time.Time) (int, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if now.Sub(t.last) < time.Second {
+		t.suppressed++
+		return 0, false
+	}
+	n := t.suppressed
+	t.last, t.suppressed = now, 0
+	return n, true
 }
 
 // maxHeavy is how many expensive requests (priority ranking, reports) run at once.
@@ -106,8 +129,11 @@ func (a *api) with(role Role, h func(http.ResponseWriter, *http.Request, Identit
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id, ok := a.Auth.Authenticate(r)
 		if !ok {
-			// The request's address only: never the header, which may hold a secret.
-			a.Log.Warn("api authentication failed", "remote", r.RemoteAddr, "path", r.URL.Path)
+			// The request's address only: never the header, which may hold a secret. At most
+			// one record a second, with how many were left out: anyone can send failures.
+			if n, ok := a.authLog.allow(a.Now()); ok {
+				a.Log.Warn("api authentication failed", "remote", r.RemoteAddr, "path", r.URL.Path, "suppressed", n)
+			}
 			w.Header().Set("WWW-Authenticate", `Bearer realm="shieldmon"`)
 			writeError(w, http.StatusUnauthorized, "authentication required")
 			return
@@ -411,6 +437,11 @@ func (a *api) decide(w http.ResponseWriter, r *http.Request, id Identity) {
 }
 
 func (a *api) targets(w http.ResponseWriter, r *http.Request, _ Identity) {
+	// Whole tables (the operator's targets, every health finding): bounded by concurrency.
+	if !a.acquire(w, r) {
+		return
+	}
+	defer a.release()
 	ts, err := a.Store.ListTargets(r.Context())
 	if err != nil {
 		a.fail(w, r, err, 0)
@@ -433,6 +464,10 @@ func (a *api) targets(w http.ResponseWriter, r *http.Request, _ Identity) {
 }
 
 func (a *api) health(w http.ResponseWriter, r *http.Request, _ Identity) {
+	if !a.acquire(w, r) {
+		return
+	}
+	defer a.release()
 	hs, err := a.Store.ListHealth(r.Context(), r.URL.Query().Get("all") == "true")
 	if err != nil {
 		a.fail(w, r, err, 0)

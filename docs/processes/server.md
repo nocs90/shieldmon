@@ -32,7 +32,11 @@ server:
 
 Stop the `shieldmon-monitor` timer or CronJob when the server schedules cycles: both take the
 same lock, so a cycle that finds it held is skipped (`last_status: failed`, `last_error`
-names the lock) rather than run twice.
+names the lock) rather than run twice, and tried again a minute later (a short command such as
+`vex import` holding the lock does not cost a whole interval).
+
+The followed charts' configuration (sources, profiles' values files, helm) is read at the first
+cycle: restart the server after changing it.
 
 ## 3. Use
 

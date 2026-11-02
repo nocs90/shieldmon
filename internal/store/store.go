@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -572,7 +571,18 @@ func (s *Store) ListFindings(ctx context.Context, flt FindingFilter) ([]Finding,
 		where = append(where, "(f.vuln_id = ? OR f.aliases LIKE ?)")
 		args = append(args, flt.VulnID, `%"`+flt.VulnID+`"%`)
 	}
-	q := `SELECT ` + findingCols + ` FROM findings f WHERE ` + strings.Join(where, " AND ") + ` ORDER BY f.id`
+	if flt.MinSeverity > model.SeverityUnknown {
+		where = append(where, severityRank+" >= ?")
+		args = append(args, int(flt.MinSeverity))
+	}
+	// Most severe first, then highest CVSS, in SQL: a limit bounds what is read, not only what
+	// is returned (the API's lists rest on it).
+	q := `SELECT ` + findingCols + ` FROM findings f WHERE ` + strings.Join(where, " AND ") +
+		` ORDER BY ` + severityRank + ` DESC, f.cvss_score DESC, f.id`
+	if flt.Limit > 0 {
+		q += ` LIMIT ?`
+		args = append(args, flt.Limit)
+	}
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
@@ -584,31 +594,15 @@ func (s *Store) ListFindings(ctx context.Context, flt FindingFilter) ([]Finding,
 		if err != nil {
 			return nil, err
 		}
-		if f.Severity < flt.MinSeverity {
-			continue
-		}
 		out = append(out, f)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	slices.SortStableFunc(out, func(a, b Finding) int {
-		if a.Severity != b.Severity {
-			return int(b.Severity - a.Severity)
-		}
-		if a.CVSSScore != b.CVSSScore {
-			if b.CVSSScore > a.CVSSScore {
-				return 1
-			}
-			return -1
-		}
-		return 0
-	})
-	if flt.Limit > 0 && len(out) > flt.Limit {
-		out = out[:flt.Limit]
-	}
-	return out, nil
+	return out, rows.Err()
 }
+
+// severityRank is a finding's severity as model.Severity's order, for SQL (severities are
+// stored by name).
+const severityRank = `(CASE f.severity WHEN 'critical' THEN 5 WHEN 'high' THEN 4 WHEN 'medium' THEN 3
+	WHEN 'low' THEN 2 WHEN 'negligible' THEN 1 ELSE 0 END)`
 
 // GetFinding returns a finding by ID.
 func (s *Store) GetFinding(ctx context.Context, id int64) (Finding, error) {

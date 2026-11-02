@@ -53,8 +53,8 @@ type Identity struct {
 }
 
 // ActorPrefix marks the authors of what the API records: the audit trail tells a token's
-// holder from a name typed on the command line, which refuses names with this prefix.
-const ActorPrefix = "api:"
+// holder from a name given anywhere else, which lifecycle.ReservedAuthor refuses.
+const ActorPrefix = lifecycle.APIActorPrefix
 
 // Actor is the author recorded for the identity's transitions and decisions.
 func (id Identity) Actor() string { return ActorPrefix + id.Name }
