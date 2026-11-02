@@ -15,7 +15,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A release (vX.Y.Z) is cut from main only; a release candidate (vX.Y.Z-rc.N) may come from
+  # a release branch, to try the pipeline before main changes (docs/processes/release.md).
+  ref:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: A release is a commit of main
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [[ "$TAG" == *-* ]]; then
+            echo "$TAG is a pre-release: any branch"
+            exit 0
+          fi
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "::error::$TAG points to a commit that is not on main"; exit 1; }
+
   binaries:
+    needs: ref
     runs-on: ubuntu-24.04
     permissions:
       contents: write      # the draft release and its assets
@@ -51,6 +74,7 @@ jobs:
             dist/*_checksums.txt
 
   image:
+    needs: ref
     runs-on: ubuntu-24.04
     permissions:
       contents: read
