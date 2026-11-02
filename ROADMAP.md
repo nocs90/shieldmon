@@ -69,7 +69,7 @@ GitLab project pass; no long-lived credentials anywhere in config or CI.
   (as in Kondukto / DefectDojo).
 - Policy-as-code CI gate `shieldmon gate` with configurable exit codes and SARIF (as in
   Anchore Enterprise).
-- OSV-Scanner matcher adapter.
+- OSV-Scanner matcher adapter, offline (ADR 0028).
 
 ## M5 — Compliance profiles (F8)
 

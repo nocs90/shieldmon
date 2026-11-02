@@ -42,6 +42,7 @@ the installer still verifies), an anchor independent of this repository.
   | syft | `https://github.com/anchore/syft/.github/workflows/release.yaml@refs/heads/main` |
   | grype | `https://github.com/anchore/grype/.github/workflows/release.yaml@refs/heads/main` |
   | trivy | `https://github.com/aquasecurity/trivy/.github/workflows/reusable-release.yaml@refs/tags/v<version>` |
+  | osv-scanner (optional, ADR 0028) | SLSA provenance (`multiple.intoto.jsonl`, a Sigstore bundle) signed by `https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@refs/tags/v2.1.0`, with `google/osv-scanner` and `refs/tags/v<version>` required in the certificate (the generator is shared by many projects); it ships no signed checksums file, so `cosign verify-blob-attestation` checks the pinned binary's digest against the provenance's subjects |
 
 - The archive must then be listed in the signed file **with** the SHA-256 pinned here, and
   match it. A wrong signer, a changed file or a missing entry aborts the installation; nothing
