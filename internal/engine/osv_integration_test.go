@@ -138,7 +138,8 @@ func logParity(t *testing.T, ref string, fs []store.Finding, shared []string) {
 	}
 }
 
-// captureOSV runs osv-scanner as the adapter does and keeps its raw output.
+// captureOSV runs osv-scanner with the adapter's flags on the whole SBOM (the adapter sends
+// only the components of configured ecosystems) and keeps its raw output, for fixtures.
 func captureOSV(ctx context.Context, t *testing.T, run scanner.Runner, sbom, out string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -157,7 +158,7 @@ func captureOSV(ctx context.Context, t *testing.T, run scanner.Runner, sbom, out
 		t.Fatal(err)
 	}
 	raw, err := run.Run(scanner.WithPolicy(ctx, scanner.Policy{ReadOnly: []string{dir}}), bin,
-		"scan", "source", "--offline", "--verbosity", "error", "--format", "json", "-L", staged)
+		"scan", "source", "--offline", "--all-packages", "--verbosity", "error", "--format", "json", "-L", staged)
 	if err != nil {
 		t.Fatal(err)
 	}

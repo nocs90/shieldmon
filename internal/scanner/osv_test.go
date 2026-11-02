@@ -3,6 +3,7 @@ package scanner
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -115,12 +116,20 @@ const osvOutput = `{"results":[{"source":{"path":"/x/sbom.cdx.json","type":"sbom
 ]}]}`
 
 func TestParseOSV(t *testing.T) {
-	res, ecosystems, err := parseOSV([]byte(osvOutput))
+	res, reported, err := parseOSV([]byte(osvOutput))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"Alpine", "PyPI", "npm"}; !slices.Equal(ecosystems, want) {
-		t.Errorf("ecosystems = %q, want %q (an empty one is not looked up)", ecosystems, want)
+	if want := map[string]int{"Alpine": 1, "PyPI": 1, "npm": 1}; !maps.Equal(reported, want) {
+		t.Errorf("packages per ecosystem = %v, want %v (an empty one is not looked up)", reported, want)
+	}
+	for what, out := range map[string]string{
+		"a vulnerability in no group":          `{"results":[{"packages":[{"package":{"name":"a","version":"1","ecosystem":"npm"},"vulnerabilities":[{"id":"GHSA-1"}],"groups":[]}]}]}`,
+		"vulnerabilities without an ecosystem": `{"results":[{"packages":[{"package":{"name":"a","version":"1","ecosystem":""},"vulnerabilities":[{"id":"GHSA-1"}],"groups":[{"ids":["GHSA-1"]}]}]}]}`,
+	} {
+		if _, _, err := parseOSV([]byte(out)); err == nil {
+			t.Errorf("%s must fail the parse", what)
+		}
 	}
 	if len(res.Matches) != 3 {
 		t.Fatalf("one match per group: %+v", res.Matches)
@@ -184,7 +193,7 @@ func TestOSVMatchesOfflineAndChecksItsDatabases(t *testing.T) {
 		t.Errorf("result %+v, tool %+v: DBBuilt is the oldest database used", res.Matches, res.Tool)
 	}
 	for _, run := range runs() {
-		if !strings.HasPrefix(run, "scan source --offline --verbosity error ") || strings.Contains(run, "--download-offline-databases") ||
+		if !strings.HasPrefix(run, "scan source --offline --all-packages --verbosity error ") || strings.Contains(run, "--download-offline-databases") ||
 			!strings.HasSuffix(strings.TrimSpace(run), "/sbom.cdx.json") {
 			t.Errorf("matching is offline, on a copy named for osv-scanner's CycloneDX parser: %q", run)
 		}
@@ -229,6 +238,8 @@ func TestOSVRefusesIncompleteResults(t *testing.T) {
 		"a failure status":                 {fakeRun{output: osvOutput, status: 127}, "exit status 127"},
 		"an ecosystem nobody asked for":    {fakeRun{output: strings.ReplaceAll(osvOutput, `"ecosystem":"npm"`, `"ecosystem":"Bitnami"`), status: 1}, "Bitnami"},
 		"output that is not osv-scanner's": {fakeRun{output: "<html>", status: 0}, "decode"},
+		// A package osv-scanner skipped without an error: its absence must not pass for a fix.
+		"a package skipped silently": {fakeRun{output: withoutPackage(osvOutput, "left-pad"), status: 1}, "npm: 0 of 1"},
 	} {
 		bin, _, _ := fakeOSV(t, c.run, fakeRun{})
 		o := &OSV{Bin: bin, Runner: Runner{CacheDir: cache, TempDir: t.TempDir()}, Ecosystems: []string{"Alpine", "PyPI", "npm"}}
@@ -253,9 +264,60 @@ func TestOSVRefusesIncompleteResults(t *testing.T) {
 	}
 }
 
+// withoutPackage removes one package's entry from osv-scanner output, as if it had skipped it.
+func withoutPackage(out, name string) string {
+	var doc struct {
+		Results []map[string]any `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		panic(err)
+	}
+	for _, r := range doc.Results {
+		ps, _ := r["packages"].([]any)
+		r["packages"] = slices.DeleteFunc(ps, func(p any) bool {
+			pkg, _ := p.(map[string]any)["package"].(map[string]any)
+			return pkg["name"] == name
+		})
+	}
+	b, err := json.Marshal(doc)
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+}
+
+// probeOutput is osv-scanner's --all-packages answer to the probe SBOM of ecosystems.
+func probeOutput(ecosystems ...string) string {
+	var ps []string
+	for _, e := range ecosystems {
+		ps = append(ps, `{"package":{"name":"shieldmon db-probe","version":"0.0.0","ecosystem":"`+e+`"}}`)
+	}
+	return `{"results":[{"packages":[` + strings.Join(ps, ",") + `]}]}`
+}
+
+func TestOSVDatabaseLinksAreRefused(t *testing.T) {
+	cache := t.TempDir()
+	target := filepath.Join(t.TempDir(), "elsewhere")
+	if err := os.WriteFile(target, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(cache, "osv-scanner", "osv-scalibr", "npm", "all.zip")
+	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	bin, _, _ := fakeOSV(t, fakeRun{}, fakeRun{})
+	o := &OSV{Bin: bin, Runner: Runner{CacheDir: cache, TempDir: t.TempDir()}, Ecosystems: []string{"npm"}}
+	if _, err := o.Tool(context.Background()); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Errorf("a database that is a link: %v", err)
+	}
+}
+
 func TestOSVUpdatesConfiguredDatabases(t *testing.T) {
 	cache := t.TempDir()
-	bin, input, runs := fakeOSV(t, fakeRun{}, fakeRun{output: `{"results":[]}`, downloads: []string{"Alpine", "Go"}})
+	bin, input, runs := fakeOSV(t, fakeRun{}, fakeRun{output: probeOutput("Alpine", "Go"), downloads: []string{"Alpine", "Go"}})
 	o := &OSV{Bin: bin, Runner: Runner{CacheDir: cache, TempDir: t.TempDir()}, DBAutoUpdate: true, Ecosystems: []string{"Alpine", "Go"}}
 	old := time.Now().Add(-48 * time.Hour)
 	placeDB(t, cache, "Go", old) // unchanged upstream: osv-scanner keeps the file
@@ -264,7 +326,7 @@ func TestOSVUpdatesConfiguredDatabases(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := runs()
-	if len(got) != 1 || !strings.Contains(got[0], "--offline --download-offline-databases --verbosity error") {
+	if len(got) != 1 || !strings.Contains(got[0], "--offline --download-offline-databases --all-packages --verbosity error") {
 		t.Errorf("update runs = %q", got)
 	}
 	probe, err := os.ReadFile(input)
@@ -291,10 +353,12 @@ func TestOSVUpdatesConfiguredDatabases(t *testing.T) {
 
 	o.Ecosystems = []string{"Alpine", "Go"}
 	for what, r := range map[string]fakeRun{
-		"a logged download error":          {output: `{"results":[]}`, stderr: "could not load db for Debian ecosystem: db host returned 503\n"},
+		"a logged download error":          {output: probeOutput("Alpine", "Go"), stderr: "could not load db for Debian ecosystem: db host returned 503\n"},
 		"vulnerabilities found (status 1)": {output: osvOutput, status: 1},
 		"a probe matched with status 0":    {output: osvOutput},
 		"a failure":                        {status: 127},
+		// A probe osv-scanner did not map was never looked up: its database was not checked.
+		"a probe not reported": {output: probeOutput("Alpine")},
 	} {
 		bin, _, _ := fakeOSV(t, fakeRun{}, r)
 		o.Bin = bin

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -102,8 +103,10 @@ func (o *OSV) Name() string      { return "osv-scanner" }
 func (o *OSV) Generator() string { return "syft" }
 
 // osvFlags keep every scan offline (--offline also disables transitive resolution and any
-// plugin that calls a remote service) and limit stderr to errors.
-var osvFlags = []string{"--offline", "--verbosity", "error", "--format", "json"}
+// plugin that calls a remote service), limit stderr to errors, and list every package read,
+// not only the vulnerable ones: a package osv-scanner skipped without an error would
+// otherwise look like a package without vulnerabilities.
+var osvFlags = []string{"--offline", "--all-packages", "--verbosity", "error", "--format", "json"}
 
 // osvMaxSBOMBytes bounds the SBOM read into memory, as the engine bounds stored SBOMs.
 const osvMaxSBOMBytes = 256 << 20
@@ -129,9 +132,11 @@ func (o *OSV) dbFile(root, ecosystem string) (string, error) {
 }
 
 // runner sets osv-scanner's database path. With found, exit status 1 (vulnerabilities
-// found) is success; every other non-zero status is a failure.
+// found) is success; every other non-zero status is a failure. Its cache is its own
+// databases only: the update, which has network, cannot write other scanners' databases.
 func (o *OSV) runner(root string, found bool) Runner {
 	r := o.Runner
+	r.CacheDir = root
 	r.ExtraEnv = append(slices.Clip(r.ExtraEnv), "OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY="+root)
 	if found {
 		r.OKExitCodes = append(slices.Clip(r.OKExitCodes), 1)
@@ -183,9 +188,10 @@ func (o *OSV) stage(ctx context.Context, data []byte) (context.Context, string, 
 }
 
 // selectComponents keeps the SBOM components osv-scanner is to match, by their package
-// URL, and returns their ecosystems. A component of a supported ecosystem that is not
-// configured is an error: leaving it out would hide what osv-scanner could find.
-func (o *OSV) selectComponents(data []byte) ([]byte, []string, error) {
+// URL, and returns their ecosystems with how many distinct packages (package URLs without
+// qualifiers) each has. A component of a supported ecosystem that is not configured is an
+// error: leaving it out would hide what osv-scanner could find.
+func (o *OSV) selectComponents(data []byte) ([]byte, map[string]int, error) {
 	var doc map[string]json.RawMessage
 	if err := decodeLimited(data, &doc); err != nil {
 		return nil, nil, fmt.Errorf("osv-scanner: %w", err)
@@ -197,7 +203,8 @@ func (o *OSV) selectComponents(data []byte) ([]byte, []string, error) {
 		}
 	}
 	var keep []json.RawMessage
-	var ecosystems, unconfigured []string
+	var unconfigured []string
+	packages := map[string]map[string]bool{} // ecosystem -> distinct package URLs
 	for _, c := range comps {
 		var head struct {
 			PURL string `json:"purl"`
@@ -214,16 +221,23 @@ func (o *OSV) selectComponents(data []byte) ([]byte, []string, error) {
 				unconfigured = append(unconfigured, e)
 			}
 			continue
-		case !slices.Contains(ecosystems, e):
-			ecosystems = append(ecosystems, e)
 		}
+		if packages[e] == nil {
+			packages[e] = map[string]bool{}
+		}
+		p, _, _ := strings.Cut(head.PURL, "?")
+		p, _, _ = strings.Cut(p, "#")
+		packages[e][p] = true
 		keep = append(keep, c)
 	}
 	if len(unconfigured) > 0 {
 		slices.Sort(unconfigured)
 		return nil, nil, fmt.Errorf("osv-scanner: the SBOM has %s packages: add the ecosystems to scanners.tools.osv-scanner.options.ecosystems", strings.Join(unconfigured, ", "))
 	}
-	slices.Sort(ecosystems)
+	want := map[string]int{}
+	for e, ps := range packages {
+		want[e] = len(ps)
+	}
 	kept, err := json.Marshal(keep)
 	if err != nil {
 		return nil, nil, err
@@ -232,7 +246,23 @@ func (o *OSV) selectComponents(data []byte) ([]byte, []string, error) {
 	// References between the components left are not needed to match them.
 	delete(doc, "dependencies")
 	out, err := json.Marshal(doc)
-	return out, ecosystems, err
+	return out, want, err
+}
+
+// complete checks that osv-scanner reported, for every ecosystem, at least as many distinct
+// packages as it was given (it lists them all with --all-packages): fewer means it skipped
+// some without an error, and their absence must not close findings.
+func complete(want, reported map[string]int) error {
+	var short []string
+	for _, e := range slices.Sorted(maps.Keys(want)) {
+		if reported[e] < want[e] {
+			short = append(short, fmt.Sprintf("%s: %d of %d", e, reported[e], want[e]))
+		}
+	}
+	if len(short) > 0 {
+		return fmt.Errorf("osv-scanner reported fewer packages than it was given (%s): its result is incomplete", strings.Join(short, ", "))
+	}
+	return nil
 }
 
 func (o *OSV) Match(ctx context.Context, sbomPath string) (Result, error) {
@@ -255,10 +285,11 @@ func (o *OSV) Match(ctx context.Context, sbomPath string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	scan, ecosystems, err := o.selectComponents(data)
+	scan, want, err := o.selectComponents(data)
 	if err != nil {
 		return Result{}, err
 	}
+	ecosystems := slices.Sorted(maps.Keys(want))
 	tool, err := o.version(ctx, bin, root)
 	if err != nil {
 		return Result{}, err
@@ -286,14 +317,17 @@ func (o *OSV) Match(ctx context.Context, sbomPath string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	res, seen, err := parseOSV(out)
+	res, reported, err := parseOSV(out)
 	if err != nil {
 		return Result{}, err
 	}
-	for _, e := range seen {
-		if !slices.Contains(ecosystems, e) {
+	for _, e := range slices.Sorted(maps.Keys(reported)) {
+		if want[e] == 0 {
 			return Result{}, fmt.Errorf("osv-scanner: matched packages in %q, which ShieldMon did not expect: its result cannot be checked for completeness", truncateRunes(e, 64))
 		}
+	}
+	if err := complete(want, reported); err != nil {
+		return Result{}, err
 	}
 	tool.DBBuilt = oldest
 	res.Tool = tool
@@ -310,12 +344,16 @@ func (o *OSV) dbTimes(root string, ecosystems []string) (time.Time, []string, er
 		if err != nil {
 			return time.Time{}, nil, err
 		}
-		st, err := os.Stat(f)
+		// Lstat: the update, which has network, writes these paths; a link it left must not
+		// make ShieldMon date (or touch) a file elsewhere.
+		st, err := os.Lstat(f)
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
 			missing = append(missing, e)
 		case err != nil:
 			return time.Time{}, nil, err
+		case !st.Mode().IsRegular():
+			return time.Time{}, nil, fmt.Errorf("osv-scanner: the %s database is not a regular file", e)
 		case oldest.IsZero() || st.ModTime().Before(oldest):
 			oldest = st.ModTime().UTC()
 		}
@@ -398,17 +436,26 @@ func (o *OSV) UpdateDB(ctx context.Context) error {
 		return err
 	}
 	defer cleanup()
-	args := []string{"scan", "source", "--offline", "--download-offline-databases", "--verbosity", "error", "--format", "json", "-L", path}
+	args := []string{"scan", "source", "--offline", "--download-offline-databases", "--all-packages", "--verbosity", "error", "--format", "json", "-L", path}
 	out, err := o.run(uctx, o.runner(root, false), bin, args...)
 	if err != nil {
 		return fmt.Errorf("osv-scanner database download: %w", err)
 	}
-	res, err := ParseOSV(out)
+	res, reported, err := parseOSV(out)
 	if err != nil {
 		return fmt.Errorf("osv-scanner database download: %w", err)
 	}
 	if len(res.Matches) > 0 {
 		return fmt.Errorf("osv-scanner database download: %d matches on the probe packages, which no registry can publish", len(res.Matches))
+	}
+	// Each probe must come back in its ecosystem: one osv-scanner did not map was never
+	// looked up, and its database, if any, was not checked.
+	want := map[string]int{}
+	for _, e := range o.Ecosystems {
+		want[e] = 1
+	}
+	if err := complete(want, reported); err != nil {
+		return fmt.Errorf("osv-scanner database download: %w", err)
 	}
 	_, missing, err := o.dbTimes(root, o.Ecosystems)
 	if err != nil {
@@ -493,7 +540,19 @@ type osvVuln struct {
 			} `json:"events"`
 		} `json:"ranges"`
 	} `json:"affected"`
-	DatabaseSpecific map[string]any `json:"database_specific"`
+	// Only the severity label is read: the rest of database_specific is not decoded.
+	DatabaseSpecific struct {
+		Severity json.RawMessage `json:"severity"`
+	} `json:"database_specific"`
+}
+
+// label is the database's severity label, when it is a string.
+func (v *osvVuln) label() string {
+	var s string
+	if json.Unmarshal(v.DatabaseSpecific.Severity, &s) != nil {
+		return ""
+	}
+	return s
 }
 
 type osvDoc struct {
@@ -521,26 +580,46 @@ func ParseOSV(data []byte) (Result, error) {
 	return res, err
 }
 
-// parseOSV also returns the base ecosystems (without release suffix) of every package
-// osv-scanner reported.
-func parseOSV(data []byte) (Result, []string, error) {
+// parseOSV also returns, per base ecosystem (without release suffix), how many distinct
+// packages osv-scanner reported. Vulnerabilities it reports outside a group, or for a package
+// without an ecosystem, fail the parse: dropping them would pass for a clean package.
+func parseOSV(data []byte) (Result, map[string]int, error) {
 	var doc osvDoc
 	if err := decodeLimited(data, &doc); err != nil {
 		return Result{}, nil, err
 	}
 	res := Result{Tool: model.Tool{Name: "osv-scanner"}}
-	seen := map[string]bool{}
-	var ecosystems []string
+	packages := map[string]map[string]bool{}
 	for _, r := range doc.Results {
 		for _, p := range r.Packages {
 			pkg := p.Package
-			if base, _, _ := strings.Cut(pkg.Ecosystem, ":"); base != "" && !seen[base] {
-				seen[base] = true
-				ecosystems = append(ecosystems, base)
+			base, _, _ := strings.Cut(pkg.Ecosystem, ":")
+			if base != "" {
+				if packages[base] == nil {
+					packages[base] = map[string]bool{}
+				}
+				packages[base][pkg.Name+"@"+pkg.Version] = true
+			}
+			if len(p.Vulnerabilities) == 0 {
+				continue
+			}
+			if base == "" {
+				return Result{}, nil, fmt.Errorf("osv-scanner: vulnerabilities for %q without an ecosystem", truncateRunes(pkg.Name, 64))
 			}
 			records := map[string]*osvVuln{}
 			for i := range p.Vulnerabilities {
 				records[p.Vulnerabilities[i].ID] = &p.Vulnerabilities[i]
+			}
+			grouped := map[string]bool{}
+			for _, g := range p.Groups {
+				for _, id := range g.IDs {
+					grouped[id] = true
+				}
+			}
+			for id := range records {
+				if !grouped[id] {
+					return Result{}, nil, fmt.Errorf("osv-scanner: vulnerability %q of %q is in no group: the output is not what ShieldMon reads", truncateRunes(id, 64), truncateRunes(pkg.Name, 64))
+				}
 			}
 			for _, g := range p.Groups {
 				if len(g.IDs) == 0 || g.IDs[0] == "" {
@@ -581,7 +660,7 @@ func parseOSV(data []byte) (Result, []string, error) {
 							label = s.Score // e.g. Ubuntu's priority: "medium"
 						}
 					}
-					if s, ok := v.DatabaseSpecific["severity"].(string); ok && label == "" {
+					if s := v.label(); s != "" && label == "" {
 						label = s // e.g. GitHub's "HIGH", "MODERATE"
 					}
 					rm.FixVersions = append(rm.FixVersions, osvFixed(v, pkg.Name, pkg.Ecosystem)...)
@@ -599,7 +678,11 @@ func parseOSV(data []byte) (Result, []string, error) {
 			}
 		}
 	}
-	return res, ecosystems, nil
+	reported := map[string]int{}
+	for e, ps := range packages {
+		reported[e] = len(ps)
+	}
+	return res, reported, nil
 }
 
 // osvFixed returns the fixed versions of the record's entries for the package: the

@@ -572,7 +572,8 @@ scanners:
     grype: { path: "", sha256: "", options: { db_auto_update: true } }
     trivy: { path: "", sha256: "", options: { skip_db_update: false, offline_scan: false } }
     # osv-scanner downloads the OSV database of each listed ecosystem (default: all it
-    # knows); an SBOM package of an ecosystem left out fails the match.
+    # knows); an SBOM package of an ecosystem left out fails the match (the scan stays
+    # partial, and nothing closes by absence on that image): list every ecosystem you use.
     # osv-scanner: { path: "", sha256: "", options: { db_auto_update: true, ecosystems: [Alpine, Debian, npm, PyPI, Go] } }
   # Confinement for scanner processes, which parse hostile image content:
   #   bwrap     Linux hosts with bubblewrap installed (Ubuntu >= 23.10 also needs the

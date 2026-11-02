@@ -86,9 +86,16 @@ from the first CI run with osv-scanner installed:
 - A missing or unreadable ecosystem database fails the match (health finding, scan partial)
   instead of hiding findings: absence-based closure never rests on an incomplete osv-scanner
   result. Adding an ecosystem to `ecosystems` fixes the missing case at the next update.
-- Removing an ecosystem from `ecosystems`, like removing a matcher, ends osv-scanner's evidence
-  for it: its osv-only findings are no longer reported.
+- An image with packages of a supported ecosystem that `ecosystems` does not list fails the
+  match (its scans stay partial, so no finding of any matcher closes by absence on it): leaving
+  those packages out would hide what osv-scanner can find. Narrowing `ecosystems` is therefore
+  safe only for ecosystems no monitored image uses; check `shieldmon health` after changing it.
 - Large ecosystems (Debian, Ubuntu, npm, Maven) are hundreds of MB each and change daily;
-  `ecosystems` should list the ones the monitored images use.
+  `ecosystems` should list the ones the monitored images use, and no fewer.
+- Completeness: osv-scanner runs with `--all-packages`, so it lists every package it read; a
+  result with fewer distinct packages per ecosystem than it was given, a vulnerability outside
+  a group, or vulnerabilities without an ecosystem fail the match. The database update requires
+  each probe back in its ecosystem before it marks a database verified, and databases must be
+  regular files (not links the networked update could leave).
 - The adapter depends on osv-scanner's database layout and exit codes: a version bump re-checks
   them (unit tests use a fake binary; `TestOSVParity` and `scannertest.CheckMatcher` run the real one).

@@ -38,6 +38,7 @@ FUZZ_TARGETS := \
 	FuzzParseGrype:./internal/scanner \
 	FuzzParseTrivy:./internal/scanner \
 	FuzzParseOSV:./internal/scanner \
+	FuzzOSVSelectComponents:./internal/scanner \
 	FuzzCanonicalPURL:./internal/normalize \
 	FuzzCanonicalVulnID:./internal/normalize \
 	FuzzString:./internal/redact \

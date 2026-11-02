@@ -72,6 +72,11 @@ SIGNERS=(
   "trivy|https://github.com/aquasecurity/trivy/.github/workflows/reusable-release.yaml@refs/tags/v{v}|bundle"
   "osv-scanner|https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@refs/tags/v2.1.0|slsa:google/osv-scanner"
 )
+# name|url|sha256 of the LICENSE of scanners whose release ships a bare binary, at the
+# released commit (osv-scanner v2.7.0 is bfe2f84, named by its provenance).
+LICENSE_PINS=(
+  "osv-scanner|https://raw.githubusercontent.com/google/osv-scanner/bfe2f84abd2f09fe0b83ba7f6dad40d296762f40/LICENSE|cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+)
 # cosign itself, pinned like the scanners (it runs on this host, whatever PLATFORM is).
 COSIGN_VERSION=3.1.3
 # host|sha256 of cosign-<os>-<arch> from cosign_checksums.txt
@@ -164,9 +169,15 @@ for pin in "${PINS[@]}"; do
         --certificate-github-workflow-ref "refs/tags/v$version" "$download"
       install -m 0700 "$download" "$tmp/$name"
       if [[ -n "${LICENSES:-}" ]]; then
-        # The release ships a bare binary: the license text comes from the tagged source.
+        # The release ships a bare binary: the license text comes from the released commit,
+        # pinned by SHA-256 like everything else here.
+        lic="$(printf '%s\n' "${LICENSE_PINS[@]}" | grep "^$name|")" \
+          || { echo "install-scanners: no license pin for $name" >&2; exit 1; }
+        IFS='|' read -r _ lurl lsha <<<"$lic"
         mkdir -p "$tmp/licenses/$name"
-        fetch "$tmp/licenses/$name/LICENSE" "https://raw.githubusercontent.com/${material#slsa:}/v$version/LICENSE"
+        fetch "$tmp/licenses/$name/LICENSE" "$lurl"
+        [[ "$(sha256 "$tmp/licenses/$name/LICENSE")" == "$lsha" ]] \
+          || { echo "install-scanners: $name LICENSE changed (checksum mismatch)" >&2; exit 1; }
       fi
       ;;
     bundle | sig+pem)

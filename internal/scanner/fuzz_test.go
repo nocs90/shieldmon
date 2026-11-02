@@ -1,7 +1,9 @@
 package scanner
 
 import (
+	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -45,11 +47,37 @@ func FuzzParseOSV(f *testing.F) {
 		}
 		normalize.Merge(res.Matches)
 		o := &OSV{}
-		for _, e := range ecosystems {
+		for e, n := range ecosystems {
+			if n < 1 {
+				t.Errorf("ecosystem %q reported with %d packages", e, n)
+			}
 			// Ecosystem names from the output become paths only when safe.
 			if p, err := o.dbFile("/cache", e); err == nil && !strings.HasPrefix(p, "/cache/osv-scalibr/") {
 				t.Errorf("ecosystem %q escapes the database directory: %s", e, p)
 			}
+		}
+	})
+}
+
+// FuzzOSVSelectComponents: the selection of a hostile SBOM's components never panics, keeps
+// only configured ecosystems, and writes a document that decodes.
+func FuzzOSVSelectComponents(f *testing.F) {
+	f.Add([]byte(`{"bomFormat":"CycloneDX","components":[{"purl":"pkg:npm/a@1"},{"purl":"pkg:npm/a@1?x=y"},{"purl":"pkg:pypi/b@2"}]}`))
+	f.Add([]byte(`{"components":[{"purl":"pkg:apk/alpine/busybox@1?distro=alpine-3.18"},{"purl":7}],"dependencies":[]}`))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		o := &OSV{Ecosystems: []string{"npm", "PyPI", "Alpine"}}
+		out, want, err := o.selectComponents(data)
+		if err != nil {
+			return
+		}
+		for e, n := range want {
+			if !slices.Contains(o.Ecosystems, e) || n < 1 {
+				t.Errorf("selected %d packages of %q", n, e)
+			}
+		}
+		var doc map[string]json.RawMessage
+		if err := json.Unmarshal(out, &doc); err != nil {
+			t.Errorf("the selection does not decode: %v", err)
 		}
 	})
 }
