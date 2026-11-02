@@ -232,6 +232,10 @@ func (a *app) setup(cmd *cobra.Command) error {
 		Owners:              own,
 		Concurrency:         cfg.Scanners.Concurrency,
 		Log:                 a.log,
+		ChartPolicy: charts.NeglectPolicy{
+			FixableAfter: cfg.ChartPolicy.FixableAfter.Duration, MinSeverity: model.ParseSeverity(cfg.ChartPolicy.MinSeverity),
+			StaleAfter: cfg.ChartPolicy.StaleAfter.Duration,
+		},
 	}
 	return nil
 }
@@ -602,6 +606,8 @@ func (a *app) monitorCmd() *cobra.Command {
 				return err
 			}
 			defer unlock()
+			// Followed charts come first in the cycle (docs/adr/0034-chart-tracking.md).
+			a.followCharts(cmd.ErrOrStderr())
 			sum, err := a.engine.Monitor(cmd.Context())
 			if err != nil {
 				return err
@@ -617,7 +623,8 @@ func (a *app) monitorCmd() *cobra.Command {
 					Expired  []int64           `json:"expired_decisions,omitempty"`
 					Notified map[string]int    `json:"notified,omitempty"`
 					NotifyKO map[string]string `json:"notify_failures,omitempty"`
-				}{sum.RunID, sum.Status, toResultJSON(sum.Results), sum.Failures, sum.ExpiredDecision, sum.Notified, sum.NotifyFailures})
+					ChartsKO map[string]string `json:"chart_failures,omitempty"`
+				}{sum.RunID, sum.Status, toResultJSON(sum.Results), sum.Failures, sum.ExpiredDecision, sum.Notified, sum.NotifyFailures, sum.ChartFailures})
 				if err != nil {
 					return err
 				}
@@ -636,6 +643,10 @@ func (a *app) monitorCmd() *cobra.Command {
 				}
 				for _, ch := range slices.Sorted(maps.Keys(sum.NotifyFailures)) {
 					fmt.Fprintf(cmd.ErrOrStderr(), "notification channel %s: %s\n", ch, sum.NotifyFailures[ch])
+				}
+				for _, c := range slices.Sorted(maps.Keys(sum.ChartFailures)) {
+					// Chart sources and helm answer with hostile text.
+					fmt.Fprintf(cmd.ErrOrStderr(), "chart %s: %s\n", c, printable(sum.ChartFailures[c]))
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "monitor run #%d: %s\n", sum.RunID, sum.Status)
 			}

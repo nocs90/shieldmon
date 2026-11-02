@@ -93,6 +93,33 @@ func TestHTTPSource(t *testing.T) {
 	}
 }
 
+// A version listed twice keeps its first entry in Versions and Fetch alike: the digest that
+// Versions reports is the one Fetch verifies.
+func TestHTTPSourceDuplicateVersions(t *testing.T) {
+	a := chartstest.Archive(t, "web", "1.0.0")
+	idx := fmt.Sprintf("entries:\n  web:\n    - {version: 1.0.0, digest: %s, urls: [web.tgz]}\n    - {version: 1.0.0, digest: %s, urls: [web.tgz]}\n",
+		strings.TrimPrefix(chartstest.Digest(a), "sha256:"), strings.Repeat("ab", 32))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/index.yaml" {
+			_, _ = io.WriteString(w, idx)
+			return
+		}
+		_, _ = w.Write(a)
+	}))
+	defer srv.Close()
+	src, err := charts.New("http", charts.Spec{Options: charts.Options{"url": srv.URL}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vs, err := src.Versions(context.Background(), "web")
+	if err != nil || len(vs) != 1 || vs[0].Digest != chartstest.Digest(a) {
+		t.Fatalf("versions: %+v %v", vs, err)
+	}
+	if d, err := src.Fetch(context.Background(), "web", "1.0.0", io.Discard); err != nil || d != vs[0].Digest {
+		t.Errorf("fetch: %s %v", d, err)
+	}
+}
+
 func TestHTTPSourceRefusesTamperedArchives(t *testing.T) {
 	good := chartstest.Archive(t, "web", "1.0.0")
 	evil := chartstest.Archive(t, "web", "1.0.0", chartstest.File{Name: "templates/x.yaml", Body: "kind: Pod"})
@@ -206,6 +233,22 @@ func TestArtifactHubSource(t *testing.T) {
 	for _, name := range []string{"loop", "private", "meta", "internal", "local"} {
 		if _, err := src.Versions(context.Background(), name); err == nil {
 			t.Errorf("%s: Artifact Hub sent ShieldMon to %s", name, answers[name])
+		}
+	}
+}
+
+func TestPublicRegistry(t *testing.T) {
+	for host, want := range map[string]bool{
+		"index.docker.io": true, "ghcr.io": true, "registry.k8s.io:443": true, "8.8.8.8:5000": true,
+		"localhost:5000": false, "registry.localhost": false, "127.0.0.1": false, "10.0.0.12:2379": false,
+		"192.168.1.1": false, "[::1]:5000": false, "169.254.169.254": false, "100.64.0.1": false,
+		"registry": false, "kubernetes.default.svc": false, "harbor.svc.cluster.local": false,
+		"nexus.corp": false, "printer.local": false, "Registry.Internal:443": false,
+		"localhost.:5000": false, "metadata.google.internal.": false, "x.svc.cluster.local.": false,
+		"127.1:5000": false, "0x7f.1": false, "10.1": false, "ghcr.io.": true, "registry.xn--p1ai": true,
+	} {
+		if got := charts.PublicRegistry(host); got != want {
+			t.Errorf("PublicRegistry(%q) = %v, want %v", host, got, want)
 		}
 	}
 }

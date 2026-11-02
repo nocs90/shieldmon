@@ -93,6 +93,61 @@ func publicHost(hostport string) bool {
 	return true
 }
 
+// internalSuffixes are DNS names that only resolve inside a network: cluster services,
+// mDNS, and names reserved for private use.
+var internalSuffixes = []string{".local", ".internal", ".svc", ".cluster.local", ".lan", ".home.arpa", ".corp", ".intranet"}
+
+// PublicRegistry reports whether a registry host[:port] that remote content names (an image
+// of a chart) looks public: not what publicHost refuses, not a single-label name, and not a
+// name reserved for internal networks (docs/adr/0034-chart-tracking.md). Like publicHost, it
+// cannot see where a public name resolves.
+func PublicRegistry(hostport string) bool {
+	if !publicHost(hostport) {
+		return false
+	}
+	host := hostport
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		host = h
+	}
+	host = strings.ToLower(strings.Trim(host, "[]"))
+	if net.ParseIP(host) != nil {
+		return true // publicHost judged the literal
+	}
+	// A fully qualified name ("localhost.") resolves like the name without its dot.
+	host = strings.TrimSuffix(host, ".")
+	if !publicHost(host) {
+		return false
+	}
+	labels := strings.Split(host, ".")
+	// No single-label name, and no numeric shorthand that some resolvers read as an address
+	// (127.1, 0x7f.1): a registry name ends in a top-level domain of letters.
+	if len(labels) < 2 || !isTLD(labels[len(labels)-1]) {
+		return false
+	}
+	for _, s := range internalSuffixes {
+		if strings.HasSuffix(host, s) {
+			return false
+		}
+	}
+	return true
+}
+
+// isTLD reports whether s can be a top-level domain: letters, or an IDN (xn--).
+func isTLD(s string) bool {
+	if strings.HasPrefix(s, "xn--") && len(s) > 4 {
+		return true
+	}
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < 'a' || r > 'z' {
+			return false
+		}
+	}
+	return true
+}
+
 // derivedURL checks a URL taken from remote content: https, no credentials, not an internal
 // host.
 func derivedURL(raw string) (*url.URL, error) {

@@ -149,7 +149,7 @@ func TestChartsImages(t *testing.T) {
 	}
 	write := func(helmBlock string) {
 		t.Helper()
-		entries := fmt.Sprintf("charts:\n  - chart: web\n    source: http\n    options: { url: %q }\n    profiles:\n"+
+		entries := fmt.Sprintf("charts:\n  - chart: web\n    source: http\n    add_targets: true\n    options: { url: %q }\n    profiles:\n"+
 			"      - { name: prod, namespace: shop, values_files: [%q] }\n"+
 			"      - { name: mirror, values: { image: \"mirror.example.com/org/web:2\" } }\n", srv.URL, values)
 		conf := strings.Replace(string(b), "charts: []\n", entries, 1)
@@ -197,6 +197,36 @@ func TestChartsImages(t *testing.T) {
 	}
 	if _, errOut, code := runc("targets", "add", "--profile", "prod"); code == 0 || !strings.Contains(errOut, "need --chart") {
 		t.Errorf("--profile without --chart: %s", errOut)
+	}
+
+	// Tracking: nothing recorded, then the newest release with both profiles, its images
+	// added as targets; nothing neglected without findings.
+	if out, _, code := runc("charts", "history", "web"); code != 0 || !strings.Contains(out, "nothing recorded yet") {
+		t.Errorf("history before tracking: %s", out)
+	}
+	out, errOut, code = runc("charts", "track")
+	if code != 0 || !strings.Contains(out, "web: 1.2.0, 3 image(s)") {
+		t.Fatalf("track: %d %s\n%s", code, errOut, out)
+	}
+	if out, _, _ := runc("targets", "list"); !strings.Contains(out, "ghcr.io/org/prod:1") || !strings.Contains(out, "index.docker.io/library/nginx:1.27") {
+		t.Errorf("add_targets: the release's images are targets:\n%s", out)
+	}
+	out, _, code = runc("charts", "status")
+	// Targets added but not scanned yet: not known to be clean.
+	if code != 0 || !regexp.MustCompile(`web\s+1\.2\.0\s+-\s+3\s+0\s+0\s+unknown: 3 image\(s\) not monitored`).MatchString(out) {
+		t.Errorf("status:\n%s", out)
+	}
+	if out, _, code := runc("charts", "status", "web", "-o", "md"); code != 0 || !strings.Contains(out, "| web | 1.2.0 |") {
+		t.Errorf("status -o md:\n%s", out)
+	}
+	if out, _, code := runc("charts", "history", "web"); code != 0 || strings.Count(out, "1.2.0  profile") != 2 {
+		t.Errorf("history:\n%s", out)
+	}
+	if _, errOut, code := runc("charts", "draft-issue", "web"); code == 0 || !strings.Contains(errOut, "nothing to report upstream") {
+		t.Errorf("draft-issue without overdue findings: %s", errOut)
+	}
+	if _, errOut, code := runc("charts", "status", "nope"); code == 0 || !strings.Contains(errOut, "no chart") {
+		t.Errorf("status of an unknown chart: %s", errOut)
 	}
 
 	write(fmt.Sprintf("helm:\n  path: %q\n  sha256: %q\n", helm, strings.Repeat("0", 64)))

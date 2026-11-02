@@ -176,6 +176,16 @@ type Config struct {
 	// options are validated by charts.New.
 	Charts []Chart `yaml:"charts,omitempty"`
 
+	// ChartPolicy says when a followed chart is neglected (docs/adr/0034-chart-tracking.md).
+	ChartPolicy struct {
+		// FixableAfter: a finding with a fix of at least MinSeverity, in an image of the
+		// newest release, detected longer ago than this (0: never).
+		FixableAfter Duration `yaml:"fixable_after"`
+		MinSeverity  string   `yaml:"min_severity"`
+		// StaleAfter: no release for longer than this (0: never).
+		StaleAfter Duration `yaml:"stale_after"`
+	} `yaml:"chart_policy"`
+
 	// Helm renders charts (docs/adr/0033-chart-rendering.md): the binary
 	// scripts/install-scanners.sh installs, run in the scanners' sandbox.
 	Helm struct {
@@ -218,6 +228,11 @@ type Chart struct {
 	// Profiles are the ways the chart is installed, each rendered on its own; none: one,
 	// "default", with the chart's own values.
 	Profiles []ChartProfile `yaml:"profiles,omitempty"`
+	// AddTargets makes monitor add the images of the newest release as targets, at most
+	// MaxNewTargets new ones per release (0: 50); more are left to 'targets add --chart'
+	// (docs/adr/0034-chart-tracking.md).
+	AddTargets    bool `yaml:"add_targets,omitempty"`
+	MaxNewTargets int  `yaml:"max_new_targets,omitempty"`
 }
 
 // ChartProfile is one installation of a chart: its release, namespace and values
@@ -311,6 +326,9 @@ func Default() Config {
 	c.Bases.MaxAge = Duration{90 * 24 * time.Hour}
 	c.Runtime.MaxAge = Duration{48 * time.Hour}
 	c.Helm.Timeout = Duration{2 * time.Minute}
+	c.ChartPolicy.FixableAfter = Duration{30 * 24 * time.Hour}
+	c.ChartPolicy.MinSeverity = "high"
+	c.ChartPolicy.StaleAfter = Duration{180 * 24 * time.Hour}
 	return c
 }
 
@@ -393,6 +411,8 @@ func (c Config) Validate() error {
 			return fmt.Errorf("charts[%d]: name %q: lowercase letters, digits, '.', '_', '-' (at most 100)", i, id)
 		case chartNames[id]:
 			return fmt.Errorf("charts[%d]: name %q is listed twice (give one a name:)", i, id)
+		case ch.MaxNewTargets < 0 || ch.MaxNewTargets > 1000:
+			return fmt.Errorf("charts[%d]: max_new_targets %d: want 1 to 1000 (0: 50)", i, ch.MaxNewTargets)
 		}
 		chartNames[id] = true
 		profiles := map[string]bool{}
@@ -417,6 +437,12 @@ func (c Config) Validate() error {
 	}
 	if c.Helm.Timeout.Duration <= 0 {
 		return fmt.Errorf("helm.timeout must be positive")
+	}
+	if c.ChartPolicy.FixableAfter.Duration < 0 || c.ChartPolicy.StaleAfter.Duration < 0 {
+		return fmt.Errorf("chart_policy durations must not be negative (0: never)")
+	}
+	if s := model.ParseSeverity(c.ChartPolicy.MinSeverity); s < model.SeverityLow || s.String() != strings.ToLower(c.ChartPolicy.MinSeverity) {
+		return fmt.Errorf("chart_policy.min_severity %q: want low, medium, high or critical", c.ChartPolicy.MinSeverity)
 	}
 	clusters := map[string]bool{}
 	for i, inv := range c.Runtime.Inventories {
@@ -702,6 +728,17 @@ charts: []
   #   profiles:
   #     - { name: prod, namespace: ingress, values_files: [/etc/shieldmon/values/ingress-prod.yaml] }
   #     - { name: mirror, values: { global: { image: { registry: mirror.example.com } } }, kube_version: "1.33" }
+  #   add_targets: true   # monitor adds the images of each new release as targets: at most
+  #                       # max_new_targets (50) per release, on public registries or those
+  #                       # configured in registries:
+
+# When a followed chart is neglected ('shieldmon charts status'): its newest release ships a
+# finding with a fix of at least min_severity detected more than fixable_after ago, or it has
+# not released for stale_after. 0 disables either.
+chart_policy:
+  fixable_after: 720h
+  min_severity: high
+  stale_after: 4320h
 
 # The helm that renders charts: scripts/install-scanners.sh installs a pinned, signature-verified
 # one. Pin it by SHA-256 like the scanners.
